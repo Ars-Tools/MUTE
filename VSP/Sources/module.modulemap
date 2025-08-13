@@ -1,0 +1,8 @@
+module VSP {
+	header "module.h"
+	export *
+}
+module AUExtension {
+	header "AUParameterNode+.h"
+	export *
+}
