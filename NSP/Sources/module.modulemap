@@ -1,0 +1,32 @@
+module NSP {
+	header "comparison.h"
+	header "logical.h"
+	header "folding.h"
+	header "edge.h"
+	header "spline.h"
+	header "calculus.h"
+	header "random_number_generator.h"
+	header "sinosc_bundle.h"
+	header "biquad_filter.h"
+	header "median_filter.h"
+	header "universal_filter.h"
+	header "state_variable_filter.h"
+	header "periodic_lookup.h"
+	header "lattice.h"
+	header "duffing.h"
+	header "vforce+.h"
+	header "utility.h"
+	header "slerp.h"
+	header "lms.h"
+	header "rls.h"
+	header "tfo.h"
+	header "gso.h"
+	header "dft.h"
+    header "mix.h"
+	header "savitzky-golay.h"
+	export *
+}
+module AUExtension {
+	header "AUParameterNode+.h"
+	export *
+}
