@@ -35,7 +35,7 @@ void __ramp__(double const A, double const B, double * __nonnull const C, intptr
 }
 __attribute__((always_inline)) static inline // formaly matrix copy (row-major), copy [length] elements, [count] times
 void __mcopy__(double const * __nonnull const A, intptr_t const ldA,
-			   double *       __nonnull const B, intptr_t const ldB,
+			   double       * __nonnull const B, intptr_t const ldB,
 			   intptr_t const times, intptr_t const length) {
 	vDSP_mmovD(A, B, length, times, ldA, ldB);
 }
