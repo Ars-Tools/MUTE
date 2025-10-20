@@ -190,8 +190,29 @@ struct DFTTestCase {
 //        #expect(vDSP.maximum(zip(vdsp, xdft).map(-).map(\.magnitude)) < 1e-6)
     }
     @Test
-    func dsp() throws {
-        let x = vDSP_DFT_Interleaved_CreateSetupD(.none, 121, .FORWARD, .interleaved_ComplextoComplex)
-        print(x)
+    func bdft_vs_fftm() throws {
+        let log2n = 4
+        let count = 1 << log2n
+        let fftm = vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped
+        defer { vDSP_destroy_fftsetupD(fftm) }
+        let bdft = bdft_create(count)
+        defer { bdft_destroy(bdft) }
+        let x = UnsafeMutablePointer<Complex128>.allocate(capacity: 2 * count)
+        defer { x.deallocate() }
+        let y = UnsafeMutablePointer<Complex128>.allocate(capacity: 2 * count)
+        defer { y.deallocate() }
+        for k in 0..<2 * count {
+            x[k] = .init(real: .init(Int.random(in: -6 ... 6)),
+                         imag: .zero)
+        }
+        var z = DSPDoubleSplitComplex(realp: .init(.init(x)).advanced(by: 0),
+                                      imagp: .init(.init(x)).advanced(by: 1))
+        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
+        bdft_inverse(bdft, 1,
+                     .init(x), count,
+                     .init(y), count)
+        vDSP_fftm_zipD(fftm, &z, 2, 2 * count, .init(log2n), 1, .init(kFFTDirection_Inverse))
+        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
+        print(Array(UnsafeBufferPointer(start: y, count: 2 * count)))
     }
 }
