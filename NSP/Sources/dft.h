@@ -21,7 +21,9 @@ ddft_t * __nonnull const ddft_create(intptr_t const count);
 __attribute__((overloadable))
 ddft_t * __nonnull const ddft_create(intptr_t const * __nonnull const count); // end with 1
 void ddft_destroy(ddft_t * __nonnull const);
+__attribute__((overloadable))
 void ddft_forward(ddft_t const * __nonnull const, __complex double const * __nonnull const, __complex double * __nonnull const);
+__attribute__((overloadable))
 void ddft_inverse(ddft_t const * __nonnull const, __complex double const * __nonnull const, __complex double * __nonnull const);
 // MARK: BFS, slow setup, fast compute
 typedef struct {
@@ -34,8 +36,18 @@ __attribute__((overloadable))
 bdft_t * __nonnull const bdft_create(intptr_t const * __nonnull const count); // end with 1
 void bdft_dump(bdft_t const * __nonnull const);
 void bdft_destroy(bdft_t * __nonnull const);
+__attribute__((overloadable))
 void bdft_forward(bdft_t const * __nonnull const, __complex double const * __nonnull const, __complex double * __nonnull const);
+__attribute__((overloadable))
 void bdft_inverse(bdft_t const * __nonnull const, __complex double const * __nonnull const, __complex double * __nonnull const);
+__attribute__((overloadable))
+void bdft_forward(bdft_t const * __nonnull const object, intptr_t const n,
+                  __complex double const * __nonnull const x, intptr_t const ldx,
+                  __complex double       * __nonnull const y, intptr_t const ldy);
+__attribute__((overloadable))
+void bdft_inverse(bdft_t const * __nonnull const object, intptr_t const n,
+                  __complex double const * __nonnull const x, intptr_t const ldx,
+                  __complex double       * __nonnull const y, intptr_t const ldy);
 // MARK: XFS
 //typedef struct {
 //    intptr_t const count;

@@ -197,9 +197,11 @@ void ddft(ddft_t const * __nonnull const object, intptr_t const stride,
 			   Y, &1[_]);
 	}
 }
+__attribute__((overloadable))
 void ddft_forward(ddft_t const * __nonnull const object, __complex double const * __nonnull const x, __complex double * __nonnull const y) {
 	ddft(object, 1, 1.0,                'N', x, y);
 }
+__attribute__((overloadable))
 void ddft_inverse(ddft_t const * __nonnull const object, __complex double const * __nonnull const x, __complex double * __nonnull const y) {
 	ddft(object, 1, 1.0 / object->rows, 'C', x, y);
 }
@@ -311,6 +313,7 @@ void bdft_destroy(bdft_t * __nonnull const object) {
         sparse_matrix_destroy(object->prime[k]);
     __free__(object);
 }
+__attribute__((overloadable))
 void bdft_forward(bdft_t const * __nonnull const object, __complex double const * __nonnull const x, __complex double * __nonnull const y) {
     register intptr_t const n = sparse_get_matrix_number_of_rows(*object->prime), w = n * sizeof(__complex double const);
     __complex double * __nonnull const z = __malloc__(w);
@@ -323,10 +326,36 @@ void bdft_forward(bdft_t const * __nonnull const object, __complex double const 
         sparse_matrix_vector_product_dense_double_complex(CblasNoTrans,
                                                           1,
                                                           object->prime[k],
-                                                          k & 1 ? y : z, 1,
+                                                                 k & 1 ? y : z,        1,
                                                           memset(k & 1 ? z : y, 0, w), 1);
     __free__(z);
 }
+__attribute__((overloadable))
+void bdft_forward(bdft_t const * __nonnull const object, intptr_t const n,
+                  __complex double const * __nonnull const x, intptr_t const ldx,
+                  __complex double       * __nonnull const y, intptr_t const ldy) {
+    register intptr_t const m = sparse_get_matrix_number_of_rows(*object->prime), w = m * n * sizeof(__complex double const);
+    __complex double * __nonnull const u = __malloc__(2 * w);
+    __complex double * __nonnull const v = u + m * n;
+    if ( object->count & 1 )
+        __mcopy__(x, 2 * ldx,
+                  v, 2 * m,
+                  n, 2 * m);
+    else
+        __mcopy__(x, 2 * ldx,
+                  u, 2 * m,
+                  n, 2 * m);
+    for ( register intptr_t k = object->count ; 0 < k -- ; )
+        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasNoTrans, n,
+                                                   1, object->prime[k],
+                                                          k & 1 ? u : v,        m,
+                                                   memset(k & 1 ? v : u, 0, w), m);
+    __mcopy__(u, 2 * m,
+              y, 2 * ldy,
+              n, 2 * m);
+    __free__(u);
+}
+__attribute__((overloadable))
 void bdft_inverse(bdft_t const * __nonnull const object, __complex double const * __nonnull const x, __complex double * __nonnull const y) {
     register intptr_t const n = sparse_get_matrix_number_of_columns(*object->prime), w = n * sizeof(__complex double const);
     __complex double * __nonnull const z = __malloc__(w);
@@ -342,6 +371,32 @@ void bdft_inverse(bdft_t const * __nonnull const object, __complex double const 
                                                           k & 1 ? y : z, 1,
                                                           memset(k & 1 ? z : y, 0, w), 1);
     __free__(z);
+}
+__attribute__((overloadable))
+void bdft_inverse(bdft_t const * __nonnull const object, intptr_t const n,
+                  __complex double const * __nonnull const x, intptr_t const ldx,
+                  __complex double       * __nonnull const y, intptr_t const ldy) {
+    register intptr_t const m = sparse_get_matrix_number_of_columns(*object->prime), w = m * n * sizeof(__complex double const);
+    __complex double * __nonnull const u = __malloc__(2 * w);
+    __complex double * __nonnull const v = u + m * n;
+    if ( object->count & 1 )
+        __mcopy__(x, 2 * ldx,
+                  v, 2 * m,
+                  n, 2 * m);
+    else
+        __mcopy__(x, 2 * ldx,
+                  u, 2 * m,
+                  n, 2 * m);
+    for ( register intptr_t k = object->count ; 0 < k -- ; )
+        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasConjTrans, n,
+                                                   1, object->prime[object->count - k - 1],
+                                                          k & 1 ? u : v,        m,
+                                                   memset(k & 1 ? v : u, 0, w), m);
+    zscal_((intptr_t const[]){m*n}, (__complex double const[]){1/(double const)m}, u, (intptr_t const[]){1});
+    __mcopy__(u, 2 * m,
+              y, 2 * ldy,
+              n, 2 * m);
+    __free__(u);
 }
 // MARK: XDFT
 //__attribute__((overloadable))
