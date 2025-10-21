@@ -72,4 +72,24 @@ extension GenTest {
             $0.append(bus)
         }
     }
+    @Test
+    func render() throws {
+        let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/jingle_15.mp3"), backing: "/tmp/tmp.raw")
+        let (_, x2) = try Buffer.Import(from: .init(filePath: "/tmp/in.mp3"), backing: "/tmp/tmp2.raw")
+        x.maximize(dB: -6)
+//        x.reverse()
+        let y = timestretch(x, rate: 60)
+        let y2 = filter(buffer(filter(timestretch(x2, rate: 30), apf: 800, butterworth: 3000)), apf: (lag: 0.28, gain: 0.42))
+        let z = buffer(filter(y, lpf: fma(sin(freqs: 0.06), 4000, 12000), chebyshev1: 60, ε: 0.2))
+//            let a = filter(z, apf: (lag: 0.3, 0.9))
+        let s = filter(pitchshift(z, rate: 2 / 1.0), apf: (lag: 0.9, 0.3))
+        let a = filter(pitchshift(z, rate: 3 / 2.0), apf: (lag: 0.7, 0.5))
+        let t = filter(           z,                 apf: (lag: 0.3, 0.7))
+        let b = filter(pitchshift(z, rate: 1 / 2.0), apf: (lag: 0.5, 0.9))
+        
+        let store = Buffer(stream: x.stream, period: x.period * 40)
+        try store.import(stream: Σ(b, t, a, s, 0.1 * y2, axis: .term), interval: .init(value: 1, timescale: .init(fs)), capacity: 4096 as Samples)
+        store.fade(out: .init(fs * 6), dB: -60)
+        try Buffer.Export(into: .init(filePath: "/tmp/amb5.wav"), rate: fs, data: store)
+    }
 }
