@@ -20,8 +20,8 @@ extension AVAudioPCMBuffer {
 		defer {
 			buffer.unsafePointer.deallocate()
 		}
-		for (offset, target) in Swift.stride(from: 0, to: Int(format.channelCount) * stride, by: stride).lazy.map(target.advanced(by:)).enumerated() where buffer.indices ~= offset {
-			buffer[buffer.startIndex.advanced(by: offset)] = .init(UnsafeMutableBufferPointer(start: target, count: length), numberOfChannels: 1)
+        for (offset, cursor) in Swift.stride(from: target, to: target.advanced(by: Int(format.channelCount) * stride), by: stride).enumerated() {
+            buffer[offset] = .init(.init(start: cursor, count: length), numberOfChannels: 1)
 		}
 		self.init(pcmFormat: format, bufferListNoCopy: buffer.unsafePointer, deallocator: deallocator.map { deallocator in
 			{
@@ -40,8 +40,8 @@ extension AVAudioPCMBuffer {
 		defer {
 			buffer.unsafePointer.deallocate()
 		}
-		for (offset, cursor) in Swift.stride(from: 0, to: Int(format.channelCount) * stride, by: stride).enumerated() where buffer.indices ~= offset {
-			buffer[buffer.startIndex.advanced(by: offset)] = .init(target.extracting(cursor..<cursor+length), numberOfChannels: 1)
+		for (offset, cursor) in Swift.stride(from: 0, to: Int(format.channelCount) * stride, by: stride).enumerated() {
+			buffer[offset] = .init(target.extracting(cursor..<cursor+length), numberOfChannels: 1)
 		}
 		self.init(pcmFormat: format, bufferListNoCopy: buffer.unsafePointer, deallocator: deallocator.map { deallocator in
 			{
