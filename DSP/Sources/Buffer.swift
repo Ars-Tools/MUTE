@@ -43,14 +43,38 @@ extension Buffer: RandomAccessCollection {
 	public typealias Index = Int
 	public var startIndex: Int { 0 }
 	public var endIndex: Int { count }
+    @inlinable
 	public subscript(position: Int) -> Buffer {
-		assert((0..<stream).contains(position))
-		return.init(stream: 1, period: period, memory: memory, offset: offset + position * period * MemoryLayout<Float64>.stride)
+        self[position...position, 0...]
 	}
-	public subscript(bounds: Range<Int>) -> Buffer {
-		assert([(0, bounds.lowerBound), (stream, bounds.upperBound)].allSatisfy(<=))
-		return.init(stream: bounds.count, period: period, memory: memory, offset: offset + bounds.lowerBound * period * MemoryLayout<Float64>.stride)
+    @inlinable
+	public subscript(bounds: some RangeExpression<Int>) -> Buffer {
+        self[bounds, 0...]
 	}
+    @inlinable
+    public subscript(position: Int, sample: some RangeExpression<Int>) -> Buffer {
+        self[position...position, sample]
+    }
+    public subscript(bounds: some RangeExpression<Int>, sample: some RangeExpression<Int>) -> Buffer {
+        let bounds = bounds.relative(to: 0..<stream)
+        let sample = sample.relative(to: 0..<period)
+        precondition([bounds, sample].allSatisfy { !$0.isEmpty })
+        return.init(stream: bounds.count,
+                    period: period,
+                    memory: memory,
+                    offset: offset + (bounds.lowerBound * period + sample.lowerBound) * MemoryLayout<Float64>.stride)
+    }
+    @inlinable
+    public subscript(stream: Int, sample: Int) -> Float64 {
+        start[stream*period+sample]
+    }
+    @inlinable
+    public subscript(bounds: some RangeExpression<Int>, sample: Int) -> Array<Float64> {
+        stride(from: 0, to: stream * period, by: period)
+            .map(bounds.relative(to: 0..<stream).lowerBound.advanced(by:))
+            .map(start.advanced(by:))
+            .map(\.pointee)
+    }
 }
 extension Buffer {
     @inlinable@_transparent
