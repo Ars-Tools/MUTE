@@ -73,7 +73,7 @@ extension Buffer {
     }
     @inlinable
     public func fade(out sample: Int, dB: Float64) {
-        fade(prefix: .init(unsafeUninitializedCapacity: sample) {
+        fade(suffix: .init(unsafeUninitializedCapacity: sample) {
             vDSP.formRamp(from: 0, through: 0.05 * M_LOG2E * M_LN10 * dB, result: &$0)
             vForce.exp2($0, result: &$0)
             $1 = $0.count
