@@ -9,6 +9,7 @@ import AVFoundation
 import DSP
 import BSP
 import FSP
+import Numerics
 @testable import ASP
 @Suite
 struct BufferTestCases {
@@ -50,4 +51,18 @@ struct BufferTestCases {
 //        target.maximize()
         try Buffer.Export(into: .init(filePath: "/tmp/step-3.wav"), rate: fs, data: x)
 	}
+    @Test
+    func resample() throws {
+        let (fs, source) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
+        let target = Buffer(stream: source.stream, period: 480000)
+        try source.resample(ratio: Rational128(16000, .init(fs)), to: target)
+        try Buffer.Export(into: .init(filePath: "/tmp/out1.wav"), rate: 16000, data: target)
+    }
+    @Test
+    func stretch() throws {
+        let (fs, source) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
+        let target = Buffer(stream: source.stream, period: 48_000 * 13)
+        source.stretch(ratio: Rational128(.init(fs), .init(2*fs)), to: target)
+        try Buffer.Export(into: .init(filePath: "/tmp/out3.wav"), rate: fs, data: target)
+    }
 }
