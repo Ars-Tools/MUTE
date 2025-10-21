@@ -27,19 +27,19 @@ extension Timestretch.He: Stream {
     }
     @inlinable
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
-        let log2n = 13
+        let log2n = 14
         let frame = 1 << ( log2n - 0 )
-        let shift = 1 << ( log2n - 5 )
+        let shift = 1 << ( log2n - 4 )
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
         }
         let window = Array<Float64>(unsafeUninitializedCapacity: frame) {
             vDSP.clear(&$0)
-            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0, isHalfWindow: false)
+            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<frame/4], isHalfWindow: false)
             $1 = $0.count
         }
         let stream = source.stream
-        let target = Buffer(stream: stream, period: capacity + 2 * frame)
+        let target = Buffer(stream: stream, period: capacity + frame)
         return {
             let cursor = $0.samples(for: interval)
             let remain = cursor - cursor.quotientAndRemainder(dividingBy: shift).remainder
@@ -99,7 +99,7 @@ extension Timestretch.He: Stream {
     }
 }
 extension Buffer {
-    public func stretch(rate factor: Float64) -> some DSP.Stream {
+    public func timestretch(rate factor: Float64) -> some DSP.Stream {
         Timestretch.He(source: self, factor: factor)
     }
 }
