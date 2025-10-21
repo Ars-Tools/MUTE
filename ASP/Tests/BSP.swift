@@ -9,24 +9,35 @@ import ASP
 import DSP
 import BSP
 import FSP
+import Numerics
 extension GenTest {
     @Test
     func ps() async throws {
         try await scenario(time: .seconds(120)) {
-            let x = try Playback(path: .init(filePath: "/tmp/crow.wav"), loop: false)
-            let y = filter(x, sos: .lpf(ω₀: 8000, quality: 0.5.squareRoot()))
-            let z = pitchshift(y, rate: 0.5)
-            let bus = try Output.Direct(sampleRate: 48000, source: z)
+            let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
+            x.maximize(dB: -6)
+            let y = pitchshift(x[t], rate: 1 / 24.0)
+            let bus = try Output.Direct(sampleRate: fs, source: y)
             $0.append(bus)
         }
     }
     @Test
-    func realtimestretch() async throws {
+    func ts() async throws {
+        try await scenario(time: .seconds(120)) {
+            let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
+            x.maximize(dB: -6)
+            let y = timestretch(x, rate: 2.0)
+            let bus = try Output.Direct(sampleRate: fs, source: y)
+            $0.append(bus)
+        }
+    }
+    @Test
+    func realtimestrech() async throws {
         try await scenario(time: .seconds(450)) {
             let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
             x.maximize(dB: -3)
             x.reverse()
-            let y = x.stretch(rate: 1 / 28.0)//, coefficients: 0, 0.7, 0.2, 0.1)
+            let y = timestretch(x, rate: 1 / 60.0)
             let z = buffer(filter(y, lpf: fma(sin(freqs: 0.03), 4000, 12000), chebyshev1: 42, ε: 0.1))
 //            let a = filter(z, apf: (lag: 0.3, 0.9))
             let s = filter(pitchshift(z, rate: 1 * 1.5), apf: (lag: 0.9, 0.3))
@@ -36,14 +47,6 @@ extension GenTest {
             let bus = try Output.Direct(sampleRate: fs, source: Σ(b, t, a, s, axis: .term))
             $0.append(bus)
         }
-    }
-    @Test
-    func timestretch() throws {
-        let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
-        var y = Buffer(stream: x.stream, period: x.period * 2)
-        x.stretch(to: &y)
-        y.maximize(dB: -6)
-        try Buffer.Export(into: .init(filePath: "/tmp/output.wav"), rate: fs, data: y)
     }
     @Test
     func apf() async throws {

@@ -13,23 +13,6 @@ import Numerics
 @testable import ASP
 @Suite
 struct BufferTestCases {
-    func ambient() throws -> DSP.Stream {
-        let (fs, source) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
-        source.reverse()
-        var stretched = Buffer(stream: source.stream,
-                               period: 60 * source.period)
-        source.stretch(to: &stretched)
-        
-        let dry = filter(filter(stretched, apf: (lag: 0.2, gain: 0.9)),
-                         lpf: 18000, chebyshev1: 50, ε: 0.05)
-        let low = filter(filter(pitchshift(stretched, rate: 2.0 / 3.0),
-                                apf: (lag: 0.3, gain: 0.8)),
-                         lpf: 8000, chebyshev1: 50, ε: 0.05)
-        let high = filter(filter(pitchshift(stretched, rate: 1.5),
-                                 apf: (lag: 0.5, gain: 0.7)),
-                          lpf: 12000, chebyshev1: 50, ε: 0.05)
-        return dry + low + high
-    }
 	@Test
 	func pv() throws {
         let (fs, source) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
