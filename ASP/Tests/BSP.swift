@@ -16,7 +16,7 @@ extension GenTest {
         try await scenario(time: .seconds(120)) {
             let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
             x.maximize(dB: -6)
-            let y = pitchshift(x[t], rate: 1 / 24.0)
+            let y = pitchshift(x[t], rate: 0.6)
             let bus = try Output.Direct(sampleRate: fs, source: y)
             $0.append(bus)
         }
