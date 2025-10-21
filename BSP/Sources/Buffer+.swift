@@ -5,7 +5,6 @@
 //  Created by Kota on 10/15/25.
 //
 import Accelerate
-import DSP
 @_exported import typealias DSP.Buffer
 extension Buffer {
     @inlinable@_transparent
