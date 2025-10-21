@@ -21,6 +21,31 @@ extension GenTest {
         }
     }
     @Test
+    func realtimestretch() async throws {
+        try await scenario(time: .seconds(450)) {
+            let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
+            x.maximize(dB: -3)
+            x.reverse()
+            let y = x.stretch(rate: 1 / 28.0)//, coefficients: 0, 0.7, 0.2, 0.1)
+            let z = buffer(filter(y, lpf: fma(sin(freqs: 0.03), 4000, 12000), chebyshev1: 42, ε: 0.1))
+//            let a = filter(z, apf: (lag: 0.3, 0.9))
+            let s = filter(pitchshift(z, rate: 1 * 1.5), apf: (lag: 0.9, 0.3))
+            let a = filter(pitchshift(z, rate: 5 / 4.0), apf: (lag: 0.7, 0.5))
+            let t = filter(           z,                 apf: (lag: 0.3, 0.7))
+            let b = filter(pitchshift(z, rate: 1 / 1.5), apf: (lag: 0.5, 0.9))
+            let bus = try Output.Direct(sampleRate: fs, source: Σ(b, t, a, s, axis: .term))
+            $0.append(bus)
+        }
+    }
+    @Test
+    func timestretch() throws {
+        let (fs, x) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
+        var y = Buffer(stream: x.stream, period: x.period * 2)
+        x.stretch(to: &y)
+        y.maximize(dB: -6)
+        try Buffer.Export(into: .init(filePath: "/tmp/output.wav"), rate: fs, data: y)
+    }
+    @Test
     func apf() async throws {
         try await scenario(time: .seconds(120)) {
             let x = try Playback(path: .init(filePath: "/tmp/audio.wav"), loop: true)
