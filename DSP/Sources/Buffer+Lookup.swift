@@ -20,6 +20,11 @@ extension Buffer {
 		@usableFromInline let second: DSP.Stream
 	}
 }
+extension Buffer: Buffer.Reference {
+    public var target: some `Protocol` {
+        self
+    }
+}
 extension Buffer.Elapse: DSP.Stream {
 	@inlinable
 	var count: Int {
