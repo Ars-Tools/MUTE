@@ -6,11 +6,13 @@
 //
 import typealias AudioUnit.AudioComponentDescription
 extension AudioComponentDescription {
+    @inlinable
 	var readableComponents: Array<String> {
 		[componentType,
 		 componentSubType,
 		 componentManufacturer].map(de(code:))
 	}
+    @inlinable
 	func identifier(suffix: String, separator: Character = ".") -> String {
 		[
 			de(code: componentType),

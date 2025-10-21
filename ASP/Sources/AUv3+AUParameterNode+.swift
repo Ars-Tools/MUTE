@@ -70,6 +70,7 @@ extension Array where Element: AUParameterNode {
 	}
 }
 extension AUParameter {
+    @inlinable
 	public convenience init(identifier: String, name: String, address: AUParameterAddress, range: ClosedRange<AUValue>, unit: AudioUnitParameterUnit = .generic, unitName: String = "", flags: AudioUnitParameterOptions = .init(), valueStrings: some Collection<String> = [], dependencies: some Collection<AUParameter> = []) {
 		self.init(retain: AUParameterTree.createParameter(withIdentifier: identifier,
 														  name: name,
@@ -82,6 +83,7 @@ extension AUParameter {
 														  dependentParameters: dependencies.isEmpty ? .none : .some(dependencies.map(\.address).map(NSNumber.init(value:)))))
 	}
 	@_disfavoredOverload
+    @inlinable
 	public convenience init<T: BinaryInteger>(identifier: String, name: String, address: AUParameterAddress, range: ClosedRange<T>, unit: AudioUnitParameterUnit = .generic, unitName: String = "", flags: AudioUnitParameterOptions = [], valueStrings: some Collection<String> = [], dependencies: some Collection<AUParameter> = []) {
 		self.init(identifier: identifier,
 				  name: name,
@@ -94,6 +96,7 @@ extension AUParameter {
 				  dependencies: dependencies)
 	}
 	@_disfavoredOverload
+    @inlinable
 	public convenience init<T: BinaryFloatingPoint>(identifier: String, name: String, address: AUParameterAddress, range: ClosedRange<T>, unit: AudioUnitParameterUnit = .generic, unitName: String = "", flags: AudioUnitParameterOptions = [], valueStrings: some Collection<String> = [], dependencies: some Collection<AUParameter> = []) {
 		self.init(identifier: identifier,
 				  name: name,
@@ -107,14 +110,17 @@ extension AUParameter {
 	}
 }
 extension AUParameterGroup {
+    @inlinable
 	public convenience init(@AUParameterNodeBuilder template: () -> Array<AUParameterNode>) {
 		self.init(retain: AUParameterTree.createGroupTemplate(template()))
 	}
+    @inlinable
 	public convenience init(identifier: String, name: String, @AUParameterNodeBuilder children: () -> Array<AUParameterNode>) {
 		self.init(retain: AUParameterTree.createGroup(withIdentifier: identifier, name: name, children: children()))
 	}
 }
 extension AUParameterTree {
+    @inlinable
 	public convenience init(@AUParameterNodeBuilder children: () -> Array<AUParameterNode>) {
 		self.init(retain: AUParameterTree.createTree(withChildren: children()))
 	}
