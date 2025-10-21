@@ -379,7 +379,7 @@ void bdft_inverse(bdft_t const * __nonnull const object, intptr_t const n,
     intptr_t const m = sparse_get_matrix_number_of_rows(*object->prime), w = m * n * sizeof(__complex double const);
     __complex double * __nonnull const u = __malloc__(2 * w);
     __complex double * __nonnull const v = u + m * n;
-    // NOTE: use neg to obtain conj, CblasConjTrans might be broken for sparse_matrix_product_dense_double_complex
+    // NOTE: CblasConjTrans does not work with sparse_matrix_product_dense_double_complex
     if ( object->count & 1 )
         for ( register intptr_t k = 0 ; k < n ; ++ k )
             vDSP_zvconjD((DSPDoubleSplitComplex const[]){{
