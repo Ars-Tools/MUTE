@@ -38,8 +38,8 @@ extension PitchShift.Kr: DSP.Stream {
     }
     @inlinable
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
-        let stream = count
         let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
+        let count = count
         let log2n = 14
         let frame = 1 << ( log2n - 0 )
         let shift = 1 << ( log2n - 4 )
@@ -51,8 +51,8 @@ extension PitchShift.Kr: DSP.Stream {
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
         }
-        let i = Buffer(stream: stream, period: capacity + frame)
-        let o = Buffer(stream: stream, period: capacity + frame)
+        let i = Buffer(stream: count, period: capacity + frame)
+        let o = Buffer(stream: count, period: capacity + frame)
         let factor = Atomic<Float64>(0)
         let cancel = rate.sink {
             factor.store(max(0.5, min(2.0, $0)), ordering: .releasing)
@@ -64,12 +64,12 @@ extension PitchShift.Kr: DSP.Stream {
             let cursor = stride(from: remain, to: remain + $1, by: shift)
             kernel($0, $1, $2, $3)
             i.copy(cursor: offset + frame, length: $1, source: $2, stride: $3)
-            withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * stream + 4 ) * frame) {
-                var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * stream + 0 ) * frame),
-                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * stream + 0 ) * frame))
-                var w = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 0 ) * frame),
-                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 2 ) * frame))
-                let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * stream + 0 ) * frame)
+            withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * count + 4 ) * frame) {
+                var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * count + 0 ) * frame),
+                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * count + 0 ) * frame))
+                var w = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * count + 0 ) * frame),
+                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * count + 2 ) * frame))
+                let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * count + 0 ) * frame)
                 for cursor in cursor {
                     //
                     vDSP_vrampD(withUnsafePointer(to: Float64(cursor), \.self),
@@ -77,43 +77,43 @@ extension PitchShift.Kr: DSP.Stream {
                                 λ, 1, .init(frame))
                     // radius
                     i.read(cursor: λ, length: frame, target: z.realp, stride: frame)
-                    for r in stride(from: z.realp, to: z.realp.advanced(by: stream * frame), by: frame) {
+                    for r in stride(from: z.realp, to: z.realp.advanced(by: count * frame), by: frame) {
                         vDSP_vmulD(r, 1, window, 1, r, 1, .init(frame))
                     }
-                    vDSP_vclrD(z.imagp, 1, .init(stream * frame))
+                    vDSP_vclrD(z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
                                     &z, 1, frame,
                                     &w,
-                                    .init(log2n), .init(stream),
+                                    .init(log2n), .init(count),
                                     .init(kFFTDirection_Forward))
-                    vDSP_zvabsD(&z, 1, λ, 1, .init(stream * frame))
+                    vDSP_zvabsD(&z, 1, λ, 1, .init(count * frame))
                     
                     // radian
                     o.copy(cursor: cursor, length: frame, target: z.realp, stride: frame)
-                    for r in stride(from: z.realp, to: z.realp.advanced(by: stream * frame), by: frame) {
+                    for r in stride(from: z.realp, to: z.realp.advanced(by: count * frame), by: frame) {
                         vDSP_vmulD(r, 1, window, 1, r, 1, .init(frame))
                     }
-                    vDSP_vclrD(z.imagp, 1, .init(stream * frame))
+                    vDSP_vclrD(z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
                                     &z, 1, frame,
                                     &w,
-                                    .init(log2n), .init(stream),
+                                    .init(log2n), .init(count),
                                     .init(kFFTDirection_Forward))
-                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(stream * frame))
+                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(count * frame))
                     
                     // synth
-                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(stream * frame), \.self))
-                    vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(stream * frame))
-                    vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(stream * frame))
+                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(count * frame), \.self))
+                    vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(count * frame))
+                    vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
                                     &z, 1, frame,
                                     &w,
-                                    .init(log2n), .init(stream),
+                                    .init(log2n), .init(count),
                                     .init(kFFTDirection_Inverse))
                     vDSP_vsdivD(z.realp, 1,
                                 withUnsafePointer(to: Float64(frame), \.self),
                                 z.realp, 1,
-                                .init(stream * frame))
+                                .init(count * frame))
                     o.blend(cursor: cursor, length: frame, weight: window, source: z.realp, stride: frame)
                 }
             }
