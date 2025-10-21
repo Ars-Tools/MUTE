@@ -27,10 +27,10 @@ extension Timestretch.He: Stream {
     }
     @inlinable
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        let count = count
         let log2n = 14
         let frame = 1 << ( log2n - 0 )
         let shift = 1 << ( log2n - 4 )
-        let count = count
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
         }
@@ -80,7 +80,7 @@ extension Timestretch.He: Stream {
                                     .init(log2n), .init(count),
                                     .init(kFFTDirection_Forward))
                     //
-                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(frame * count))
+                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(count * frame))
                     vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(count * frame), \.self))
                     // synth
                     vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(count * frame))
@@ -109,7 +109,7 @@ public func timestretch(_ source: some Buffer.`Protocol`, rate factor: Rational1
 }
 extension Buffer {
     @inlinable
-    public func stretch(ratio: some RationalNumber<some Numeric>, to target: Buffer, log2n: Int = 14) {
+    public func timestretch(ratio: some RationalNumber<some Numeric>, to target: Buffer, log2n: Int = 14) {
         let frame = 1 << ( log2n - 0 )
         let shift = 1 << ( log2n - 4 )
         let count = Swift.min(stream, target.stream)
