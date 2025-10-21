@@ -191,7 +191,7 @@ struct DFTTestCase {
     }
     @Test
     func bdft_vs_fftm() throws {
-        let log2n = 4
+        let log2n = 8
         let count = 1 << log2n
         let fftm = vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped
         defer { vDSP_destroy_fftsetupD(fftm) }
@@ -207,12 +207,24 @@ struct DFTTestCase {
         }
         var z = DSPDoubleSplitComplex(realp: .init(.init(x)).advanced(by: 0),
                                       imagp: .init(.init(x)).advanced(by: 1))
-        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
-        bdft_inverse(bdft, 2,
-                     .init(x), count,
-                     .init(y), count)
-        vDSP_fftm_zipD(fftm, &z, 2, 2 * count, .init(log2n), 2, .init(kFFTDirection_Inverse))
-        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
-        print(Array(UnsafeBufferPointer(start: y, count: 2 * count)))
+//        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            defer {
+                print("bdft", CFAbsoluteTimeGetCurrent() - start)
+            }
+            bdft_forward(bdft, 2,
+                         .init(x), count,
+                         .init(y), count)
+        }
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            defer {
+                print("fftm", CFAbsoluteTimeGetCurrent() - start)
+            }
+            vDSP_fftm_zipD(fftm, &z, 2, 2 * count, .init(log2n), 2, .init(kFFTDirection_Forward))
+        }
+//        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
+//        print(Array(UnsafeBufferPointer(start: y, count: 2 * count)))
     }
 }
