@@ -45,7 +45,7 @@ struct BufferTestCases {
     func stretch() throws {
         let (fs, source) = try Buffer.Import(from: .init(filePath: "/tmp/audio.wav"))
         let target = Buffer(stream: source.stream, period: 48_000 * 13)
-        source.stretch(ratio: Rational128(.init(fs), .init(2*fs)), to: target)
+        source.timestretch(ratio: Rational128(.init(fs), .init(2*fs)), to: target)
         try Buffer.Export(into: .init(filePath: "/tmp/out3.wav"), rate: fs, data: target)
     }
 }
