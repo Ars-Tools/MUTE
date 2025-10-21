@@ -376,18 +376,35 @@ __attribute__((overloadable))
 void bdft_inverse(bdft_t const * __nonnull const object, intptr_t const n,
                   __complex double const * __nonnull const x, intptr_t const ldx,
                   __complex double       * __nonnull const y, intptr_t const ldy) {
-    register intptr_t const m = sparse_get_matrix_number_of_rows(*object->prime), w = m * n * sizeof(__complex double const);
+    intptr_t const m = sparse_get_matrix_number_of_rows(*object->prime), w = m * n * sizeof(__complex double const);
     __complex double * __nonnull const u = __malloc__(2 * w);
     __complex double * __nonnull const v = u + m * n;
-    __mcopy__(x, 2 * ldx,
-              object->count & 1 ? v : u, 2 * m,
-              n, 2 * m);
+    // NOTE: use neg to obtain conj, CblasConjTrans might be broken for sparse_matrix_product_dense_double_complex
+    if ( object->count & 1 )
+        for ( register intptr_t k = 0 ; k < n ; ++ k )
+            vDSP_zvconjD((DSPDoubleSplitComplex const[]){{
+                .realp=((double*__nonnull const)(x + k * ldx)) + 0,
+                .imagp=((double*__nonnull const)(x + k * ldx)) + 1
+            }}, 2,
+                         (DSPDoubleSplitComplex const[]){{
+                .realp=((double*__nonnull const)(v + k * m)) + 0,
+                .imagp=((double*__nonnull const)(v + k * m)) + 1,
+            }}, 2, m);
+    else
+        for ( register intptr_t k = 0 ; k < n ; ++ k )
+            vDSP_zvconjD((DSPDoubleSplitComplex const[]){{
+                .realp=((double*__nonnull const)(x + k * ldx)) + 0,
+                .imagp=((double*__nonnull const)(x + k * ldx)) + 1
+            }}, 2,
+                         (DSPDoubleSplitComplex const[]){{
+                .realp=((double*__nonnull const)(u + k * m)) + 0,
+                .imagp=((double*__nonnull const)(u + k * m)) + 1,
+            }}, 2, m);
     for ( register intptr_t k = object->count ; 0 < k -- ; )
-        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasTrans, n,
-                                                   1, object->prime[object->count - k - 1],
+        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasNoTrans, n,
+                                                   1, object->prime[k],
                                                           k & 1 ? u : v,        m,
                                                    memset(k & 1 ? v : u, 0, w), m);
-    // NOTE: use neg to obtain conj, CblasConjTrans might be broken for sparse_matrix_product_dense_double_complex
     for ( register intptr_t k = 0 ; k < n ; ++ k )
         vDSP_zvmulD((DSPDoubleSplitComplex const[]){{
             .realp=((double*__nonnull const)(u + k * m)) + 0,
@@ -401,11 +418,7 @@ void bdft_inverse(bdft_t const * __nonnull const object, intptr_t const n,
             .realp=((double*__nonnull const)(y + k * ldy)) + 0,
             .imagp=((double*__nonnull const)(y + k * ldy)) + 1
         }}, 2,
-                    m * n, -1);
-//    zscal_((intptr_t const[]){m*n}, (__complex double const[]){1/(double const)m}, u, (intptr_t const[]){1});
-//    __mcopy__(u, 2 * m,
-//              y, 2 * ldy,
-//              n, 2 * m);
+                    m, -1);
     __free__(u);
 }
 // MARK: XDFT
