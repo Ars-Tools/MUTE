@@ -10,86 +10,88 @@ import typealias CoreMedia.CMTime
 import protocol DSP.Stream
 import typealias DSP.Instance
 import typealias Auxiliary.Autorelease
-import NSP
 import protocol Numerics.RationalNumber
+import typealias Numerics.Rational128
 @usableFromInline
 enum Timestretch {
     @usableFromInline
-    struct He {
-        @usableFromInline let source: Buffer
-        @usableFromInline let factor: Float64
+    struct He<Source: Buffer.`Protocol`, Factor: RationalNumber> {
+        @usableFromInline let source: Source
+        @usableFromInline let factor: Factor
     }
 }
 extension Timestretch.He: Stream {
     @inlinable
     var count: Int {
-        source.stream
+        source.count
     }
     @inlinable
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let log2n = 14
         let frame = 1 << ( log2n - 0 )
         let shift = 1 << ( log2n - 4 )
+        let count = count
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
         }
         let window = Array<Float64>(unsafeUninitializedCapacity: frame) {
-            vDSP.clear(&$0)
-            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<frame/4], isHalfWindow: false)
             $1 = $0.count
+            vDSP.clear(&$0)
+            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/4], isHalfWindow: false)
         }
-        let stream = source.stream
-        let target = Buffer(stream: stream, period: capacity + frame)
-        return {
+        let stream = try source(interval: interval, capacity: capacity, instance: &instance)
+        let target = Buffer(stream: count, period: capacity + frame)
+        return { [factor] in
             let cursor = $0.samples(for: interval)
             let remain = cursor - cursor.quotientAndRemainder(dividingBy: shift).remainder
             let offset = stride(from: remain, to: remain + $1, by: shift)
-            withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * stream + 4 ) * frame) {
-                var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * stream + 0 ) * frame),
-                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * stream + 0 ) * frame))
-                var w = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 0 ) * frame),
-                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 2 ) * frame))
-                let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * stream + 0 ) * frame )
+            let source = stream($0, $1)
+            withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * count + 4 ) * frame) {
+                var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * count + 0 ) * frame),
+                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * count + 0 ) * frame))
+                var w = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * count + 0 ) * frame),
+                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * count + 2 ) * frame))
+                let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * count + 0 ) * frame )
                 for offset in offset {
                     // fetch
-                    let convey = Int(factor * Float64(offset))
+                    let convey = offset * Int(factor.denominator) / Int(factor.numerator)
                     // radius
                     source.copy(cursor: convey, length: frame, target: z.realp, stride: frame)
-                    for memory in stride(from: z.realp, to: z.realp.advanced(by: stream * frame), by: frame) {
+                    for memory in stride(from: z.realp, to: z.realp.advanced(by: count * frame), by: frame) {
                         vDSP_vmulD(window, 1, memory, 1, memory, 1, .init(frame))
                     }
-                    vDSP_vclrD(z.imagp, 1, .init(stream * frame))
+                    vDSP_vclrD(z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
                                     &z, 1, frame,
                                     &w,
-                                    .init(log2n), .init(stream),
+                                    .init(log2n), .init(count),
                                     .init(kFFTDirection_Forward))
                     //
-                    vDSP_zvabsD(&z, 1, λ, 1, .init(stream * frame))
+                    vDSP_zvabsD(&z, 1, λ, 1, .init(count * frame))
                     // radian
                     target.copy(cursor: offset, length: frame, target: z.realp, stride: frame)
-                    for memory in stride(from: z.realp, to: z.realp.advanced(by: stream * frame), by: frame) {
+                    for memory in stride(from: z.realp, to: z.realp.advanced(by: count * frame), by: frame) {
                         vDSP_vmulD(window, 1, memory, 1, memory, 1, .init(frame))
                     }
-                    vDSP_vclrD(z.imagp, 1, .init(stream * frame))
+                    vDSP_vclrD(z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
                                     &z, 1, frame,
                                     &w,
-                                    .init(log2n), .init(stream),
+                                    .init(log2n), .init(count),
                                     .init(kFFTDirection_Forward))
                     //
-                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(frame * stream))
-                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(frame * stream), \.self))
+                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(frame * count))
+                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(count * frame), \.self))
                     // synth
-                    vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(frame * stream))
-                    vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(frame * stream))
+                    vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(count * frame))
+                    vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
                                     &z, 1, frame,
                                     &w,
-                                    .init(log2n), .init(stream),
+                                    .init(log2n), .init(count),
                                     .init(kFFTDirection_Inverse))
                     // merge
-                    vDSP_vsdivD(z.realp, 1, withUnsafePointer(to: Float64(frame), \.self), z.realp, 1, .init(stream * frame))
+                    vDSP_vsdivD(z.realp, 1, withUnsafePointer(to: Float64(frame), \.self), z.realp, 1, .init(count * frame))
                     target.blend(cursor: offset, length: frame, weight: window, source: z.realp, stride: frame)
                 }
             }
@@ -98,10 +100,12 @@ extension Timestretch.He: Stream {
         }
     }
 }
-extension Buffer {
-    public func timestretch(rate factor: Float64) -> some DSP.Stream {
-        Timestretch.He(source: self, factor: factor)
-    }
+public func timestretch(_ source: some Buffer.`Protocol`, rate factor: some RationalNumber) -> some Stream {
+    Timestretch.He(source: source, factor: factor)
+}
+@_disfavoredOverload
+public func timestretch(_ source: some Buffer.`Protocol`, rate factor: Rational128) -> some Stream {
+    Timestretch.He(source: source, factor: factor)
 }
 extension Buffer {
     @inlinable
@@ -127,7 +131,7 @@ extension Buffer {
             for cursor in stride(from: 0, to: target.period - frame, by: shift) {
                 
                 // fetch
-                let lower = Swift.min(cursor * Int(ratio.numerator) / Int(ratio.denominator), period)
+                let lower = Swift.min(cursor * Int(ratio.denominator) / Int(ratio.numerator), period)
                 let upper = Swift.min(lower + frame, period)
                 let fetch = lower..<upper
                 let clear = fetch.count..<frame
