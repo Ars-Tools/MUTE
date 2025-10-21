@@ -8,19 +8,20 @@
 @preconcurrency import typealias Combine.Publishers
 @preconcurrency import typealias Combine.Just
 import typealias CoreMedia.CMTime
+import typealias Synchronization.Atomic
 import DSP
 import NSP
-import typealias Synchronization.Atomic
+import protocol DSP.Stream
 @usableFromInline
 enum Echo {
     @usableFromInline
-    struct Kr<Control: Publisher<(DSP.Duration, Float64), Never> & Sendable> {
-        @usableFromInline let source: DSP.Stream
-        @usableFromInline let period: DSP.Duration
+    struct Kr<Control: Publisher<(Duration, Float64), Never> & Sendable> {
+        @usableFromInline let source: Stream
+        @usableFromInline let period: Duration
         @usableFromInline let object: Control
     }
 }
-extension Echo.Kr: DSP.Stream {
+extension Echo.Kr: Stream {
     @inlinable
     var count: Int {
         source.count
@@ -55,15 +56,15 @@ extension Echo.Kr: DSP.Stream {
         }
     }
 }
-public func filter(_ source: DSP.Stream, cmb object: (lag: some Publisher<DSP.Duration, Never>, gain: some Publisher<Float64, Never>), period: DSP.Duration) -> some DSP.Stream {
+public func filter(_ source: Stream, cmb object: (lag: some Publisher<Duration, Never>, gain: some Publisher<Float64, Never>), period: Duration) -> some Stream {
     Echo.Kr(source: source, period: period, object: Publishers.Zip(object.0, object.1))
 }
-public func filter(_ source: DSP.Stream, apf object: (lag: some Publisher<DSP.Duration, Never>, gain: some Publisher<Float64, Never>), period: DSP.Duration) -> some DSP.Stream {
-    filter(source, cmb: object, period: period) * object.1.map { -fma($0, $0, -1) } - source
+public func filter(_ source: Stream, apf object: (lag: some Publisher<Duration, Never>, gain: some Publisher<Float64, Never>), period: Duration) -> some Stream {
+    fma(filter(source, cmb: object, period: period), object.1.map { fma($0, $0, -1) }, source)
 }
-public func filter(_ source: DSP.Stream, cmb object: (lag: DSP.Duration, gain: Float64)) -> some DSP.Stream {
+public func filter(_ source: Stream, cmb object: (lag: Duration, gain: Float64)) -> some Stream {
     filter(source, cmb: (Just(object.0), Just(object.1)), period: object.0)
 }
-public func filter(_ source: DSP.Stream, apf object: (lag: DSP.Duration, gain: Float64)) -> some DSP.Stream {
+public func filter(_ source: Stream, apf object: (lag: Duration, gain: Float64)) -> some Stream {
     filter(source, apf: (Just(object.0), Just(object.1)), period: object.0)
 }
