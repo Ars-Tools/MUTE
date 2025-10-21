@@ -7,9 +7,18 @@
 @preconcurrency import typealias AVFoundation.AVAudioFile
 @preconcurrency import typealias AVFoundation.AVAudioPCMBuffer
 @preconcurrency import typealias AVFoundation.AVAudioCommonFormat
+@preconcurrency import typealias AVFoundation.AVAudioConverter
 @preconcurrency import typealias AVFoundation.AudioBufferList
+@preconcurrency import typealias AVFoundation.AVAudioConverterInputStatus
+@preconcurrency import typealias AVFoundation.AVAudioConverterOutputStatus
+@preconcurrency import typealias AVFoundation.AVAudioQuality
+@preconcurrency import let AVFoundation.AVSampleRateConverterAlgorithm_Mastering
 @preconcurrency import typealias Foundation.URL
+@preconcurrency import typealias Foundation.NSError
 import typealias DSP.Buffer
+import typealias Synchronization.Atomic
+import protocol Numerics.RationalNumber
+import os.log
 extension Buffer {
     @inlinable@_transparent
 	public func withUnsafeAudioBuffer<R>(body: (UnsafePointer<AudioBufferList>) throws -> R) rethrows -> R {
@@ -66,14 +75,53 @@ extension Buffer {
             try AVAudioFile(forWriting: path, settings: format.settings, commonFormat: .pcmFormatFloat64, interleaved: false).write(from: buffer)
         }
     }
-    public func export(into path: URL, rate: Float64) throws {
-        try withUnsafeAudioBuffer {
-            guard
-                let format = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: rate, monoChannels: stream, interleaved: false),
-                let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: $0, deallocator: .none) else {
-                throw Error.unsupportedFormat
+}
+extension Buffer {
+    @discardableResult
+    @inlinable
+    public func resample(ratio: some RationalNumber<some BinaryInteger>, to target: Buffer) throws -> Bool {
+        guard
+            let input = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: .init(ratio.denominator), monoChannels: stream, interleaved: false),
+            let output = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: .init(ratio.numerator), monoChannels: target.stream, interleaved: false),
+            let target = AVAudioPCMBuffer(pcmFormat: output, length: target.period, target: target.start, stride: target.period, deallocator: .none),
+            let converter = AVAudioConverter(from: input, to: output) else {
+            throw Error.unsupportedFormat
+        }
+        converter.sampleRateConverterAlgorithm = AVSampleRateConverterAlgorithm_Mastering
+        converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
+        var error: NSError?
+        let cursor = Atomic<Int>(0)
+        let status = converter.convert(to: target, error: &error) {
+            let range = switch cursor.add(Int($0), ordering: .acquiring) {
+            case(let old, let new):
+                Swift.min(old, period)..<Swift.min(new, period)
             }
-            try AVAudioFile(forWriting: path, settings: format.settings, commonFormat: .pcmFormatFloat64, interleaved: false).write(from: buffer)
+            switch range.isEmpty ? .none : AVAudioPCMBuffer(pcmFormat: input, length: range.count, target: start.advanced(by: range.lowerBound), stride: period) {
+            case.some(let source):
+                source.frameLength = .init(range.count)
+                $1.pointee = .haveData
+                return.some(source)
+            case.none:
+                $1.pointee = .endOfStream
+                return.none
+            }
+        }
+        if case.some(let error) = error {
+            os_log(.error, log: .default, "%{public}@", String(describing: error))
+            return false
+        } else {
+            return switch status {
+            case.haveData:
+                false
+            case.inputRanDry:
+                false
+            case.endOfStream:
+                true
+            case.error:
+                false
+            @unknown default:
+                false
+            }
         }
     }
 }
