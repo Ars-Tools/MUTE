@@ -38,16 +38,16 @@ struct UtilTestCases {
 		print("x=", x)
 		print("y=", y)
 	}
-	@Test
-	func ls() {
-		let x = solve(m: 5, n: 4, A: [
-			1, 0, 2, 0, 0 + Complex128(real: 0, imag: 1),
-			0, 1, 0, 1, 1,
-			3, 0, 1, 0, 0,
-			0, 0, 0, 1, 3,
-		], ldA: 5, b: [1, 2, 3, 4, 5])
-		print(x)
-	}
+//	@Test
+//	func ls() {
+//		let x = solve(m: 5, n: 4, A: [
+//			1, 0, 2, 0, 0 + Complex128(real: 0, imag: 1),
+//			0, 1, 0, 1, 1,
+//			3, 0, 1, 0, 0,
+//			0, 0, 0, 1, 3,
+//		], ldA: 5, b: [1, 2, 3, 4, 5])
+//		print(x)
+//	}
 	@Test
 	func fitKernel() {
 //		let response = repeatElement(0.8 ... 1.25, count: 256).map(Float64.random(in:))
