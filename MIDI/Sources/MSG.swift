@@ -4,7 +4,6 @@
 //
 //  Created by Kota on 7/4/R7.
 //
-@preconcurrency import typealias CoreMIDI.MIDIUniversalMessage
 @preconcurrency import CoreMIDI
 public protocol MSG: RawRepresentable, Codable, BitwiseCopyable where RawValue == MIDIUniversalMessage {
 	func withUnsafeBufferPointer<E, R>(_ body: (UnsafeBufferPointer<UInt32>) throws (E) -> R) rethrows -> R
