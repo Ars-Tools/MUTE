@@ -41,17 +41,17 @@ extension Buffer.Lazy: Buffer.`Protocol` {
 			let status = Mutex<CMTimeRange>(.invalid)
 			let buffer = try origin(interval: interval, capacity: capacity, instance: &instance) as Buffer
 			let source = try source(interval: interval, capacity: capacity, instance: &instance)
-			let kernel = { moment, length in
-				status.withLock {
-					let status = CMTimeRange(start: moment, duration: CMTimeMultiply(interval, multiplier: .init(length)))
-					if !status.containsTimeRange($0) {
-						buffer.copy(cursor: moment.samples(for: interval), length: length) {
-							source(moment, length, $0, $1)
-						}
-						$0 = status
-					}
-					return buffer
-				}
+			let kernel = {
+                let moment = CMTimeRange(start: $0, duration: CMTimeMultiply(interval, multiplier: .init($1)))
+                return status.withLock {
+                    if moment.intersection($0).isEmpty {
+                        buffer.copy(cursor: moment.start.samples(for: interval), length: moment.duration.samples(for: interval)) {
+                            source(moment.start, moment.duration.samples(for: interval), $0, $1)
+                        }
+                        $0 = moment
+                    }
+                    return buffer
+                }
 			} as @Sendable (CMTime, Int) -> Buffer
 			guard case.none = instance.updateValue(kernel, forKey: .init(interval: interval, capacity: capacity, identity: id)) else {
 				throw Error.invalidContext

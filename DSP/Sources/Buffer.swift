@@ -72,7 +72,7 @@ extension Buffer: RandomAccessCollection {
     public subscript(bounds: some RangeExpression<Int>, sample: Int) -> Array<Float64> {
         stride(from: 0, to: stream * period, by: period)
             .map(bounds.relative(to: 0..<stream).lowerBound.advanced(by:))
-            .map(start.advanced(by:))
+            .map(start.advanced(by: sample).advanced(by:))
             .map(\.pointee)
     }
 }
