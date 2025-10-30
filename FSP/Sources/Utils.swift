@@ -30,17 +30,7 @@ extension Utils {
 		pow(factor, simd_precise_recip(.init(sample)))
 	}
 }
-// Solve Least Square, Col-Major
-@inlinable
-func solve(m: Int, n: Int, nrhs: Int,
-		   A: UnsafePointer<Complex128>, ldA: Int,
-		   b: UnsafePointer<Complex128>, ldB: Int) -> Array<Complex128> {
-	.init(unsafeUninitializedCapacity: max(m, n) * nrhs + n + max(n, nrhs)) {
-		assertionFailure("not imp")
-		$1 = $0.count
-	}
-}
-@inlinable @inline(__always)
+@inlinable@_transparent
 func solve(m: Int, n: Int,
 		   A: UnsafePointer<Complex128>, ldA: Int,
 		   b: UnsafePointer<Complex128>) -> Array<Complex128> {
@@ -57,7 +47,7 @@ func solve(m: Int, n: Int,
 		$1 = n
 	}
 }
-@inlinable @inline(__always)
+@inlinable@_transparent
 func solve(m: Int, n: Int,
 		   A: some AccelerateBuffer<Complex128>, ldA: Int,
 		   b: some AccelerateBuffer<Complex128>) -> Array<Complex128> {
@@ -393,4 +383,64 @@ public func minimum(mag response: some AccelerateBuffer<Float64>) -> Array<Compl
 			   head, withUnsafePointer(to: 2, \.self))
 		vDSP_rectD(head, 2, head, 2, .init($1))
 	}
+}
+@inlinable
+public func`dB/oct.`(frequency: some AccelerateBuffer<Float64> & Sequence<Float64>,
+                     magnitude: some AccelerateBuffer<Float64>,
+                     bandwidth: some RangeExpression<Float64>) -> (Float64, Float64) {
+    precondition(frequency.count == magnitude.count)
+    let range = frequency.enumerated().compactMap { bandwidth.contains($1) ? .some(UInt($0 + 1)) : .none }
+    let count = range.count
+    var info = 0
+    var size = 0 as Float64
+    dgels_("N",
+           withUnsafePointer(to: count, \.self), withUnsafePointer(to: 2, \.self),
+           withUnsafePointer(to: 1, \.self),
+           .none, withUnsafePointer(to: count, \.self),
+           .none, withUnsafePointer(to: count, \.self),
+           &size,
+           withUnsafePointer(to: -1, \.self),
+           &info)
+    assert(info == 0)
+    return withUnsafeTemporaryAllocation(of: Float64.self, capacity: 2 * count + max(2, count) + .init(size)) {
+        // A
+        vDSP.gather(frequency, indices: range, result: &$0[0*count..<1*count])
+        vForce.log2($0[0*count..<1*count], result: &$0[0*count..<1*count])
+        vDSP.fill(&$0[1*count..<2*count], with: 1)
+        // B
+        vDSP.gather(magnitude, indices: range, result: &$0[2*count..<3*count])
+        vForce.log10($0[2*count..<3*count], result: &$0[2*count..<3*count])
+        vDSP.multiply(20, $0[2*count..<3*count], result: &$0[2*count..<3*count])
+        // solve
+        dgels_("N",
+               withUnsafePointer(to: count, \.self), withUnsafePointer(to: 2, \.self),
+               withUnsafePointer(to: 1, \.self),
+               $0.baseAddress.unsafelyUnwrapped.advanced(by: 0 * count), withUnsafePointer(to: count, \.self),
+               $0.baseAddress.unsafelyUnwrapped.advanced(by: 2 * count), withUnsafePointer(to: count, \.self),
+               $0.baseAddress.unsafelyUnwrapped.advanced(by: 2 * count + max(2, count)),
+               withUnsafePointer(to: .init(size), \.self), &info)
+        assert(info == 0)
+        return ($0[2*count+0], $0[2*count+1])
+    }
+}
+@inlinable
+public func lnslope(frequency: some AccelerateBuffer<Float64> & Sequence<Float64>,
+                    magnitude: some AccelerateBuffer<Float64>,
+                    bandwidth: some RangeExpression<Float64>) -> Array<Float64> {
+    let (α, β) = `dB/oct.`(frequency: frequency, magnitude: magnitude, bandwidth: bandwidth)
+    return.init(unsafeUninitializedCapacity: frequency.count) {
+        vForce.log2(frequency, result: &$0)
+        vDSP.invertedClip($0, to: 0...0, result: &$0)
+        vDSP.add(multiplication: ($0, 0.05 * M_LN10 * α), 0.05 * M_LN10 * β, result: &$0)
+        $1 = $0.count
+    }
+}
+@inlinable@_transparent
+func logspace(in range: ClosedRange<Float64>, count: Int) -> Array<Float64> {
+    .init(unsafeUninitializedCapacity: count) {
+        let range = log2(SIMD2<Float64>(range.lowerBound, range.upperBound))
+        vDSP.formRamp(withInitialValue: range.x, increment: (range.y - range.x) / .init($0.count), result: &$0)
+        vForce.exp2($0, result: &$0)
+        $1 = $0.count
+    }
 }

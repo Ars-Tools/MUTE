@@ -8,11 +8,11 @@ import Accelerate
 import protocol Accelerate.AccelerateBuffer
 import protocol Accelerate.AccelerateMutableBuffer
 import typealias Numerics.Complex128
-@inlinable@inline(__always)
+@inlinable
 public func fit(response: some AccelerateBuffer<Complex128>, frequency: some AccelerateBuffer<Float64>, with kernel: (b: Int, a: Int)) -> (Array<Float64>, Array<Float64>) {
 	assert(frequency.count == response.count)
 	let m = response.count
-	let n = 1  + kernel.b + kernel.a
+	let n = 1 + kernel.b + kernel.a
 	return withUnsafeTemporaryAllocation(byteCount: MemoryLayout<Complex128>.stride * (m * n + 2 * max(m, n) + n),
 										 alignment: MemoryLayout<Complex128>.alignment) {
 		let A = $0.assumingMemoryBound(to: Complex128.self).extracting(0 * m * n ..< 1 * m * n)
@@ -77,7 +77,7 @@ public func fit(response: some AccelerateBuffer<Complex128>, frequency: some Acc
 		)
 	}
 }
-@inlinable@inline(__always)
+@inlinable
 public func fit(response: Array<Complex128>, with kernel: (b: Int, a: Int)) -> (Array<Float64>, Array<Float64>) {
 	fit(response: response, frequency: Array<Float64>(unsafeUninitializedCapacity: response.count) {
 		vDSP.formRamp(withInitialValue: 0, increment: 1, result: &$0)
