@@ -19,6 +19,7 @@ import func simd.distance
 import simd
 import MetalPerformanceShadersGraph
 import func Accelerate.vecLib.vDSP_mtrans
+import func Layout.zip
 @inlinable@_transparent
 func roots(response: some AccelerateBuffer<Complex128>, frequency: some AccelerateBuffer<Float64>, with sos: Int) -> some Sequence<((Complex128, Complex128), (Complex128, Complex128))> {
     let (b, a) = fit(response: response, frequency: frequency, with: (2 * sos, 2 * sos))
@@ -299,7 +300,7 @@ public func peq(frequency: some AccelerateBuffer<Float64>,
                 update: (ω: Float64, Q: Float64, A: Float64, r: Float64),
                 queue: Optional<MTLCommandQueue> = MTLCreateSystemDefaultDevice().flatMap { $0.makeCommandQueue() },
                 epoch: (major: Int, minor: Int),
-                board: (Int, Array<MTLBuffer>) -> Void) {
+                board: (Int, Array<MTLBuffer>) -> Void) -> Array<(ω: Float64, Q: Float64, A: Float64)> {
     let graph = MPSGraph()
     let count = min(frequency.count, magnitude.count)
     let (r, i) = withUnsafeTemporaryAllocation(of: Float32.self, capacity: 6 * count) {
@@ -429,9 +430,13 @@ public func peq(frequency: some AccelerateBuffer<Float64>,
         kernel.run(with: queue.unsafelyUnwrapped, inputs: [], results: .some(result), executionDescriptor: .none)
         board(major, status)
     }
-    print(Array(UnsafeBufferPointer(start: status[3].contents().assumingMemoryBound(to: Float32.self), count: initial.count)))
-    print(Array(UnsafeBufferPointer(start: status[4].contents().assumingMemoryBound(to: Float32.self), count: initial.count)))
-    print(Array(UnsafeBufferPointer(start: status[5].contents().assumingMemoryBound(to: Float32.self), count: initial.count)))
+    return zip(UnsafeBufferPointer(start: status[3].contents().assumingMemoryBound(to: Float32.self), count: initial.count),
+               UnsafeBufferPointer(start: status[4].contents().assumingMemoryBound(to: Float32.self), count: initial.count),
+               UnsafeBufferPointer(start: status[5].contents().assumingMemoryBound(to: Float32.self), count: initial.count)).map {(
+                ω: Float64($0),
+                Q: Float64($1),
+                A: Float64($2)
+               )}
 }
 @inlinable
 public func peq(frequency: some AccelerateBuffer<Float64>,
@@ -440,7 +445,7 @@ public func peq(frequency: some AccelerateBuffer<Float64>,
                 update: (ω: Float64, Q: Float64, A: Float64, r: Float64),
                 queue: Optional<MTLCommandQueue> = MTLCreateSystemDefaultDevice().flatMap { $0.makeCommandQueue() },
                 epoch: (major: Int, minor: Int),
-                board: (Int, Array<MTLBuffer>) -> Void) {
+                board: (Int, Array<MTLBuffer>) -> Void) -> Array<(ω: Float64, Q: Float64, A: Float64)> {
     peq(frequency: frequency,
         magnitude: magnitude,
         initial: initial.centre.map {(

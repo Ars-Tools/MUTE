@@ -48,14 +48,14 @@ struct BiquadTestCase {
             vDSP.add(multiplication: ($0, 0.2), 1.0, result: &$0)
             $1 = $0.count
         }
-        print(response)
-        peq(frequency: vDSP.ramp(in: 0 ... 1.0, count: response.count),
-            magnitude: response,
-            initial: (logspace(in: 100 / 48000.0 ... 1.0, count: 32), 1.0),
-            update: (1e-8, 1e-4, 1e-4, 1e-6),
-            epoch: (10, 10000)) {
+        let sos = peq(frequency: vDSP.ramp(in: 0 ... 1.0, count: response.count),
+                            magnitude: response,
+                            initial: (logspace(in: 100 / 48000.0 ... 1.0, count: 32), 1.0),
+                            update: (1e-8, 1e-4, 1e-4, 1e-6),
+                            epoch: (10, 10000)) {
             print($0, $1[0].contents().load(as: Float32.self))
         }
+        print(sos)
     }
     @Test
     func fitLSLPEQ() throws {
