@@ -15,7 +15,8 @@
 public protocol Payload: Sendable {
 	func withUnsafeEventListPointer<E, R>(_ body: (UnsafePointer<MIDIEventList>) throws (E) -> R) rethrows -> R
 }
-extension Payload { // LLVM Co-routine based parser
+extension Payload {
+    // LLVM Co-routine based parser
 	public var sequence: some AsyncSequence<(MIDITimeStamp, MIDIUniversalMessage), Never> {
 		AsyncStream {
 			withUnsafePointer(to: $0) { ref in
@@ -28,16 +29,6 @@ extension Payload { // LLVM Co-routine based parser
 				}
 			}
 			$0.finish()
-		}
-	}
-}
-extension Payload {
-	public func a(_ body: (MIDITimeStamp, MIDIUniversalMessage) -> Void) {
-		withUnsafeEventListPointer {
-			MIDIEventListForEachEvent($0, {
-				guard let r = $0 else { return }
-				(Unmanaged<AnyObject>.fromOpaque(r).takeUnretainedValue() as?(MIDITimeStamp, MIDIUniversalMessage) -> Void)?($1, $2)
-			}, Unmanaged<AnyObject>.passUnretained(body as AnyObject).toOpaque())
 		}
 	}
 }
@@ -65,7 +56,12 @@ extension Collection {
 				MIDIEventListAdd(target, length, a, x.0, $0.count, $0.baseAddress.unsafelyUnwrapped)
 			}
 		}
-		return Int(bitPattern: cursor) == .zero ? 0 : MIDIEventList.sizeInBytes(pktList: target)
+        return switch Int(bitPattern: cursor) {
+        case.zero:
+            0
+        default:
+            MIDIEventList.sizeInBytes(pktList: target)
+        }
 	}
 	@discardableResult
 	@inlinable
@@ -77,7 +73,12 @@ extension Collection {
 				MIDIEventListAdd(target, length, a, timestamp, $0.count, $0.baseAddress.unsafelyUnwrapped)
 			}
 		}
-		return Int(bitPattern: cursor) == .zero ? 0 : MIDIEventList.sizeInBytes(pktList: target)
+        return switch Int(bitPattern: cursor) {
+        case.zero:
+            0
+        default:
+            MIDIEventList.sizeInBytes(pktList: target)
+        }
 	}
 	@inlinable
 	func withUnsafeMIDIEventList<T: MSG, E, R>(as version: MIDIProtocolID, _ body: (UnsafePointer<MIDIEventList>) throws (E) -> R) rethrows -> R where Element == (MIDITimeStamp, T) {
