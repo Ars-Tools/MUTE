@@ -5,6 +5,7 @@
 //  Created by Kota on 10/20/25.
 //
 import Testing
+import DSP
 @testable import BSP
 @Suite
 struct BufferTestCases {
