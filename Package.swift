@@ -66,11 +66,29 @@ let package = Package(
 				.unsafeFlags(["-Xfrontend", "-debug-time-function-bodies"]),
 			]
 		),
-		.testTarget(
-			name: "DSPTests",
-			dependencies: ["DSP"],
-			path: "DSP/Tests"
-		),
+        .testTarget(
+            name: "DSPTests",
+            dependencies: ["DSP"],
+            path: "DSP/Tests"
+        ),
+        .target(
+            name: "ESP",
+            dependencies: [
+                .product(name: "MUSE.Primitives", package: "MUSE"),
+                .product(name: "MUSE.Essentials", package: "MUSE"),
+                "NSP",
+            ],
+            path: "ESP/Sources",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
+        ),
+        .testTarget(
+            name: "ESPTests",
+            dependencies: ["ESP"],
+            path: "ESP/Tests"
+        ),
 		.target(
 			name: "NSP",
 			path: "NSP/Sources",
@@ -90,7 +108,7 @@ let package = Package(
 		),
 		.target(
 			name: "FSP",
-			dependencies: ["DSP"],
+			dependencies: ["DSP", "ESP"],
 			path: "FSP/Sources",
 			cSettings: [
 				.define("ACCELERATE_NEW_LAPACK"),
