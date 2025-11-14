@@ -5,6 +5,44 @@
 //  Created by Kota on 11/13/25.
 //
 #include<simd/simd.h>
+// MARK: 1
+typedef struct {
+    intptr_t const m;
+    double c;
+    double const lambda;
+    struct {
+        double d;
+        double Q;
+        double q;
+    } stage[1];
+} var1_t;
+__attribute__((overloadable))
+void var1(double const * __nonnull const, intptr_t const,
+          double       * __nonnull const, intptr_t const,
+          double const * __nonnull const,
+          double const * __nonnull const,
+          double * __nonnull const, // require stage + 1
+          intptr_t const, intptr_t const);
+__attribute__((overloadable))
+void var1(double const * __nonnull const, intptr_t const,
+          double       * __nonnull const, intptr_t const,
+          double const * __nonnull const, intptr_t const,
+          double const * __nonnull const, intptr_t const,
+          double * __nonnull const, // require stage + 1
+          intptr_t const, intptr_t const);
+var1_t * __nonnull const var1_create(intptr_t const);
+void var1_destroy(var1_t * __nonnull const);
+void var1_reset(var1_t * __nonnull const, double const);
+void var1_lambda(var1_t * __nonnull const, double const);
+void var1_r(var1_t * __nonnull const,
+            double const * __nonnull const, intptr_t const,
+            double       * __nonnull const, intptr_t const,
+            intptr_t const);
+void var1_p(var1_t * __nonnull const,
+            double const * __nonnull const, intptr_t const,
+            double       * __nonnull const, intptr_t const,
+            double       * __nonnull const, intptr_t const,
+            intptr_t const);
 // MARK: 2
 typedef struct {
     intptr_t const m;

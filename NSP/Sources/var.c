@@ -24,6 +24,146 @@ static simd_double4x4 const eye4 = {.columns={
     {0,0,1,0},
     {0,0,0,1}
 }};
+// MARK: 1, forward and backward lsl
+__attribute__((overloadable))
+void var1(double const * __nonnull const X, intptr_t const ldX,
+          double       * __nonnull const Y, intptr_t const ldY,
+          double const * __nonnull const A,
+          double const * __nonnull const B,
+          double       * __nonnull const S,
+          intptr_t const stage, intptr_t const count) {
+    for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
+        register double f = X[t];
+        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
+            S[k] = fma(f = fma(-A[k], S[k+1], f), B[k], S[k+1]);
+        S[stage] = Y[t] = f;
+    }
+}
+__attribute__((overloadable))
+void var1(double const * __nonnull X, intptr_t const ldX,
+          double       * __nonnull Y, intptr_t const ldY,
+          double const * __nonnull A, intptr_t const ldA,
+          double const * __nonnull B, intptr_t const ldB,
+          double       * __nonnull const S,
+          intptr_t const stage, intptr_t const count) {
+    for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
+        register double f = *X;
+        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
+            S[k] = fma(f = fma(-A[k*ldA], S[k+1], f), B[k*ldB], S[k+1]);
+        S[stage] = *Y = f;
+    }
+}
+__attribute__((always_inline))
+var1_t * __nonnull const var1_create(intptr_t const m) {
+    var1_t * __nonnull const object = __malloc__(sizeof(var1_t const) + ( m - 1 ) * sizeof(*object->stage));
+    *(intptr_t*__nonnull const)&object->m = m;
+    var1_reset(object, 1);
+    return object;
+}
+__attribute__((always_inline))
+void var1_destroy(var1_t * __nonnull const object) {
+    __free__(object);
+}
+__attribute__((always_inline))
+void var1_reset(var1_t * __nonnull const object, double const scale) {
+    memset(object->stage, 0, object->m * sizeof(*object->stage));
+    object->c = simd_precise_recip(scale);
+}
+__attribute__((always_inline))
+void var1_lambda(var1_t * __nonnull const object, double const lambda) {
+    *(double*__nonnull const)&object->lambda = lambda;
+}
+__attribute__((always_inline))
+void var1_r(var1_t * __nonnull const object,
+            double const * __nonnull Y, intptr_t const ldY,
+            double       * __nonnull E, intptr_t const ldE,
+            intptr_t const length) {
+    register double const lambda = object->lambda;
+    register typeof(*object->stage) * __nonnull const stage = object->stage;
+    for ( register intptr_t t = 0, T = length ; t < T ; ++ t, ++ Y, ++ E ) {
+        register double
+        f = *Y,
+        r = object->c * f;
+        register double
+        // c ← ( c - outer(c • f, r • c) / ( lr + f • c • r ) ) / lr
+        F = (object->c - r * r / fma(f, r, lambda)) / lambda,
+        R = object->c = F;
+        r = f;
+        register double theta = 1;
+        for ( register intptr_t k = 0, K = object->m ; k < K ; ++ k ) {
+            register double const q = stage[k].q;
+            register double const Q = stage[k].Q;
+            // D ← λD + θ * outer(f, q)
+            stage[k].d = simd_dot((simd_double2 const) {lambda, theta}, (simd_double2 const) {stage[k].d, f * q});
+            stage[k].q = r;
+            stage[k].Q = R;
+            //
+            register double const
+            // b = -F • D
+            // a = -D • Q
+            b = -F * stage[k].d,
+            a = -stage[k].d * Q;
+            // R ← Q • inv(eye(1) + D.T • B • Q)
+            // F ← F • inv(eye(1) + A • D.T • F)
+            R = Q / fma(stage[k].d * b, Q, 1),
+            F = F / fma(a * stage[k].d, F, 1);
+            // r ← f • b + q
+            // f ← f + a • q
+            r = fma(f, b, q);
+            f = fma(q, a, f);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(q * Q * q, 0, 1), 1);
+        }
+        *E = f;
+    }
+}
+void var1_p(var1_t * __nonnull const object,
+            double const * __nonnull Y, intptr_t const ldY,
+            double       * __nonnull A, intptr_t const ldA,
+            double       * __nonnull B, intptr_t const ldB,
+            intptr_t const length) {
+    register double const lambda = object->lambda;
+    register typeof(*object->stage) * __nonnull const stage = object->stage;
+    for ( register intptr_t t = 0, T = length ; t < T ; ++ t, ++ Y, ++ A, ++ B ) {
+        register double
+        f = *Y,
+        r = object->c * f;
+        register double
+        // c ← ( c - outer(c • f, r • c) / ( lr + f • c • r ) ) / lr
+        F = (object->c - r * r / fma(f, r, lambda)) / lambda,
+        R = object->c = F;
+        r = f;
+        register double theta = 1;
+        for ( register intptr_t k = 0, K = object->m ; k < K ; ++ k ) {
+            register double const q = stage[k].q;
+            register double const Q = stage[k].Q;
+            // D ← λD + θ * outer(f, q)
+            stage[k].d = simd_dot((simd_double2 const) {lambda, theta}, (simd_double2 const) {stage[k].d, f * q});
+            stage[k].q = r;
+            stage[k].Q = R;
+            //
+            register double const
+            // b = -F • D
+            // a = -D • Q
+            b = -F * stage[k].d,
+            a = -stage[k].d * Q;
+            // R ← Q • inv(eye(1) + D.T • B • Q)
+            // F ← F • inv(eye(1) + A • D.T • F)
+            R = Q / fma(stage[k].d * b, Q, 1),
+            F = F / fma(a * stage[k].d, F, 1);
+            // r ← f • b + q
+            // f ← f + a • q
+            r = fma(f, b, q);
+            f = fma(q, a, f);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(q * Q * q, 0, 1), 1);
+            //
+            A[(K-k-1)*ldA] = a;
+            //
+            B[(K-k-1)*ldB] = b;
+        }
+    }
+}
 // MARK: 2
 __attribute__((overloadable))
 void var2(double const * __nonnull const X, intptr_t const ldX,
@@ -33,7 +173,7 @@ void var2(double const * __nonnull const X, intptr_t const ldX,
           simd_double2 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        simd_double2 f = {
+        register simd_double2 f = {
             X[t+0*ldX],
             X[t+1*ldY],
         };
@@ -52,7 +192,7 @@ void var2(double const * __nonnull X, intptr_t const ldX,
           simd_double2 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        simd_double2 f = {
+        register simd_double2 f = {
             X[0*ldX],
             X[1*ldY],
         };
@@ -131,8 +271,8 @@ void var2_r(var2_t * __nonnull const object,
             // f ← f + a • q
             r = simd_mul(f, b) + q;
             f = f + simd_mul(a, q);
-            // θ /= 1 - θ * • Q • q
-            theta /= fma(-theta, simd_dot(q, simd_mul(Q, q)), 1);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(simd_dot(q, simd_mul(Q, q)), 0, 1), 1);
         }
         E[0*ldE] = f[0];
         E[1*ldE] = f[1];
@@ -176,8 +316,8 @@ void var2_p(var2_t * __nonnull const object,
             // f ← f + a • q
             r = simd_mul(f, b) + q;
             f = f + simd_mul(a, q);
-            // θ /= 1 - θ * • Q • q
-            theta /= fma(-theta, simd_dot(q, simd_mul(Q, q)), 1);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(simd_dot(q, simd_mul(Q, q)), 0, 1), 1);
             //
             A[(4*(K-k-1)+0)*ldA] = a.columns[0][0];
             A[(4*(K-k-1)+1)*ldA] = a.columns[0][1];
@@ -200,7 +340,7 @@ void var3(double const * __nonnull const X, intptr_t const ldX,
           simd_double3 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        simd_double3 f = {
+        register simd_double3 f = {
             X[t+0*ldX],
             X[t+1*ldY],
             X[t+2*ldY],
@@ -221,7 +361,7 @@ void var3(double const * __nonnull X, intptr_t const ldX,
           simd_double3 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        simd_double3 f = {
+        register simd_double3 f = {
             X[0*ldX],
             X[1*ldY],
             X[2*ldY],
@@ -296,16 +436,16 @@ void var3_r(var3_t * __nonnull const object,
             // a = D • Q
             b = simd_mul(F, stage[k].d),
             a = simd_mul(stage[k].d, Q);
-            // R ← Q • inv(eye(2) - D.T • B • Q)
-            // F ← F • inv(eye(2) - A • D.T • F)
+            // R ← Q • inv(eye(3) - D.T • B • Q)
+            // F ← F • inv(eye(3) - A • D.T • F)
             R = simd_mul(Q, simd_inverse(simd_sub(eye3, simd_mul(simd_mul(simd_transpose(stage[k].d), b), Q)))),
             F = simd_mul(F, simd_inverse(simd_sub(eye3, simd_mul(simd_mul(a, simd_transpose(stage[k].d)), F))));
             // r ← f • b + q
             // f ← f + a • q
             r = simd_mul(f, b) + q;
             f = f + simd_mul(a, q);
-            // θ /= 1 - θ * • Q • q
-            theta /= fma(-theta, simd_dot(q, simd_mul(Q, q)), 1);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(simd_dot(q, simd_mul(Q, q)), 0, 1), 1);
         }
         E[0*ldE] = f[0];
         E[1*ldE] = f[1];
@@ -342,16 +482,16 @@ void var3_p(var3_t * __nonnull const object,
             // a = D • Q
             b = simd_mul(F, stage[k].d),
             a = simd_mul(stage[k].d, Q);
-            // R ← Q • inv(eye(2) - D.T • B • Q)
-            // F ← F • inv(eye(2) - A • D.T • F)
+            // R ← Q • inv(eye(3) - D.T • B • Q)
+            // F ← F • inv(eye(3) - A • D.T • F)
             R = simd_mul(Q, simd_inverse(simd_sub(eye3, simd_mul(simd_mul(simd_transpose(stage[k].d), b), Q)))),
             F = simd_mul(F, simd_inverse(simd_sub(eye3, simd_mul(simd_mul(a, simd_transpose(stage[k].d)), F))));
             // r ← f • b + q
             // f ← f + a • q
             r = simd_mul(f, b) + q;
             f = f + simd_mul(a, q);
-            // θ /= 1 - θ * • Q • q
-            theta /= fma(-theta, simd_dot(q, simd_mul(Q, q)), 1);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(simd_dot(q, simd_mul(Q, q)), 0, 1), 1);
             //
             A[(9*(K-k-1)+0)*ldA] = a.columns[0][0];
             A[(9*(K-k-1)+1)*ldA] = a.columns[0][1];
@@ -384,7 +524,7 @@ void var4(double const * __nonnull const X, intptr_t const ldX,
           simd_double4 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        simd_double4 f = {
+        register simd_double4 f = {
             X[t+0*ldX],
             X[t+1*ldY],
             X[t+2*ldY],
@@ -407,7 +547,7 @@ void var4(double const * __nonnull X, intptr_t const ldX,
           simd_double4 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        simd_double4 f = {
+        register simd_double4 f = {
             X[0*ldX],
             X[1*ldY],
             X[2*ldY],
@@ -486,16 +626,16 @@ void var4_r(var4_t * __nonnull const object,
             // a = D • Q
             b = simd_mul(F, stage[k].d),
             a = simd_mul(stage[k].d, Q);
-            // R ← Q • inv(eye(2) - D.T • B • Q)
-            // F ← F • inv(eye(2) - A • D.T • F)
+            // R ← Q • inv(eye(4) - D.T • B • Q)
+            // F ← F • inv(eye(4) - A • D.T • F)
             R = simd_mul(Q, simd_inverse(simd_sub(eye4, simd_mul(simd_mul(simd_transpose(stage[k].d), b), Q)))),
             F = simd_mul(F, simd_inverse(simd_sub(eye4, simd_mul(simd_mul(a, simd_transpose(stage[k].d)), F))));
             // r ← f • b + q
             // f ← f + a • q
             r = simd_mul(f, b) + q;
             f = f + simd_mul(a, q);
-            // θ /= 1 - θ * • Q • q
-            theta /= fma(-theta, simd_dot(q, simd_mul(Q, q)), 1);
+            // θ /= 1 - θ * q • Q • q
+            theta /= fma(-theta, simd_clamp(simd_dot(q, simd_mul(Q, q)), 0, 1), 1);
         }
         E[0*ldE] = f[0];
         E[1*ldE] = f[1];
@@ -542,7 +682,7 @@ void var4_p(var4_t * __nonnull const object,
             r = simd_mul(f, b) + q;
             f = f + simd_mul(a, q);
             // θ /= 1 - θ * • Q • q
-            theta /= fma(-theta, simd_dot(q, simd_mul(Q, q)), 1);
+            theta /= fma(-theta, simd_clamp(simd_dot(q, simd_mul(Q, q)), 0, 1), 1);
             //
             A[(0x10*(K-k-1)+0x0)*ldA] = a.columns[0][0];
             A[(0x10*(K-k-1)+0x1)*ldA] = a.columns[0][1];
@@ -772,7 +912,7 @@ void var_r(var_t * __nonnull const object,
                    q, &inc,
                    &zero,
                    r, &inc);
-            theta /= fma(-theta, ddot_(&n, q, &inc, r, &inc), 1);
+            theta /= fma(-theta, simd_clamp(ddot_(&n, q, &inc, r, &inc), 0, 1), 1);
             
             // b = -F • D
             dgemm_("N", "N",
@@ -949,7 +1089,6 @@ void var_p(var_t * __nonnull const object,
                    q, &inc,
                    &zero,
                    r, &inc);
-//            theta /= fma(-theta, simd_clamp(ddot_(&n, q, &inc, r, &inc), 0, 1), 1);
             theta /= fma(-theta, simd_clamp(ddot_(&n, q, &inc, r, &inc), 0, 1), 1);
             
             // b = -F • D
