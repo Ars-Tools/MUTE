@@ -23,6 +23,7 @@ module NSP {
 	header "gso.h"
 	header "dft.h"
     header "mix.h"
+    header "var.h"
 	header "savitzky-golay.h"
 	export *
 }
