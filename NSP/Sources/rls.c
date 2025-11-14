@@ -49,7 +49,7 @@ double const rls(rls_t * __nonnull const object,
 	intptr_t const N = object->n;
 	register double * __nonnull const p = object->p;
 	register double * __nonnull const k = object->k;
-	register double const lambda = object->lambda;
+	double const lambda = object->lambda;
 	dsymv_("U", &N,
 		   (double const[]){1.0},
 		   p, &N,
@@ -61,10 +61,16 @@ double const rls(rls_t * __nonnull const object,
 		  &gamma,
 		  k, &inc,
 		  p, &N);
-	double const sigma = simd_precise_recip(lambda);
-	for ( register intptr_t n = 0 ; n < N ; ++ n )
-		dscal_((intptr_t const[]){n+1}, &sigma, p + n * N, &inc);
-//		__vsdiv__(p + n * N, 1, lambda, p + n * N, 1, 1 + n);
+//	double const sigma = simd_precise_recip(lambda);
+//	for ( register intptr_t n = 0 ; n < N ; ++ n )
+//		dscal_((intptr_t const[]){n+1}, &sigma, p + n * N, &inc);
+    intptr_t info = 0;
+    dlascl_("U", &info, &info,
+            &lambda, (double const[]){1.0},
+            &N, &N,
+            p, &N,
+            &info);
+    assert(!info);
 	double const error = y - ddot_(&N, w, &ldw, x, &ldx);
 	double const delta = error * -gamma;
 	daxpy_(&N, &delta, k, &inc, w, &ldw);
