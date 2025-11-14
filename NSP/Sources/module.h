@@ -135,3 +135,72 @@ void __cbrt__(double const * __nonnull const x,
 			  intptr_t const length) {
 	vvcbrt(y, x, (int const[]){(int const)length});
 }
+// simd
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double2x2 simd_outer(simd_double2 const x) {
+    return (simd_double2x2 const) {
+        .columns = {
+            x.x * x,
+            x.y * x
+        }
+    };
+}
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double2x2 simd_outer(simd_double2 const x, simd_double2 const y) {
+    return (simd_double2x2 const) {
+        .columns = {
+            y.x * x,
+            y.y * x
+        }
+    };
+}
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double3x3 simd_outer(simd_double3 const x, simd_double3 const y) {
+    return (simd_double3x3 const) {
+        .columns = {
+            y.x * x,
+            y.y * x,
+            y.z * x
+        }
+    };
+}
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double4x4 simd_outer(simd_double4 const x, simd_double4 const y) {
+    return (simd_double4x4 const) {
+        .columns = {
+            y.x * x,
+            y.y * x,
+            y.z * x,
+            y.w * x
+        }
+    };
+}
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double2x2 simd_div(simd_double2x2 const x, double const y) {
+    return (simd_double2x2 const) {
+        .columns = {
+            x.columns[0] / y,
+            x.columns[1] / y,
+        }
+    };
+}
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double3x3 simd_div(simd_double3x3 const x, double const y) {
+    return (simd_double3x3 const) {
+        .columns = {
+            x.columns[0] / y,
+            x.columns[1] / y,
+            x.columns[2] / y,
+        }
+    };
+}
+__attribute__((always_inline, __overloadable__)) static inline
+simd_double4x4 simd_div(simd_double4x4 const x, double const y) {
+    return (simd_double4x4 const) {
+        .columns = {
+            x.columns[0] / y,
+            x.columns[1] / y,
+            x.columns[2] / y,
+        }
+    };
+}
