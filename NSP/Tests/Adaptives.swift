@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 8/15/R7.
 //
+import Foundation
 import Testing
 import Accelerate
 @testable import NSP
@@ -139,7 +140,7 @@ struct MATestCase {
 		let filter = rls_filter_create(2)
 		defer { rls_filter_destroy(filter) }
 		rls_filter_lambda(filter, 0.98)
-		let (x, y) = gen(r: 0.9, θ: 0.3333, ε: 0.1, count: 1_000)
+		let (x, y) = gen(r: 0.9, θ: 0.25, ε: 0.1, count: 1_000)
 		let source = Array(x)
 		let target = Array(y)
 		#expect(source.count == target.count)
@@ -270,4 +271,127 @@ struct GSO {
 //		print(vDSP.dot(result[0*count..<1*count].suffix(64), result[0*count..<1*count].suffix(64)))
 //		print(vDSP.dot(result[0*count..<1*count].suffix(64), result[1*count..<2*count].suffix(64)))
 	}
+}
+@Suite
+struct VAR {
+    @Test
+    func residual2() throws {
+        let x = repeatElement(-1.0 ... 1.0, count: 4096).map(Float64.random(in:))
+        let y = Array<Float64>(unsafeUninitializedCapacity: 2 * x.count) {
+            $0.initialize(repeating: .zero)
+            do {
+                let r = 0.95
+                let c = __cospi(0.25)
+                let a = -2 * r * c
+                let b = r * r
+                for k in (2..<x.count).lazy.map((0 * x.count).advanced(by:)) {
+                    $0[k] = Float64.random(in: -1 ... 1) - a * $0[k - 1] - b * $0[k - 2]
+                }
+            }
+            do {
+                let r = 0.95
+                let c = __cospi(0.75)
+                let a = -2 * r * c
+                let b = r * r
+                for k in (2..<x.count).lazy.map((1 * x.count).advanced(by:)) {
+                    $0[k] = Float64.random(in: -1 ... 1) - a * $0[k - 1] - b * $0[k - 2]
+                }
+            }
+            $1 = $0.count
+        }
+        try y.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/y.raw"))
+        let object = var2_create(2)
+        defer { var2_destroy(object) }
+        var2_lambda(object, 0.99)
+        let e = Array<Float64>(unsafeUninitializedCapacity: y.count) {
+            var2_r(object, y, x.count, $0.baseAddress.unsafelyUnwrapped, x.count, x.count)
+            $1 = $0.count
+        }
+        try e.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/e.raw"))
+        var a = Array<Float64>(repeating: .zero, count: 8 * x.count)
+        var b = Array<Float64>(repeating: .zero, count: 8 * x.count)
+        var2_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
+        print(stride(from: 0, to: 8 * x.count, by: x.count).map { a[$0 + x.count - 1] })
+        print(stride(from: 0, to: 8 * x.count, by: x.count).map { b[$0 + x.count - 1] })
+        var w = Array<SIMD2<Float64>>(repeating: .zero, count: 3)
+        var z = Array<Float64>(repeating: .zero, count: 2 * x.count)
+        var2(repeatElement(-1.0 ... 1.0, count: x.count * 2).map(Float64.random(in:)), x.count,
+             &z, x.count,
+             a, x.count,
+             b, x.count,
+             &w,
+             2, x.count)
+        try z.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/z.raw"))
+    }
+    @Test
+    func residual() throws {
+        let x = repeatElement(-1.0 ... 1.0, count: 1024).map(Float64.random(in:))
+        let y = Array<Float64>(unsafeUninitializedCapacity: 4 * x.count) {
+            $0.initialize(repeating: .zero)
+            do {
+                let r = 0.95
+                let c = __cospi(0.125)
+                let a = -2 * r * c
+                let b = r * r
+                for k in (2..<x.count).lazy.map((0 * x.count).advanced(by:)) {
+                    $0[k] = Float64.random(in: -1 ... 1) - a * $0[k - 1] - b * $0[k - 2]
+                }
+            }
+            do {
+                let r = 0.95
+                let c = __cospi(0.25)
+                let a = -2 * r * c
+                let b = r * r
+                for k in (2..<x.count).lazy.map((1 * x.count).advanced(by:)) {
+                    $0[k] = $0[k-x.count] - a * $0[k - 1] - b * $0[k - 2]
+                }
+            }
+            do {
+                let r = 0.95
+                let c = __cospi(0.5)
+                let a = -2 * r * c
+                let b = r * r
+                for k in (2..<x.count).lazy.map((2 * x.count).advanced(by:)) {
+                    $0[k] = $0[k-x.count] - a * $0[k - 1] - b * $0[k - 2]
+                }
+            }
+            do {
+                let r = 0.95
+                let c = __cospi(0.75)
+                let a = -2 * r * c
+                let b = r * r
+                for k in (2..<x.count).lazy.map((3 * x.count).advanced(by:)) {
+                    $0[k] = $0[k-x.count] - a * $0[k - 1] - b * $0[k - 2]
+                }
+            }
+            $1 = $0.count
+        }
+        try y.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/y.raw"))
+        let object = var_create(4, 4)
+        defer { var_destroy(object) }
+        var_lambda(object, 0.999)
+        let e = Array<Float64>(unsafeUninitializedCapacity: y.count) {
+            var_r(object, y, x.count, $0.baseAddress.unsafelyUnwrapped, x.count, x.count)
+            $1 = $0.count
+        }
+        try e.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/e.raw"))
+        var a = Array<Float64>(repeating: .zero, count: 16 * 4 * x.count)
+        var b = Array<Float64>(repeating: .zero, count: 16 * 4 * x.count)
+        var_p(object, y, x.count,
+              &a, x.count,
+              &b, x.count,
+              x.count)
+//        print(stride(from: 0, to: 64 * x.count, by: x.count).map { a[$0 + x.count - 1] })
+//        print(stride(from: 0, to: 64 * x.count, by: x.count).map { b[$0 + x.count - 1] })
+        var w = Array<Float64>(repeating: .zero, count: 4 * 5)
+        var z = Array<Float64>(repeating: .zero, count: 4 * x.count)
+        `var`(repeatElement(.zero, count: 3 * x.count) + x, x.count,
+              &z, x.count,
+              a, x.count,
+              b, x.count,
+              &w,
+              .none,
+              4, 4, x.count)
+        try z.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/z.raw"))
+    }
 }
