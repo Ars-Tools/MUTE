@@ -41,7 +41,7 @@ extension GenTest {
             y.maximize(dB: -6)
             let r = parcor(target: y[0], rls: 24, λ: 0.997)
             let x = uniform(in: -0.01 ... 0.01)
-            let z = filter(x, parcor: r)
+            let z = filter(x, stg: r)
             let bus = try Output.Direct(sampleRate: fs, source: clip(z, range: -1 ... 1))
             $0.append(bus)
         }
