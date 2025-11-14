@@ -22,6 +22,13 @@ extension Buffer {
 				  memory: memory,
 				  offset: offset)
 	}
+    public init(ro path: String, offset: Int = 0, period: Int) throws {
+        let memory = try Autorelease.Memory(ro: path)
+        self.init(stream: (memory.count - offset) / period / MemoryLayout<Float64>.stride,
+                  period: period,
+                  memory: memory,
+                  offset: offset)
+    }
 }
 extension Buffer {
 	public init(stream: Int, period: Int, offset: Int = 0, backing storage: String, release: Bool) throws {
