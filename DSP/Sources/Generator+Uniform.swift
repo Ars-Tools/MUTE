@@ -79,5 +79,5 @@ public func uniform(in range: some Collection<ClosedRange<Float64>>) -> some Str
 }
 @_disfavoredOverload
 public func uniform(in range: ClosedRange<Float64>...) -> some Stream {
-	uniform(in: range)
+    uniform(in: range.prefix(count: range.count), count: range.count)
 }
