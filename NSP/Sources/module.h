@@ -137,15 +137,6 @@ void __cbrt__(double const * __nonnull const x,
 }
 // simd
 __attribute__((always_inline, __overloadable__)) static inline
-simd_double2x2 simd_outer(simd_double2 const x) {
-    return (simd_double2x2 const) {
-        .columns = {
-            x.x * x,
-            x.y * x
-        }
-    };
-}
-__attribute__((always_inline, __overloadable__)) static inline
 simd_double2x2 simd_outer(simd_double2 const x, simd_double2 const y) {
     return (simd_double2x2 const) {
         .columns = {
@@ -201,6 +192,7 @@ simd_double4x4 simd_div(simd_double4x4 const x, double const y) {
             x.columns[0] / y,
             x.columns[1] / y,
             x.columns[2] / y,
+            x.columns[3] / y,
         }
     };
 }
