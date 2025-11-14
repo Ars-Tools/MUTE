@@ -227,4 +227,24 @@ struct DFTTestCase {
 //        print(Array(UnsafeBufferPointer(start: x, count: 2 * count)))
 //        print(Array(UnsafeBufferPointer(start: y, count: 2 * count)))
     }
+    @Test
+    func bdft_qr() throws {
+        let count = 16
+        let bdft = bdft_create(count)
+        defer { bdft_destroy(bdft) }
+        
+        let x = repeatElement(-1.0 ... 1.0, count: count).map(Float64.random(in:)).map(Complex128.init(floatLiteral:))
+        let X = Array<Complex128>(unsafeUninitializedCapacity: x.count) {
+            bdft_forward(bdft, .init(x), .init($0.baseAddress.unsafelyUnwrapped))
+            $1 = $0.count
+        }
+//        SparseMatrix_Complex_Double x = SparseConvertFromOpaque(object->prime[0]);
+//        SparseOpaqueFactorization_Complex_Double const qr = SparseFactor(SparseFactorizationQR, x);
+//        SparseOpaqueSubfactor_Complex_Double const l = SparseCreateSubfactor(SparseSubfactorQ, qr);
+//        SparseOpaqueSubfactor_Complex_Double const u = SparseCreateSubfactor(SparseSubfactorR, qr);
+//        SparseMultiply(l, (DenseVector_Complex_Double const) {
+//            .data = 0L,
+//            .count = 100
+//        });
+    }
 }
