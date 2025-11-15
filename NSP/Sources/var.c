@@ -33,10 +33,10 @@ void var1(double const * __nonnull const X, intptr_t const ldX,
           double       * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        register double f = X[t];
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = fma(f = fma(-A[k], S[k+1], f), B[k], S[k+1]);
-        S[stage] = Y[t] = f;
+        register double f = fma(-*A, *S, X[t]);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = fma(f = fma(-A[k], S[k], f), B[k], S[k]);
+        S[stage-1] = Y[t] = f;
     }
 }
 __attribute__((overloadable))
@@ -47,10 +47,10 @@ void var1(double const * __nonnull X, intptr_t const ldX,
           double       * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        register double f = *X;
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = fma(f = fma(-A[k*ldA], S[k+1], f), B[k*ldB], S[k+1]);
-        S[stage] = *Y = f;
+        register double f = fma(-*A, *S, *X);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = fma(f = fma(-A[k*ldA], S[k], f), B[k*ldB], S[k]);
+        S[stage-1] = *Y = f;
     }
 }
 __attribute__((always_inline))
@@ -173,13 +173,13 @@ void var2(double const * __nonnull const X, intptr_t const ldX,
           simd_double2 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        register simd_double2 f = {
+        register simd_double2 f = (simd_double2 const) {
             X[t+0*ldX],
             X[t+1*ldY],
-        };
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = S[k+1] + simd_mul(f -= simd_mul(A[k], S[k+1]), B[k]);
-        S[stage] = f;
+        } - simd_mul(*A, *S);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = S[k] + simd_mul(f -= simd_mul(A[k], S[k]), B[k]);
+        S[stage-1] = f;
         Y[t+0*ldY] = f[0];
         Y[t+1*ldY] = f[1];
     }
@@ -192,23 +192,28 @@ void var2(double const * __nonnull X, intptr_t const ldX,
           simd_double2 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        register simd_double2 f = {
+        register simd_double2 f = (simd_double2 const) {
             X[0*ldX],
             X[1*ldY],
-        };
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = S[k+1] + simd_mul(f -= simd_mul((simd_double2x2 const) {
+        } - simd_mul((simd_double2x2 const) {
+            .columns={
+                {A[0*ldA], A[1*ldA]},
+                {A[2*ldA], A[3*ldA]}
+            }
+        }, *S);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = S[k] + simd_mul(f -= simd_mul((simd_double2x2 const) {
                 .columns={
                     {A[(4*k+0)*ldA], A[(4*k+1)*ldA]},
                     {A[(4*k+2)*ldA], A[(4*k+3)*ldA]}
                 }
-            }, S[k+1]), (simd_double2x2 const) {
+            }, S[k]), (simd_double2x2 const) {
                 .columns={
                     {B[(4*k+0)*ldB], B[(4*k+1)*ldB]},
                     {B[(4*k+2)*ldB], B[(4*k+3)*ldB]}
                 }
             });
-        S[stage] = f;
+        S[stage-1] = f;
         Y[0*ldY] = f[0];
         Y[1*ldY] = f[1];
     }
@@ -340,14 +345,14 @@ void var3(double const * __nonnull const X, intptr_t const ldX,
           simd_double3 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        register simd_double3 f = {
+        register simd_double3 f = (simd_double3 const) {
             X[t+0*ldX],
             X[t+1*ldY],
             X[t+2*ldY],
-        };
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = S[k+1] + simd_mul(f -= simd_mul(A[k], S[k+1]), B[k]);
-        S[stage] = f;
+        } - simd_mul(*A, *S);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = S[k] + simd_mul(f -= simd_mul(A[k], S[k]), B[k]);
+        S[stage-1] = f;
         Y[t+0*ldY] = f[0];
         Y[t+1*ldY] = f[1];
         Y[t+2*ldY] = f[2];
@@ -361,26 +366,32 @@ void var3(double const * __nonnull X, intptr_t const ldX,
           simd_double3 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        register simd_double3 f = {
+        register simd_double3 f = (simd_double3 const) {
             X[0*ldX],
             X[1*ldY],
             X[2*ldY],
-        };
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = S[k+1] + simd_mul(f -= simd_mul((simd_double3x3 const) {
+        } - simd_mul((simd_double3x3 const) {
+            .columns={
+                {A[0*ldA], A[1*ldA], A[2*ldA]},
+                {A[3*ldA], A[4*ldA], A[5*ldA]},
+                {A[6*ldA], A[7*ldA], A[8*ldA]},
+            }
+        }, *S);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = S[k] + simd_mul(f -= simd_mul((simd_double3x3 const) {
                 .columns={
                     {A[(9*k+0)*ldA], A[(9*k+1)*ldA], A[(9*k+2)*ldA]},
                     {A[(9*k+3)*ldA], A[(9*k+4)*ldA], A[(9*k+5)*ldA]},
                     {A[(9*k+6)*ldA], A[(9*k+7)*ldA], A[(9*k+8)*ldA]},
                 }
-            }, S[k+1]), (simd_double3x3 const) {
+            }, S[k]), (simd_double3x3 const) {
                 .columns={
                     {B[(9*k+0)*ldB], B[(9*k+1)*ldB], B[(9*k+2)*ldB]},
                     {B[(9*k+3)*ldB], B[(9*k+4)*ldB], B[(9*k+5)*ldB]},
                     {B[(9*k+6)*ldB], B[(9*k+7)*ldB], B[(9*k+8)*ldB]},
                 }
             });
-        S[stage] = f;
+        S[stage-1] = f;
         Y[0*ldY] = f[0];
         Y[1*ldY] = f[1];
         Y[2*ldY] = f[2];
@@ -524,15 +535,15 @@ void var4(double const * __nonnull const X, intptr_t const ldX,
           simd_double4 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t ) {
-        register simd_double4 f = {
+        register simd_double4 f = (simd_double4 const) {
             X[t+0*ldX],
             X[t+1*ldY],
             X[t+2*ldY],
             X[t+3*ldY],
-        };
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = S[k+1] + simd_mul(f -= simd_mul(A[k], S[k+1]), B[k]);
-        S[stage] = f;
+        } - simd_mul(*A, *S);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = S[k] + simd_mul(f -= simd_mul(A[k], S[k]), B[k]);
+        S[stage-1] = f;
         Y[t+0*ldY] = f[0];
         Y[t+1*ldY] = f[1];
         Y[t+2*ldY] = f[2];
@@ -547,21 +558,28 @@ void var4(double const * __nonnull X, intptr_t const ldX,
           simd_double4 * __nonnull const S,
           intptr_t const stage, intptr_t const count) {
     for ( register intptr_t t = 0, T = count ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        register simd_double4 f = {
+        register simd_double4 f = (simd_double4 const) {
             X[0*ldX],
             X[1*ldY],
             X[2*ldY],
             X[3*ldY],
-        };
-        for ( register intptr_t k = 0, K = stage ; k < K ; ++ k )
-            S[k] = S[k+1] + simd_mul(f -= simd_mul((simd_double4x4 const) {
+        } - simd_mul((simd_double4x4 const) {
+            .columns={
+                {A[0x0*ldA], A[0x1*ldA], A[0x2*ldA], A[0x3*ldA]},
+                {A[0x4*ldA], A[0x5*ldA], A[0x6*ldA], A[0x7*ldA]},
+                {A[0x8*ldA], A[0x9*ldA], A[0xa*ldA], A[0xb*ldA]},
+                {A[0xc*ldA], A[0xd*ldA], A[0xe*ldA], A[0xf*ldA]},
+            }
+        }, *S);
+        for ( register intptr_t k = 1, K = stage ; k < K ; ++ k )
+            S[k-1] = S[k] + simd_mul(f -= simd_mul((simd_double4x4 const) {
                 .columns={
                     {A[(0x10*k+0x0)*ldA], A[(0x10*k+0x1)*ldA], A[(0x10*k+0x2)*ldA], A[(0x10*k+0x3)*ldA]},
                     {A[(0x10*k+0x4)*ldA], A[(0x10*k+0x5)*ldA], A[(0x10*k+0x6)*ldA], A[(0x10*k+0x7)*ldA]},
                     {A[(0x10*k+0x8)*ldA], A[(0x10*k+0x9)*ldA], A[(0x10*k+0xa)*ldA], A[(0x10*k+0xb)*ldA]},
                     {A[(0x10*k+0xc)*ldA], A[(0x10*k+0xd)*ldA], A[(0x10*k+0xe)*ldA], A[(0x10*k+0xf)*ldA]},
                 }
-            }, S[k+1]), (simd_double4x4 const) {
+            }, S[k]), (simd_double4x4 const) {
                 .columns={
                     {B[(0x10*k+0x0)*ldB], B[(0x10*k+0x1)*ldB], B[(0x10*k+0x2)*ldB], B[(0x10*k+0x3)*ldB]},
                     {B[(0x10*k+0x4)*ldB], B[(0x10*k+0x5)*ldB], B[(0x10*k+0x6)*ldB], B[(0x10*k+0x7)*ldB]},
@@ -569,7 +587,7 @@ void var4(double const * __nonnull X, intptr_t const ldX,
                     {B[(0x10*k+0xc)*ldB], B[(0x10*k+0xd)*ldB], B[(0x10*k+0xe)*ldB], B[(0x10*k+0xf)*ldB]},
                 }
             });
-        S[stage] = f;
+        S[stage-1] = f;
         Y[0*ldY] = f[0];
         Y[1*ldY] = f[1];
         Y[2*ldY] = f[2];
