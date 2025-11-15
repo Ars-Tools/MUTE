@@ -745,31 +745,40 @@ void var(double const * __nonnull X, intptr_t const ldX,
          double       * __nonnull Y, intptr_t const ldY,
          double const * __nonnull const A, intptr_t const ldA, intptr_t const lmA,
          double const * __nonnull const B, intptr_t const ldB, intptr_t const lmB,
-         double       * __nonnull const Z, // require size * stage + 1
+         double       * __nonnull const Z, // require size * stage
          intptr_t const n, intptr_t const m, intptr_t const length) {
     static intptr_t const inc = 1;
     static double const minus = -1, plus = 1;
+    if ( X != Y || ldX != ldY )
+        for ( register intptr_t k = 0, K = n ; k < K ; ++ k )
+            dcopy_(&length, X + k * ldX, &inc, Y + k * ldY, &inc);
     for ( register intptr_t t = 0, T = length ; t < T ; ++ t, ++ X, ++ Y ) {
-        dcopy_(&n, X, &ldX, Y, &ldY);
-        for ( register intptr_t k = 0, K = m ; k < K ; ++ k ) {
-            // f ← f - a • r[k+1]
+        dgemv_("N",
+               &n, &n,
+               &minus,
+               A, &ldA,
+               Z, &inc,
+               &plus,
+               Y, &ldY);
+        for ( register intptr_t k = 1, K = m ; k < K ; ++ k ) {
+            // f ← f - a • r[k]
             dgemv_("N",
                    &n, &n,
                    &minus,
                    A + k * lmA, &ldA,
-                   Z + k * n + n, &inc,
+                   Z + k * n, &inc,
                    &plus,
                    Y, &ldY);
-            // r[k] ← f • b + r[k+1]
+            // r[k-1] ← f • b + r[k]
             dgemv_("T",
                    &n, &n,
                    &plus,
                    B + k * lmB, &ldB,
                    Y, &ldY,
                    &plus,
-                   memcpy(Z + k * n, Z + k * n + n, n * sizeof(double const)), &inc);
+                   memcpy(Z + k * n - n, Z + k * n, n * sizeof(double const)), &inc);
         }
-        dcopy_(&n, Y, &ldY, Z + m * n, &inc);
+        dcopy_(&n, Y, &ldY, Z + m * n - n, &inc);
     }
 }
 __attribute__((overloadable))
@@ -777,16 +786,27 @@ void var(double const * __nonnull X, intptr_t const ldX,
          double       * __nonnull Y, intptr_t const ldY,
          double const * __nonnull A, intptr_t const ldA,
          double const * __nonnull B, intptr_t const ldB,
-         double       * __nonnull const Z, // require size * stage + 1
+         double       * __nonnull const Z, // require size * stage
          double       * __nullable const W, // require size * size
          intptr_t const n, intptr_t const m, intptr_t const length) {
     static intptr_t const inc = 1;
     static double const minus = -1, plus = 1;
+    if ( X != Y || ldX != ldY )
+        for ( register intptr_t k = 0, K = n ; k < K ; ++ k )
+            dcopy_(&length, X + k * ldX, &inc, Y + k * ldY, &inc);
     if ( !W )
         *(double const*__nullable*__nonnull const)&W = alloca(n * n * sizeof(double const));
     for ( register intptr_t t = 0, T = length ; t < T ; ++ t, ++ X, ++ Y, ++ A, ++ B ) {
-        dcopy_(&n, X, &ldX, Y, &ldY);
-        for ( register intptr_t k = 0, K = m ; k < K ; ++ k ) {
+        for ( register intptr_t c = 0, C = n ; c < C ; ++ c )
+            dcopy_(&n, A + c * n * ldA, &ldA, W + c * n, &inc);
+        dgemv_("N",
+               &n, &n,
+               &minus,
+               W, &n,
+               Z, &inc,
+               &plus,
+               Y, &ldY);
+        for ( register intptr_t k = 1, K = m ; k < K ; ++ k ) {
             // f ← f - a • r[k+1]
             for ( register intptr_t c = 0, C = n ; c < C ; ++ c )
                 dcopy_(&n, A + ( k * n + c ) * n * ldA, &ldA, W + c * n, &inc);
@@ -794,10 +814,10 @@ void var(double const * __nonnull X, intptr_t const ldX,
                    &n, &n,
                    &minus,
                    W, &n,
-                   Z + k * n + n, &inc,
+                   Z + k * n, &inc,
                    &plus,
                    Y, &ldY);
-            // r[k] ← f • b + r[k+1]
+            // r[k-1] ← f • b + r[k]
             for ( register intptr_t c = 0, C = n ; c < C ; ++ c )
                 dcopy_(&n, B + ( k * n + c ) * n * ldB, &ldB, W + c * n, &inc);
             dgemv_("T",
@@ -806,9 +826,9 @@ void var(double const * __nonnull X, intptr_t const ldX,
                    W, &n,
                    Y, &ldY,
                    &plus,
-                   memcpy(Z + k * n, Z + k * n + n, n * sizeof(double const)), &inc);
+                   memcpy(Z + k * n - n, Z + k * n, n * sizeof(double const)), &inc);
         }
-        dcopy_(&n, Y, &ldY, Z + m * n, &inc);
+        dcopy_(&n, Y, &ldY, Z + m * n - n, &inc);
     }
 }
 var_t * __nonnull const var_create(intptr_t const n, intptr_t const m) {

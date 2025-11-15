@@ -21,14 +21,14 @@ void var1(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           double const * __nonnull const,
           double const * __nonnull const,
-          double * __nonnull const, // require stage + 1
+          double * __nonnull const, // require stage
           intptr_t const, intptr_t const);
 __attribute__((overloadable))
 void var1(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
-          double * __nonnull const, // require stage + 1
+          double * __nonnull const, // require stage
           intptr_t const, intptr_t const);
 var1_t * __nonnull const var1_create(intptr_t const);
 void var1_destroy(var1_t * __nonnull const);
@@ -59,14 +59,14 @@ void var2(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           simd_double2x2 const * __nonnull const,
           simd_double2x2 const * __nonnull const,
-          simd_double2 * __nonnull const, // require stage + 1
+          simd_double2 * __nonnull const,
           intptr_t const, intptr_t const);
 __attribute__((overloadable))
 void var2(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
-          simd_double2 * __nonnull const, // require stage + 1
+          simd_double2 * __nonnull const,
           intptr_t const, intptr_t const);
 var2_t * __nonnull const var2_create(intptr_t const);
 void var2_destroy(var2_t * __nonnull const);
@@ -97,14 +97,14 @@ void var3(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           simd_double3x3 const * __nonnull const,
           simd_double3x3 const * __nonnull const,
-          simd_double3 * __nonnull const, // require stage + 1
+          simd_double3 * __nonnull const, // require stage
           intptr_t const, intptr_t const);
 __attribute__((overloadable))
 void var3(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
-          simd_double3 * __nonnull const, // require stage + 1
+          simd_double3 * __nonnull const, // require stage
           intptr_t const, intptr_t const);
 var3_t * __nonnull const var3_create(intptr_t const);
 void var3_destroy(var3_t * __nonnull const);
@@ -135,14 +135,14 @@ void var4(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           simd_double4x4 const * __nonnull const,
           simd_double4x4 const * __nonnull const,
-          simd_double4 * __nonnull const, // require stage + 1
+          simd_double4 * __nonnull const, // require stage
           intptr_t const, intptr_t const);
 __attribute__((overloadable))
 void var4(double const * __nonnull const, intptr_t const,
           double       * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
           double const * __nonnull const, intptr_t const,
-          simd_double4 * __nonnull const, // require stage + 1
+          simd_double4 * __nonnull const, // require stage
           intptr_t const, intptr_t const);
 var4_t * __nonnull const var4_create(intptr_t const);
 void var4_destroy(var4_t * __nonnull const);
@@ -184,14 +184,14 @@ void var(double const * __nonnull const, intptr_t const,
          double       * __nonnull const, intptr_t const,
          double const * __nonnull const, intptr_t const, intptr_t const,
          double const * __nonnull const, intptr_t const, intptr_t const,
-         double       * __nonnull const, // require size * stage + 1
+         double       * __nonnull const, // require size * stage
          intptr_t const, intptr_t const, intptr_t const); // size, stage, length
 __attribute__((overloadable))
 void var(double const * __nonnull const, intptr_t const,
          double       * __nonnull const, intptr_t const,
          double const * __nonnull const, intptr_t const,
          double const * __nonnull const, intptr_t const,
-         double       * __nonnull const, // require size * stage + 1
+         double       * __nonnull const, // require size * stage
          double       * __nullable const,
          intptr_t const, intptr_t const, intptr_t const); // size, stage, length
 var_t * __nonnull const var_create(intptr_t const, intptr_t const);
