@@ -1161,7 +1161,7 @@ void var_p(var_t * __nonnull const object,
                    &one,
                    f, &inc);
             
-            // F ← F • inv(eye(n) + A • D.T • F) = solve(eye(2) + F.T • D • A.T, F) = solve((eye(n) + (A • D.T) • F).T, F)
+            // F ← F • inv(eye(n) + A • D.T • F) = solve(eye(n) + F.T • D • A.T, F) = solve((eye(n) + (A • D.T) • F).T, F)
             dgemm_("N", "T",
                    &n, &n, &n,
                    &one,
