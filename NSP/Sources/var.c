@@ -1111,7 +1111,7 @@ void var_p(var_t * __nonnull const object,
                    &one,
                    memcpy(r, q, n * sizeof(double const)), &inc);
             
-            // R ← Q • inv(eye(2) + D.T • B • Q) = solve(eye(n) + Q.T • B.T • D, Q) = solve((eye(n) + (D.T • B) • Q).T, Q)
+            // R ← Q • inv(eye(n) + D.T • B • Q) = solve(eye(n) + Q.T • B.T • D, Q) = solve((eye(n) + (D.T • B) • Q).T, Q)
             dgemm_("T", "N",
                    &n, &n, &n,
                    &one,
