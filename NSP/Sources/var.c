@@ -673,8 +673,8 @@ void var4_p(var4_t * __nonnull const object,
             // a = D • Q
             b = simd_mul(F, stage[k].d),
             a = simd_mul(stage[k].d, Q);
-            // R ← Q • inv(eye(2) - D.T • B • Q)
-            // F ← F • inv(eye(2) - A • D.T • F)
+            // R ← Q • inv(eye(4) - D.T • B • Q)
+            // F ← F • inv(eye(4) - A • D.T • F)
             R = simd_mul(Q, simd_inverse(simd_sub(eye4, simd_mul(simd_mul(simd_transpose(stage[k].d), b), Q)))),
             F = simd_mul(F, simd_inverse(simd_sub(eye4, simd_mul(simd_mul(a, simd_transpose(stage[k].d)), F))));
             // r ← f • b + q
@@ -857,7 +857,7 @@ void var_r(var_t * __nonnull const object,
     register intptr_t * __nonnull const p = object->p;
     for ( register intptr_t t = 0, T = length ; t < T ; ++ t, ++ Y, ++ E ) {
         intptr_t info = 0;
-        // c ← ( A - outer(x, x) / σ ) / λ
+        // c ← ( c - outer(x, x) / σ ) / λ
         dcopy_(&n, Y, &ldY, f, &inc);
         dsymv_("L",
                &n,
@@ -932,7 +932,7 @@ void var_r(var_t * __nonnull const object,
                    &one,
                    memcpy(r, q, n * sizeof(double const)), &inc);
             
-            // R ← Q • inv(eye(2) + D.T • B • Q) = solve(eye(2) + Q.T • B.T • D, Q) = solve((eye(n) + (D.T • B) • Q).T, Q)
+            // R ← Q • inv(eye(n) + D.T • B • Q) = solve(eye(n) + Q.T • B.T • D, Q) = solve((eye(n) + (D.T • B) • Q).T, Q)
             dgemm_("T", "N",
                    &n, &n, &n,
                    &one,
@@ -980,7 +980,7 @@ void var_r(var_t * __nonnull const object,
                    &one,
                    f, &inc);
             
-            // F ← F • inv(eye(n) + A • D.T • F) = solve(eye(2) + F.T • D • A.T, F) = solve((eye(n) + (A • D.T) • F).T, F)
+            // F ← F • inv(eye(n) + A • D.T • F) = solve(eye(n) + F.T • D • A.T, F) = solve((eye(n) + (A • D.T) • F).T, F)
             dgemm_("N", "T",
                    &n, &n, &n,
                    &one,
@@ -1034,7 +1034,7 @@ void var_p(var_t * __nonnull const object,
     register intptr_t * __nonnull const p = object->p;
     for ( register intptr_t t = 0, T = length ; t < T ; ++ t, ++ Y, ++ A, ++ B ) {
         intptr_t info = 0;
-        // c ← ( A - outer(x, x) / σ ) / λ
+        // c ← ( c - outer(x, x) / σ ) / λ
         dcopy_(&n, Y, &ldY, f, &inc);
         dsymv_("L",
                &n,
