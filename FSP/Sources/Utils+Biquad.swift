@@ -56,10 +56,9 @@ func roots(response: some AccelerateBuffer<Complex128>, frequency: some Accelera
             table[j, k] = distance(p, z)
         }
     }
-    let pair = zip(z.dropFirst(c), p.dropFirst(c)) + Graph.Match(table: table).map {
+    return zip(z.dropFirst(c), p.dropFirst(c)) + Graph.Match(table: table).map {
         (z[$0.y], p[$0.x])
     }
-    return pair
 }
 @inlinable
 public func fit(response: some AccelerateBuffer<Complex128>, frequency: some AccelerateBuffer<Float64>, with sos: Int) -> Array<(SIMD3<Float64>, SIMD3<Float64>)> {
@@ -254,8 +253,8 @@ public func peq(frequency: Array<Float64>,
         }
         assert(result.flatMap(\.shape).map(\.intValue) == [1, count, count])
         for major in 0..<epoch.major {
-            for minor in 0..<epoch.minor {
-                kernel.runAsync(with: queue.unsafelyUnwrapped, inputs: [], results: .none, executionDescriptor: .none)
+            for queue in repeatElement(queue, count: epoch.minor).lazy.compactMap(\.self) {
+                kernel.runAsync(with: queue, inputs: [], results: .none, executionDescriptor: .none)
             }
             kernel.run(with: queue.unsafelyUnwrapped, inputs: [], results: .some(result), executionDescriptor: .none)
             board(major, status)
@@ -340,10 +339,10 @@ public func peq(frequency: some AccelerateBuffer<Float64>,
     let c = graph.multiplication(graph.constant(2.0, dataType: .float32), graph.cos(with: ω, name: .none), name: "2.0*cos(πω)")
     
     let b₀ = graph.addition(graph.constant(1, dataType: .float32), graph.multiplication(s, σ, name: .none), name: "1+0.5*sin(πω)*A/Q")
-    let b₁ = graph.negative(with: c, name: "-2.0*cos(2πω)")
+    let b₁ = graph.negative(with: c, name: "-2.0*cos(πω)")
     let b₂ = graph.subtraction(graph.constant(1, dataType: .float32), graph.multiplication(s, σ, name: .none), name: "1-0.5*sin(πω)*A/Q")
     let a₀ = graph.addition(graph.constant(1, dataType: .float32), graph.multiplication(s, λ, name: .none), name: "1+0.5*sin(πω)/A/Q")
-    let a₁ = graph.negative(with: c, name: "-2.0*cos(2πω)")
+    let a₁ = graph.negative(with: c, name: "-2.0*cos(πω)")
     let a₂ = graph.subtraction(graph.constant(1, dataType: .float32), graph.multiplication(s, λ, name: .none), name: "1-0.5*sin(πω)/A/Q")
     
     let b = graph.division(graph.concatTensors([b₀, b₁, b₂], dimension: 0, name: .none), a₀, name: "B")
@@ -394,8 +393,8 @@ public func peq(frequency: some AccelerateBuffer<Float64>,
     
     let update = [
         graph.assign(lnω, tensor: graph.satuarte(tensor: nlnω, in: -.infinity ... 0), name: .none),
-        graph.assign(lnQ, tensor: graph.satuarte(tensor: nlnQ, in: -3 ... 3), name: .none),
-        graph.assign(lnA, tensor: graph.satuarte(tensor: nlnA, in: -3 ... 3), name: .none),
+        graph.assign(lnQ, tensor: graph.satuarte(tensor: nlnQ, in: -.pi ... .pi), name: .none),
+        graph.assign(lnA, tensor: graph.satuarte(tensor: nlnA, in: -.pi ... .pi), name: .none),
     ]
     
     let kernel = graph.compile(with: queue.map(\.device).map(MPSGraphDevice.init(mtlDevice:)),
@@ -424,10 +423,11 @@ public func peq(frequency: some AccelerateBuffer<Float64>,
     }
     assert(result.flatMap(\.shape).map(\.intValue) == [1, count, count, initial.count, initial.count, initial.count])
     for major in 0..<epoch.major {
-        for minor in 0..<epoch.minor {
-            kernel.runAsync(with: queue.unsafelyUnwrapped, inputs: [], results: .none, executionDescriptor: .none)
+        for queue in repeatElement(queue, count: epoch.minor).lazy.compactMap(\.self) {
+            kernel.runAsync(with: queue, inputs: [], results: .none, executionDescriptor: .none)
         }
-        kernel.run(with: queue.unsafelyUnwrapped, inputs: [], results: .some(result), executionDescriptor: .none)
+        guard case.some(let queue) = queue else { continue }
+        kernel.run(with: queue, inputs: [], results: .some(result), executionDescriptor: .none)
         board(major, status)
     }
     return zip(UnsafeBufferPointer(start: status[3].contents().assumingMemoryBound(to: Float32.self), count: initial.count),
