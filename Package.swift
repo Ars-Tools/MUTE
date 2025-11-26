@@ -13,7 +13,18 @@ let package = Package(
         .library(
             name: "MUTE.ASP",
             targets: ["ASP"]
-		),
+		),.library(
+            name: "MUTE.BSP",
+            targets: ["BSP"]
+        ),
+        .library(
+            name: "MUTE.DSP",
+            targets: ["DSP"]
+        ),
+        .library(
+            name: "MUTE.FSP",
+            targets: ["FSP"]
+        ),
     ],
 	dependencies: [
 		.package(url: "https://github.com/ars-tools/muce", branch: "release"),
@@ -124,6 +135,22 @@ let package = Package(
 			],
 			path: "FSP/Tests"
 		),
+        .target(
+            name: "GSP",
+            dependencies: ["ESP"],
+            path: "GSP/Sources",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
+        ),
+        .testTarget(
+            name: "GSPTests",
+            dependencies: [
+                "GSP",
+            ],
+            path: "GSP/Tests"
+        ),
 		// Symbolic OPS
 		.target(
 			name: "MIDI",
