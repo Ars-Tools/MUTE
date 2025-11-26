@@ -275,6 +275,79 @@ struct GSO {
 @Suite
 struct VAR {
     @Test
+    func est1() throws {
+        let count = 1024
+        let x = repeatElement(-1.0 ... 1.0, count: count).map(Float64.random(in:))
+        let y = Array<Float64>(unsafeUninitializedCapacity: count + 2) {
+            var1(x, count,
+                 $0.baseAddress.unsafelyUnwrapped, count,
+                 [0.9, -0.5],
+                 [0.9, -0.5],
+                 $0.baseAddress.unsafelyUnwrapped.advanced(by: count),
+                 2, count)
+            $1 = count
+        }
+        let object = var1_create(2)
+        defer { var1_destroy(object) }
+        var1_lambda(object, 0.99)
+        var a = Array<Float64>(repeating: .zero, count: 2 * count)
+        var b = Array<Float64>(repeating: .zero, count: 2 * count)
+        var1_p(object,
+               y, count,
+               &a, count,
+               &b, count,
+               count)
+        print(stride(from: 0, to: 2 * count, by: count).map { a[$0 + count - 1] })
+        print(stride(from: 0, to: 2 * count, by: count).map { b[$0 + count - 1] })
+    }
+    @Test
+    func est2() throws {
+        var state = Array<SIMD2<Float64>>(repeating: .zero, count: 2)
+        let count = 4096
+        let x = repeatElement(-1.0 ... 1.0, count: 2 * count).map(Float64.random(in:))
+        let y = Array<Float64>(unsafeUninitializedCapacity: 2 * count) {
+            var2(x, count,
+                 $0.baseAddress.unsafelyUnwrapped, count,
+                 [simd_double2x2(columns: (SIMD2(-0.2, -0.2), SIMD2(0.6, 0.1))),
+                  simd_double2x2(columns: (SIMD2(0.3, 0.5), SIMD2(-0.1, 0.7)))],
+                 [simd_double2x2(columns: (SIMD2(-0.2, -0.2), SIMD2(0.6, 0.1))),
+                  simd_double2x2(columns: (SIMD2(0.3, 0.5), SIMD2(-0.1, 0.7)))],
+                 &state,
+                 2, count)
+            $1 = $0.count
+        }
+        try y.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/y.raw"))
+        let object = var2_create(2)
+        defer { var2_destroy(object) }
+        var2_lambda(object, 0.9997)
+        var a = Array<Float64>(repeating: .zero, count: 8 * count)
+        var b = Array<Float64>(repeating: .zero, count: 8 * count)
+        var2_p(object,
+               y, count,
+               &a, count,
+               &b, count,
+               count)
+        print("A", stride(from: 0, to: 8 * count, by: count).map { a[$0 + count - 1] })
+        print("B", stride(from: 0, to: 8 * count, by: count).map { b[$0 + count - 1] })
+        let z = Array<Float64>(unsafeUninitializedCapacity: 2 * count) {
+            var2(x, count,
+                 $0.baseAddress.unsafelyUnwrapped, count,
+                 a, count,
+                 b, count,
+                 &state,
+                 2, count)
+            $1 = $0.count
+        }
+        try z.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/z.raw"))
+        var2_p(object,
+               z, count,
+               &a, count,
+               &b, count,
+               count)
+        print("A", stride(from: 0, to: 8 * count, by: count).map { a[$0 + count - 1] })
+        print("B", stride(from: 0, to: 8 * count, by: count).map { b[$0 + count - 1] })
+    }
+    @Test
     func`1`() throws {
         let x = repeatElement(-1.0 ... 1.0, count: 1024).map(Float64.random(in:))
         let y = Array<Float64>(unsafeUninitializedCapacity: x.count) {
@@ -304,7 +377,7 @@ struct VAR {
         var1_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
         print(stride(from: 0, to: 2 * 1 * x.count, by: x.count).map { a[$0 + x.count - 1] })
         print(stride(from: 0, to: 2 * 1 * x.count, by: x.count).map { b[$0 + x.count - 1] })
-        var w = Array<Float64>(repeating: .zero, count: 3)
+        var w = Array<Float64>(repeating: .zero, count: object.pointee.m)
         var z = Array<Float64>(repeating: .zero, count: x.count)
         var1(x, x.count,
              &z, x.count,
@@ -353,7 +426,7 @@ struct VAR {
         var2_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
         print(stride(from: 0, to: 8 * x.count, by: x.count).map { a[$0 + x.count - 1] })
         print(stride(from: 0, to: 8 * x.count, by: x.count).map { b[$0 + x.count - 1] })
-        var w = Array<SIMD2<Float64>>(repeating: .zero, count: 3)
+        var w = Array<SIMD2<Float64>>(repeating: .zero, count: object.pointee.m)
         var z = Array<Float64>(repeating: .zero, count: 2 * x.count)
         var2(repeatElement(-1.0 ... 1.0, count: x.count * 2).map(Float64.random(in:)), x.count,
              &z, x.count,
@@ -411,7 +484,7 @@ struct VAR {
         var3_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
         print(stride(from: 0, to: 2 * 9 * x.count, by: x.count).map { a[$0 + x.count - 1] })
         print(stride(from: 0, to: 2 * 9 * x.count, by: x.count).map { b[$0 + x.count - 1] })
-        var w = Array<SIMD3<Float64>>(repeating: .zero, count: 3)
+        var w = Array<SIMD3<Float64>>(repeating: .zero, count: object.pointee.m)
         var z = Array<Float64>(repeating: .zero, count: 3 * x.count)
         var3(repeatElement(-1.0 ... 1.0, count: x.count * 3).map(Float64.random(in:)), x.count,
              &z, x.count,
@@ -478,7 +551,7 @@ struct VAR {
         var4_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
         print(stride(from: 0, to: 2 * 16 * x.count, by: x.count).map { a[$0 + x.count - 1] })
         print(stride(from: 0, to: 2 * 16 * x.count, by: x.count).map { b[$0 + x.count - 1] })
-        var w = Array<SIMD4<Float64>>(repeating: .zero, count: 3)
+        var w = Array<SIMD4<Float64>>(repeating: .zero, count: object.pointee.m)
         var z = Array<Float64>(repeating: .zero, count: 4 * x.count)
         var4(repeatElement(-1.0 ... 1.0, count: x.count * 4).map(Float64.random(in:)), x.count,
              &z, x.count,
@@ -554,7 +627,7 @@ struct VAR {
         var_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
         print(stride(from: 0, to: 2 * 25 * x.count, by: x.count).map { a[$0 + x.count - 1] })
         print(stride(from: 0, to: 2 * 25 * x.count, by: x.count).map { b[$0 + x.count - 1] })
-        var w = Array<Float64>(repeating: .zero, count: 5 * 3)
+        var w = Array<Float64>(repeating: .zero, count: 5 * object.pointee.m)
         var z = Array<Float64>(repeating: .zero, count: 5 * x.count)
         `var`(repeatElement(-1.0 ... 1.0, count: x.count * 5).map(Float64.random(in:)), x.count,
               &z, x.count,
@@ -562,7 +635,47 @@ struct VAR {
               b, x.count,
               &w,
               .none,
-              5, 2, x.count)
+              5, object.pointee.m, x.count)
+        try z.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/z.raw"))
+    }
+    @Test
+    func dep() throws {
+        let x = repeatElement(-1.0 ... 1.0, count: 1024).map(Float64.random(in:))
+        let y = Array<Float64>(unsafeUninitializedCapacity: 2 * x.count) {
+            $0.initialize(repeating: .zero)
+            let r = 0.95
+            let c = __cospi(0.25)
+            let a = -2 * r * c
+            let b = r * r
+            for k in 2..<x.count {
+                $0[k] = x[k] - a * $0[k - 1] - b * $0[k - 2]
+                $0[k+x.count] = $0[k]
+            }
+            $1 = $0.count
+        }
+        try y.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/y.raw"))
+        let object = var_create(2, 2)
+        defer { var_destroy(object) }
+        var_lambda(object, 0.99)
+        let e = Array<Float64>(unsafeUninitializedCapacity: y.count) {
+            var_r(object, y, x.count, $0.baseAddress.unsafelyUnwrapped, x.count, x.count)
+            $1 = $0.count
+        }
+        try e.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/e.raw"))
+        var a = Array<Float64>(repeating: .zero, count: 8 * x.count)
+        var b = Array<Float64>(repeating: .zero, count: 8 * x.count)
+        var_p(object, y, x.count, &a, x.count, &b, x.count, x.count)
+        print(stride(from: 0, to: 8 * x.count, by: x.count).map { a[$0 + x.count - 1] })
+        print(stride(from: 0, to: 8 * x.count, by: x.count).map { b[$0 + x.count - 1] })
+        var w = Array<Float64>(repeating: .zero, count: 4 * 3)
+        var z = Array<Float64>(repeating: .zero, count: 2 * x.count)
+        `var`(repeatElement(-1.0 ... 1.0, count: x.count * 2).map(Float64.random(in:)), x.count,
+             &z, x.count,
+             a, x.count,
+             b, x.count,
+             &w,
+              .none,
+             2, 2, x.count)
         try z.withUnsafeBufferPointer(Data.init(buffer:)).write(to: .init(filePath: "/tmp/z.raw"))
     }
 }
