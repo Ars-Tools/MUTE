@@ -168,10 +168,10 @@ extension LSL.Error: Stream {
 		}
 	}
 }
-public func parcor(target: Stream, rls order: Int, λ: some Publisher<Float64, Never> & Sendable) -> some Stream {
+public func kernel(target: Stream, rls order: Int, λ: some Publisher<Float64, Never> & Sendable) -> some Stream {
 	LSL.PARCOR(y₀: target, λ: λ, count: order)
 }
-public func parcor(target: Stream, rls order: Int, λ: Float64) -> some Stream {
+public func kernel(target: Stream, rls order: Int, λ: Float64) -> some Stream {
 	LSL.PARCOR(y₀: target, λ: Just(λ), count: order)
 }
 public func residual(target: Stream, rls order: Int, λ: some Publisher<(Int, Float64), Never> & Sendable) -> some Stream {
