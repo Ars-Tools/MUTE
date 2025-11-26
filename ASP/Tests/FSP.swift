@@ -12,14 +12,14 @@ import FSP
 extension GenTest {
     @Test
     func cross() async throws {
-        try await scenario(time: .seconds(120)) {
+        try await scenario(time: .seconds(420)) {
             let (fs, y0) = try Buffer.Import(from: .init(filePath: "/tmp/10100_bgm_crows2mix.wav"))
             let (_, y1) = try Buffer.Import(from: .init(filePath: "/tmp/Double Snare Beat 01.caf"))
-            let k0 = kernel(target: y0[0][t], var: 12, λ: 0.9997)
-            let k1 = kernel(target: y1[0][t], var: 12, λ: 0.9997)
-            let r0 = residual(target: y0[0][t], var: 12, λ: 0.9997)
-            let r1 = residual(target: y1[0][t], var: 12, λ: 0.9997)
-            let z = filter(mix(r0, r1, ratio: 0.0), stg: mix(k0, k1, ratio: 1.0))
+            let k0 = kernel(target: y0[0][t], var: 12, λ: 0.9998)
+            let k1 = kernel(target: y1[0][t], var: 12, λ: 0.9998)
+            let r0 = residual(target: y0[0][t], var: 12, λ: 0.9998)
+            let r1 = residual(target: y1[0][t], var: 12, λ: 0.9998)
+            let z = filter(r0, stg: k1)
             let bus = try Output.Direct(sampleRate: fs, source: clip(z, range: -1 ... 1))
             $0.append(bus)
         }
@@ -37,8 +37,8 @@ extension GenTest {
     @Test
     func var2_r() async throws {
         try await scenario(time: .seconds(360)) {
-//            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/jyugyuzu_bgm_wvoice.wav"))
-            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/10100_bgm_crows2mix.wav"))
+            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/jyugyuzu_bgm_wvoice.wav"))
+//            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/10100_bgm_crows2mix.wav"))
             y.maximize(dB: -6)
             let r = residual(target: y, var: 42, λ: 0.99)
 //            let r = orthogonalize(y, λ: 0.9999)
@@ -63,9 +63,8 @@ extension GenTest {
     @Test
     func var2_conv() async throws {
         try await scenario(time: .seconds(120)) {
-            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/jyugyuzu_bgm_wvoice.wav"))
-//            let (_, z) = try Buffer.Import(from: .init(filePath: "/tmp/jyugyuzu_bgm_wvoice.wav"))
-//            let (_, z) = try Buffer.Import(from: .init(filePath: "/tmp/10100_bgm_crows2mix.wav"))
+//            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/jyugyuzu_bgm_wvoice.wav"), backing: "/tmp/backing.tmp")
+            let (fs, y) = try Buffer.Import(from: .init(filePath: "/tmp/10100_bgm_crows2mix.wav"), backing: "/tmp/backing.tmp")
             let r = kernel(target: y, var: 42, λ: 0.997)
             let x = uniform(in: -0.01 ... 0.01, -0.01 ... 0.01)
             let z = filter(x, var: r)

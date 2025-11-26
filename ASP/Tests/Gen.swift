@@ -161,7 +161,7 @@ struct GenTest {
 //		let z = buffer(y)
 //		let x2 = residual(target: e[0..<1], sgd: 8, μ: 1e-3)
 		let x2 = residual(target: e[0..<1], rls: 12, λ: 0.99)
-		let y = inject(parcor(target: e[0..<1], rls: 24, λ: Utils.forget(factor: 0.98, per: 1200))) {
+		let y = inject(kernel(target: e[0..<1], rls: 24, λ: Utils.forget(factor: 0.98, per: 1200))) {
 			let packet = zip(stride(from: 0, to: $3, by: $3).lazy.map($2.advanced(by:)), sequence(first: $1, next: \.self)).map(UnsafeMutableBufferPointer.init(start:count:))
 			let max = vDSP.maximum(packet.map(vDSP.maximum))
 			let min = vDSP.minimum(packet.map(vDSP.minimum))
@@ -172,7 +172,7 @@ struct GenTest {
 		}
 //		let x = residual(target: e[0..<1], sgd: 24, μ: 1e-2)
 //		let y = parcor(target: f[0..<1], sgd: 24, μ: 1e-2)
-		let z = filter(x, parcor: clip(y, range: -0.98 ... 0.98))
+		let z = filter(x, stg: clip(y, range: -0.98 ... 0.98))
         let a = filter(clip(x2, range: -1 ... 1), apf: 500, butterworth: 8000)
 //        let a = filter(clip(x2, range: -1 ... 1), lpf: 500, chebyshev1: 8000, ε: 0.05)
 		
