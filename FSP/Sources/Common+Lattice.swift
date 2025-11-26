@@ -95,22 +95,22 @@ extension Lattice.Ar: Stream {
 		}
 	}
 }
-public func filter(_ source: Stream, parcor pₙ: some Publisher<(Int, some Kernel<Float64>), Never> & Sendable, order: Int) -> some Stream {
+public func filter(_ source: Stream, stg pₙ: some Publisher<(Int, some Kernel<Float64>), Never> & Sendable, order: Int) -> some Stream {
 	Lattice.Kr(x₀: source, p₀: pₙ, order: order)
 }
-public func filter(_ source: Stream, parcor pₙ: some Publisher<some Kernel<Float64>, Never>, order: Int) -> some Stream {
-	filter(source, parcor: pₙ.repeat(count: source.count), order: order)
+public func filter(_ source: Stream, stg pₙ: some Publisher<some Kernel<Float64>, Never>, order: Int) -> some Stream {
+	filter(source, stg: pₙ.repeat(count: source.count), order: order)
 }
-public func filter(_ source: Stream, parcor pₙ: some Sequence<some Kernel<Float64>>, order: Int) -> some Stream {
-	filter(source, parcor: pₙ.prefix(count: source.count), order: order)
+public func filter(_ source: Stream, stg pₙ: some Sequence<some Kernel<Float64>>, order: Int) -> some Stream {
+	filter(source, stg: pₙ.prefix(count: source.count), order: order)
 }
-public func filter(_ source: Stream, parcor pₙ: some Kernel<Float64>) -> some Stream {
-	filter(source, parcor: `repeat`(pₙ, count: source.count), order: pₙ.count)
+public func filter(_ source: Stream, stg pₙ: some Kernel<Float64>) -> some Stream {
+	filter(source, stg: `repeat`(pₙ, count: source.count), order: pₙ.count)
 }
 @_disfavoredOverload
-public func filter(_ source: Stream, parcor pₙ: Float64...) -> some Stream {
-	filter(source, parcor: pₙ)
+public func filter(_ source: Stream, stg pₙ: Float64...) -> some Stream {
+	filter(source, stg: pₙ)
 }
-public func filter(_ source: Stream, parcor: Stream) -> some Stream {
+public func filter(_ source: Stream, stg parcor: Stream) -> some Stream {
 	Lattice.Ar(x₀: source, p₀: parcor)
 }
