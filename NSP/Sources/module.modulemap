@@ -24,7 +24,6 @@ module NSP {
 	header "dft.h"
     header "mix.h"
     header "var.h"
-	header "savitzky-golay.h"
 	export *
 }
 module AUExtension {
