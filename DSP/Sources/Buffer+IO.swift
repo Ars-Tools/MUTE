@@ -64,3 +64,8 @@ extension Buffer {
 		}
 	}
 }
+extension Stream {
+    public func render(to buffer: Buffer, interval: CMTime, capacity: Optional<Duration> = .none) throws {
+        
+    }
+}
