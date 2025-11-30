@@ -31,9 +31,8 @@ extension AVAudioFile {
 		let interval = CMTime(value: 1, timescale: .init(processingFormat.sampleRate))
 		let capacity = each.samples(for: interval)
 		let channels = Int(processingFormat.channelCount)
-		let kernel = try stream(interval: interval, capacity: capacity, instance: &instance)
-		let prefix = instance.prefix
-		let suffix = instance.suffix
+		let render = try stream(interval: interval, capacity: capacity, instance: &instance)
+		let commit = instance.commit
 		let period = duration.samples(for: interval)
 		try withUnsafeTemporaryAllocation(of: Float64.self, capacity: channels * capacity) {
 			guard let memory = $0.baseAddress else {
@@ -43,11 +42,10 @@ extension AVAudioFile {
 				throw Error.pcmBufferNotAllocated
 			}
 			while isOpen, framePosition < .init(period) {
-				let length = min(capacity, period - .init(framePosition))
+				let length = min(capacity, period &- .init(framePosition))
 				let moment = CMTimeMultiply(interval, multiplier: .init(framePosition))
-				prefix(moment: moment, length: length)
-				kernel(moment, length, memory, capacity)
-				suffix()
+                render(moment, length, memory, capacity)
+                commit(moment: moment, length: length)
 				target.frameLength = .init(length)
 				try write(from: target)
 			}
