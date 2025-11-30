@@ -78,6 +78,6 @@ extension CrossoverFilter.Kr: Stream {
         }
     }
 }
-public func filter(_ source: Stream, crossover: Array<Frequency>) -> some Stream {
-    CrossoverFilter.Kr(source: source, length: crossover.count, cutoff: crossover.enumerated().publisher.map(\.self))
+public func filter(_ source: Stream, xof: Array<Frequency>) -> some Stream {
+    CrossoverFilter.Kr(source: source, length: xof.count, cutoff: xof.enumerated().publisher.map(\.self))
 }
