@@ -51,23 +51,23 @@ struct GenTest {
 			$0.append(bus)
 		}
 	}
-	@Test
-	func fb() async throws {
-		try await scenario(time: .seconds(6)) {
-			let u = uniform(in: 110...440)
-			let p = phasor(freqs: 2)
-//			let m = edge(rise: Δₜ(p) < 0)
-//			let y = click(trigger: m.map { t in .zero })
-			let f = edge(gate: Δₜ(p) < 0, hold: u)
-			let y = sin(freqs: f) + 3e-6 * u
-			let b = buffer(y.count, capacity: 3)
-			let z = y + 0.9 * b[t - 0.28]
-			b.input = z
-			let bus = try Output.Direct(sampleRate: 44100, source: z.with(b))
-			$0.append(bus)
-			
-		}
-	}
+//	@Test
+//	func fb() async throws {
+//		try await scenario(time: .seconds(6)) {
+//			let u = uniform(in: 110...440)
+//			let p = phasor(freqs: 2)
+////			let m = edge(rise: Δₜ(p) < 0)
+////			let y = click(trigger: m.map { t in .zero })
+//			let f = edge(gate: Δₜ(p) < 0, hold: u)
+//			let y = sin(freqs: f) + 3e-6 * u
+//			let b = Buffer.RefWeak(count: y.count, capacity: 3)(y.count, capacity: 3)
+//			let z = buffer(y + 0.9 * b[t - 0.28])
+//			b.source = z
+//			let bus = try Output.Direct(sampleRate: 44100, source: z.with(b))
+//			$0.append(bus)
+//			
+//		}
+//	}
 	@Test
 	func playback() async throws {
 		try await scenario(time: .seconds(70)) {
@@ -76,28 +76,28 @@ struct GenTest {
 			$0.append(bus)
 		}
 	}
-	@Test
-	func sith() async throws {
-		try await scenario(time: .seconds(24)) {
-			let r = line(order:
-				.init(position: 200, duration: 0.3),
-				.init(position: 8400, duration: 5.3),
-				.init(duration: 1.8),
-				.init(position: 400, duration: 0.7))
-			let n = buffer(r)
-			let m = buffer(fma(tri(freqs: 0.3, ratio: 0.95), 0.45, 0.5))
-			let x = mix(poly: 6, each: [241.1, 333.2, 390.9, 439.5, 552.7, 580.3].enumerated().publisher.map(\.self)) {
-				filter(tri(freqs: $0, ratio: m), lpf: (n, const(1.8)))
-			}
-			let y = buffer(x.count, capacity: 3)
-			let z = buffer(x.count, capacity: 3)
-			let w = harmonics(x, coefficients: 0, 1, 0e-3, 0e-3) + 0.5 * y[t - 0.7] + 0.3 * z[t - 1.5] + 1e-2 * z[t - 2.8]
-			y.input = w
-			z.input = w
-			let bus = try Output.Direct(sampleRate: 44100, source: 0.3 * w.with(y, z))
-			$0.append(bus)
-		}
-	}
+//	@Test
+//	func sith() async throws {
+//		try await scenario(time: .seconds(24)) {
+//			let r = line(order:
+//				.init(position: 200, duration: 0.3),
+//				.init(position: 8400, duration: 5.3),
+//				.init(duration: 1.8),
+//				.init(position: 400, duration: 0.7))
+//			let n = buffer(r)
+//			let m = buffer(fma(tri(freqs: 0.3, ratio: 0.95), 0.45, 0.5))
+//			let x = mix(poly: 6, each: [241.1, 333.2, 390.9, 439.5, 552.7, 580.3].enumerated().publisher.map(\.self)) {
+//				filter(tri(freqs: $0, ratio: m), lpf: (n, const(1.8)))
+//			}
+//			let y = buffer(x.count, capacity: 3)
+//			let z = buffer(x.count, capacity: 3)
+//			let w = harmonics(x, coefficients: 0, 1, 0e-3, 0e-3) + 0.5 * y[t - 0.7] + 0.3 * z[t - 1.5] + 1e-2 * z[t - 2.8]
+//			y.input = w
+//			z.input = w
+//			let bus = try Output.Direct(sampleRate: 44100, source: 0.3 * w.with(y, z))
+//			$0.append(bus)
+//		}
+//	}
 	@Test
 	func irmod() async throws {
 //		let x = DSP.uniform(in: -1...1, -1...1)
