@@ -8,29 +8,25 @@ public protocol Effect: Sendable {
 	@inlinable func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws
 }
 @usableFromInline
-struct Affect<Target: Sequence<Effect> & Sendable> {
-	@usableFromInline let stream: Stream
-	@usableFromInline let effect: Target
+struct FX {
+    @usableFromInline let stream: Stream
+    @usableFromInline let effect: Array<Effect>
 }
-extension Affect: Stream {
-	@inlinable
-	var count: Int {
-		stream.count
-	}
-	@inlinable
-	func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
-		for effect in effect {
-			try effect(interval: interval, capacity: capacity, instance: &instance)
-		}
-		return try stream(interval: interval, capacity: capacity, instance: &instance)
-	}
+extension FX: Stream {
+    @inlinable
+    var count: Int {
+        stream.count
+    }
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        for effect in effect {
+            try effect(interval: interval, capacity: capacity, instance: &instance)
+        }
+        return try stream(interval: interval, capacity: capacity, instance: &instance)
+    }
 }
 extension Stream {
-	public func with(_ effect: some Sequence<Effect> & Sendable) -> some Stream {
-		Affect(stream: self, effect: effect)
-	}
-	@_disfavoredOverload
-	public func with(_ effect: Effect...) -> some Stream {
-		Affect(stream: self, effect: effect)
-	}
+    public func with(side effect: Effect...) -> some Stream {
+        FX(stream: self, effect: effect)
+    }
 }
