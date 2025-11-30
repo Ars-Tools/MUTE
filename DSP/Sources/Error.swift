@@ -14,12 +14,9 @@ enum Error: Swift.Error & Sendable {
 	case resourceConflict
 	case failedToAllocate(Any.Type)
 }
-/*
- He: without any arguments
- Ne: with constant arguments
- Kr: with control-rate arguments
- Ar: with audio-rate arguments
- Xe: special (like buffer)
- Rn: detect
- Og:
- */
+@usableFromInline
+enum TypedError<Root: Sendable>: Swift.Error, Sendable {
+    case resourceConflict(of: Root, interval: CMTime, capacity: Int)
+    case invalidProperty(of: Root, property: PartialKeyPath<Root> & Sendable)
+    case invalidChannel(of: Root, require: Int)
+}
