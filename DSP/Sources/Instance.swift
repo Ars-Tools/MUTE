@@ -12,29 +12,25 @@ public struct Context: Hashable, Sendable {
 	@usableFromInline let identity: ObjectIdentifier
 }
 public typealias Instance = Dictionary<Context, Sendable>
-public typealias Prefix = Array<@Sendable (CMTime, Int) -> Void>
-public typealias Suffix = Array<@Sendable () -> Void>
+public typealias Commit = Array<@Sendable (CMTime, Int) -> Void>
 extension Instance {
-	@inlinable
-	public var prefix: Prefix {
-		values.compactMap { $0 as?Prefix.Element }
-	}
-	@inlinable
-	public var suffix: Suffix {
-		values.compactMap { $0 as?Suffix.Element }
-	}
+    @inlinable
+    public var commit: Commit {
+        values.compactMap { $0 as?Commit.Element }
+    }
 }
-extension Collection where Self: Sendable, Element == Prefix.Element, Index: Strideable, Index.Stride: BinaryInteger {
-	public func callAsFunction(moment: CMTime, length: Int) {
-		DispatchQueue.concurrentPerform(iterations: count) {
-			self[startIndex.advanced(by: .init($0))](moment, length)
-		}
-	}
-}
-extension Collection where Self: Sendable, Element == Suffix.Element, Index: Strideable, Index.Stride: BinaryInteger {
-	public func callAsFunction() {
-		DispatchQueue.concurrentPerform(iterations: count) {
-			self[startIndex.advanced(by: .init($0))]()
-		}
-	}
+//extension Collection where Self: Sendable, Element == Prefix.Element, Index: Strideable, Index.Stride: BinaryInteger {
+//	public func callAsFunction(moment: CMTime, length: Int) {
+//		DispatchQueue.concurrentPerform(iterations: count) {
+//			self[startIndex.advanced(by: .init($0))](moment, length)
+//		}
+//	}
+//}
+extension Collection where Self: Sendable, Element == Commit.Element, Index: Strideable, Index.Stride: BinaryInteger {
+    @inlinable
+    public func callAsFunction(moment: CMTime, length: Int) {
+        DispatchQueue.concurrentPerform(iterations: count) {
+            self[startIndex.advanced(by: .init($0))](moment, length)
+        }
+    }
 }
