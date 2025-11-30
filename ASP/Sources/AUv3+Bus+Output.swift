@@ -91,15 +91,18 @@ extension Output.Direct: Output.`Protocol` {
 		let capacity = Int(ownerAudioUnit.maximumFramesToRender)
 		var instance = [:] as DSP.Instance
 		let source = try source(interval: interval, capacity: capacity, instance: &instance)
-		let prefix = instance.prefix
-		let suffix = instance.suffix
+		let commit = instance.commit
 		system = ownerAudioUnit.token { [index] in
 			guard $3 == index else { return }
 			switch $0 {
 			case.unitRenderAction_PreRender:
-				prefix(moment: CMTimeMultiplyByFloat64(interval, multiplier: $1.pointee.mSampleTime), length: .init($2))
+				break
 			case.unitRenderAction_PostRender:
-				suffix()
+                let moment = CMTimeMultiplyByFloat64(interval, multiplier: $1.pointee.mSampleTime)
+                let length = Int($2)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    commit(moment: moment, length: length)
+                }
 			default:
 				break
 			}
@@ -243,8 +246,7 @@ extension Output.WithConverter: Output.`Protocol` {
 		let capacity = Int(fma(factor, .init(ownerAudioUnit.maximumFramesToRender), 0.5))
 		var instance = [:] as DSP.Instance
 		let source = try source(interval: interval, capacity: capacity, instance: &instance)
-		let prefix = instance.prefix
-		let suffix = instance.suffix
+		let commit = instance.commit
 		let buffer = switch AVAudioPCMBuffer(pcmFormat: scheme.inputFormat,
 											 length: capacity,
 											 target: .allocate(capacity: .init(scheme.inputFormat.channelCount) * capacity) as UnsafeMutablePointer<Float64>,
@@ -259,9 +261,13 @@ extension Output.WithConverter: Output.`Protocol` {
 			guard $3 == index else { return }
 			switch $0 {
 			case.unitRenderAction_PreRender:
-				prefix(moment: CMTimeMultiplyByFloat64(interval, multiplier: $1.pointee.mSampleTime), length: .init($2))
+				break
 			case.unitRenderAction_PostRender:
-				suffix()
+                let moment = CMTimeMultiplyByFloat64(interval, multiplier: $1.pointee.mSampleTime)
+                let length = Int($2)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    commit(moment: moment, length: length)
+                }
 			default:
 				break
 			}
