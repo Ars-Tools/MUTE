@@ -15,7 +15,7 @@ void periodic_lookup_with_static(register double const * __nonnull const x,
 //	vDSP_vsmulD(y, 1, (double const[]){(double const)period}, z, 1, length);
 	for ( register double const * const _ = z + length ; z < _ ; ++ z, ++ y ) {
 		register double const r = modf(*y, z);
-		register simd_long2 const q = ((((simd_long2 const){0, 1} + (long const)*z) % period + period) % period);
+		register simd_long2 const q = (((simd_long2 const){0, 1} + (long const)*z) % period + period) % period;
 		*z = simd_mix(x[q.x], x[q.y], r);
 	}
 }
