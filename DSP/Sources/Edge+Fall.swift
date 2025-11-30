@@ -61,7 +61,7 @@ extension Edge.Fall.Xe: Effect {
 				guard let memory = $0.baseAddress else { return }
 				kernel(moment, length, memory, length)
 			}
-		} as Prefix.Element, forKey: .init(interval: interval, capacity: capacity, identity: .init(notify))) else {
+		} as Commit.Element, forKey: .init(interval: interval, capacity: capacity, identity: .init(notify))) else {
 			throw Error.invalidContext
 		}
 	}
