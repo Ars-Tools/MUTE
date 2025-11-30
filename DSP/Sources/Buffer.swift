@@ -32,17 +32,23 @@ extension Buffer {
 		offset = 0
 	}
 }
-extension Buffer {
-	public protocol `Protocol`: Sendable {
-		@inlinable var count: Int { get }
-		@inlinable func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int) -> Buffer
-	}
+extension Buffer: Buffer.Object {
+    @inlinable
+    public var count: Int {
+        stream
+    }
+    @inlinable
+    public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int) -> Buffer {
+        { moment, length in self }
+    }
 }
 extension Buffer: RandomAccessCollection {
 //	public typealias Element = Float64
 	public typealias Index = Int
+    @inlinable
 	public var startIndex: Int { 0 }
-	public var endIndex: Int { count }
+    @inlinable
+	public var endIndex: Int { stream }
     @inlinable
 	public subscript(position: Int) -> Buffer {
         self[position...position, 0...]
@@ -101,20 +107,6 @@ extension Buffer {
 		try body(memory.start.advanced(by: offset).assumingMemoryBound(to: Float64.self))
 	}
 }
-extension Buffer: Buffer.`Protocol` {
-    @inlinable@_transparent
-	public var count: Int {
-		stream
-	}
-    @inlinable@_transparent
-	public var reference: Self {
-		self
-	}
-    @inlinable@_transparent
-	public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int) -> Buffer {
-		{ moment, length in self }
-	}
-}
 extension Buffer: DSP.Stream {
     @inlinable@_transparent
 	public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
@@ -139,14 +131,14 @@ extension Buffer {
 		assert([(0, cursor), (length, period)].allSatisfy(<=))
 		let source = start
 		let base = cursor % period
-		let head = base..<Swift.min(base + length,  period)
-		let tail = 0..<Swift.max(0, base + length - period)
-		DSP.copy(x: source.advanced(by: head.lowerBound), ldx: period,
+        let head = Swift.min(length, period - base)
+        let tail = Swift.max(0, base + length - period)
+		DSP.copy(x: source.advanced(by: base), ldx: period,
 				 y: target, ldy: stride,
-				 rows: stream, cols: head.count)
+				 rows: stream, cols: head)
 		DSP.copy(x: source, ldx: period,
-				 y: target.advanced(by: head.count), ldy: stride,
-				 rows: stream, cols: tail.count)
+				 y: target.advanced(by: head), ldy: stride,
+				 rows: stream, cols: tail)
 	}
 }
 extension Buffer {
@@ -155,41 +147,51 @@ extension Buffer {
 		assert([(0, cursor), (length, period)].allSatisfy(<=))
 		let target = start
 		let base = cursor % period
-		let head = base..<Swift.min(base + length,  period)
-		let tail = 0..<Swift.max(0, base + length - period)
+        let head = Swift.min(length, period - base)
+        let tail = Swift.max(0, base + length - period)
 		DSP.copy(x: source, ldx: stride,
-				 y: target.advanced(by: head.lowerBound), ldy: period,
-				 rows: stream, cols: head.count)
-		DSP.copy(x: source.advanced(by: head.count), ldx: stride,
+				 y: target.advanced(by: base), ldy: period,
+				 rows: stream, cols: head)
+		DSP.copy(x: source.advanced(by: head), ldx: stride,
 				 y: target, ldy: period,
-				 rows: stream, cols: tail.count)
+				 rows: stream, cols: tail)
 	}
 }
 // Direct Storing
 extension Buffer {
-    @inlinable@_transparent
+    @inlinable@inline(__always)@_transparent
 	public func copy(cursor: Int, length: Int, source: (UnsafeMutablePointer<Float64>, Int) -> Void) {
+        assertionFailure("deprecated")
 		assert([(0, cursor), (length, period)].allSatisfy(<=))
-		let target = start
-		switch cursor % period {
-		case let base where base + length < period:
-			source(target.advanced(by: base), period)
-		case let base:
-			let head = base..<Swift.min(base + length,  period)
-			let tail = 0..<Swift.max(0, base + length - period)
-			withUnsafeTemporaryAllocation(of: Float64.self, capacity: stream * length) {
-				vDSP.clear(&$0[0..<$0.count])
-				guard let memory = $0.baseAddress else { return }
-				source(memory, length)
-				DSP.copy(x: memory, ldx: length,
-						 y: target.advanced(by: head.lowerBound), ldy: period,
-						 rows: stream, cols: head.count)
-				DSP.copy(x: memory.advanced(by: head.count), ldx: length,
-						 y: target, ldy: period,
-						 rows: stream, cols: tail.count)
-			}
-		}
+        withUnsafeTemporaryAllocation(of: Float64.self, capacity: stream * length) {
+            guard let memory = $0.baseAddress else { return }
+            source(memory, length)
+            let target = start
+            let base = cursor % period
+            let head = Swift.min(length, period - base - 0)
+            let tail = Swift.max(0, base + length - period)
+            DSP.copy(x: memory, ldx: length,
+                     y: target.advanced(by: base), ldy: period,
+                     rows: stream, cols: head)
+            DSP.copy(x: memory.advanced(by: head), ldx: length,
+                     y: target, ldy: period,
+                     rows: stream, cols: tail)
+        }
 	}
+    @inlinable@inline(__always)@_transparent
+    public func copy(cursor: Int, length: Int, source: (Int, Int, UnsafeMutablePointer<Float64>, Int) -> Void) {
+        assert([(0, cursor), (length, period)].allSatisfy(<=))
+        let bank = start
+        let base = cursor % period
+        let head = Swift.min(length, period - base - 0)
+        let tail = Swift.max(0, base + length - period)
+        if 0 < head {
+            source(   0, head, bank.advanced(by: base), period)
+        }
+        if 0 < tail {
+            source(head, tail, bank.advanced(by:    0), period)
+        }
+    }
 }
 // Feed
 extension Buffer {
@@ -220,11 +222,11 @@ extension Buffer {
     public func flush(cursor: Int, length: Int) {
         let source = start
         let base = cursor % period
-        let head = base..<Swift.min(base + length,  period)
-        let tail = 0..<Swift.max(0, base + length - period)
+        let head = Swift.min(length, period - base)
+        let tail = Swift.max(0, base + length - period)
         for cursor in Swift.stride(from: source, to: source.advanced(by: stream * period), by: period) {
-            vDSP_vclrD(cursor.advanced(by: head.lowerBound), 1, .init(head.count))
-            vDSP_vclrD(cursor, 1, .init(tail.count))
+            vDSP_vclrD(cursor.advanced(by: base), 1, .init(head))
+            vDSP_vclrD(cursor, 1, .init(tail))
         }
     }
     @inlinable@_transparent
@@ -232,19 +234,19 @@ extension Buffer {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let source = start
         let base = cursor % period
-        let head = base..<Swift.min(base + length,  period)
-        let tail = 0..<Swift.max(0, base + length - period)
+        let head = Swift.min(length, period - base)
+        let tail = Swift.max(0, base + length - period)
         for offset in 0..<stream {
             let source = source.advanced(by: offset * period)
             let target = target.advanced(by: offset * stride)
             vDSP_vmulD(window, 1,
-                       source.advanced(by: head.lowerBound), 1,
+                       source.advanced(by: base), 1,
                        target, 1,
-                       .init(head.count))
-            vDSP_vmulD(window.advanced(by: head.count), 1,
+                       .init(head))
+            vDSP_vmulD(window.advanced(by: head), 1,
                        source, 1,
-                       target.advanced(by: head.count), 1,
-                       .init(tail.count))
+                       target.advanced(by: head), 1,
+                       .init(tail))
         }
     }
     @inlinable@_transparent // OLA
@@ -252,21 +254,21 @@ extension Buffer {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let target = start
         let base = cursor % period
-        let head = base..<Swift.min(base + length,  period)
-        let tail = 0..<Swift.max(0, base + length - period)
+        let head = Swift.min(length, period - base)
+        let tail = Swift.max(0, base + length - period)
         for offset in 0..<stream {
             let source = source.advanced(by: offset * stride)
             let target = target.advanced(by: offset * period)
             vDSP_vmaD(window, 1,
                       source, 1,
-                      target.advanced(by: head.lowerBound), 1,
-                      target.advanced(by: head.lowerBound), 1,
-                      .init(head.count))
-            vDSP_vmaD(window.advanced(by: head.count), 1,
-                      source.advanced(by: head.count), 1,
+                      target.advanced(by: base), 1,
+                      target.advanced(by: base), 1,
+                      .init(head))
+            vDSP_vmaD(window.advanced(by: head), 1,
+                      source.advanced(by: head), 1,
                       target, 1,
                       target, 1,
-                      .init(tail.count))
+                      .init(tail))
         }
     }
     @inlinable@_transparent // mix(buffer, source, weight)
@@ -274,21 +276,21 @@ extension Buffer {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let target = start
         let base = cursor % period
-        let head = base..<Swift.min(base + length,  period)
-        let tail = 0..<Swift.max(0, base + length - period)
+        let head = Swift.min(length, period - base)
+        let tail = Swift.max(0, base + length - period)
         for offset in 0..<stream {
             let source = source.advanced(by: offset * stride)
             let target = target.advanced(by: offset * period)
-            mix_linear(target.advanced(by: head.lowerBound),
+            mix_linear(target.advanced(by: base),
                        source,
                        weight,
-                       target.advanced(by: head.lowerBound),
-                       head.count)
+                       target.advanced(by: base),
+                       head)
             mix_linear(target,
-                       source.advanced(by: head.count),
-                       weight.advanced(by: head.count),
+                       source.advanced(by: head),
+                       weight.advanced(by: head),
                        target,
-                       tail.count)
+                       tail)
 //            vDSP_vmsbD(weight, 1,
 //                       target.advanced(by: head.lowerBound), 1,
 //                       target.advanced(by: head.lowerBound), 1,
