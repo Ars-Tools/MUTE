@@ -15,7 +15,7 @@ import typealias Numerics.Rational128
 @usableFromInline
 enum Timestretch {
     @usableFromInline
-    struct He<Source: Buffer.`Protocol`, Factor: RationalNumber> {
+    struct He<Source: Buffer.Object, Factor: RationalNumber> {
         @usableFromInline let source: Source
         @usableFromInline let factor: Factor
     }
@@ -28,24 +28,24 @@ extension Timestretch.He: Stream {
     @inlinable
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let count = count
-        let log2n = 14
+        let log2n = 13
         let frame = 1 << ( log2n - 0 )
-        let shift = 1 << ( log2n - 4 )
+        let shift = 1 << ( log2n - 3 )
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
         }
         let window = Array<Float64>(unsafeUninitializedCapacity: frame) {
             $1 = $0.count
             vDSP.clear(&$0)
-            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/4], isHalfWindow: false)
+            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/2], isHalfWindow: false)
         }
-        let stream = try source(interval: interval, capacity: capacity, instance: &instance)
+        let buffer = try source(interval: interval, capacity: capacity, instance: &instance)
         let target = Buffer(stream: count, period: capacity + frame)
         return { [factor] in
+            let source = buffer($0, $1)
             let cursor = $0.samples(for: interval)
-            let remain = cursor - cursor.quotientAndRemainder(dividingBy: shift).remainder
-            let offset = stride(from: remain, to: remain + $1, by: shift)
-            let source = stream($0, $1)
+            let remain = cursor + shift - 1
+            let offset = stride(from: remain - remain % shift, to: cursor + $1, by: shift)
             withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * count + 4 ) * frame) {
                 var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * count + 0 ) * frame),
                                               imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * count + 0 ) * frame))
@@ -92,6 +92,7 @@ extension Timestretch.He: Stream {
                                     .init(kFFTDirection_Inverse))
                     // merge
                     vDSP_vsdivD(z.realp, 1, withUnsafePointer(to: Float64(frame), \.self), z.realp, 1, .init(count * frame))
+//                    target.merge(cursor: offset, length: frame, window: window, source: z.realp, stride: frame)
                     target.blend(cursor: offset, length: frame, weight: window, source: z.realp, stride: frame)
                 }
             }
@@ -100,11 +101,11 @@ extension Timestretch.He: Stream {
         }
     }
 }
-public func timestretch(_ source: some Buffer.`Protocol`, rate factor: some RationalNumber) -> some Stream {
+public func timestretch(_ source: some Buffer.Object, rate factor: some RationalNumber) -> some Stream {
     Timestretch.He(source: source, factor: factor)
 }
 @_disfavoredOverload
-public func timestretch(_ source: some Buffer.`Protocol`, rate factor: Rational128) -> some Stream {
+public func timestretch(_ source: some Buffer.Object, rate factor: Rational128) -> some Stream {
     Timestretch.He(source: source, factor: factor)
 }
 extension Buffer {
