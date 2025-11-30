@@ -7,7 +7,7 @@
 import Testing
 import MetalPerformanceShadersGraph
 import typealias CoreMedia.CMTime
-import DSP
+@testable import DSP
 @Suite
 struct GeneratorTestCases {
 	@discardableResult
@@ -43,9 +43,10 @@ struct GeneratorTestCases {
 //				tri(freqs: $0, ratio: m)
 		}
 //			let y = tri(freqs: 330, ratio: 0.5)
-		let y = buffer(x.count, capacity: 5)
-		let z = x + 0.6 * y[t - 0.3]
-		y.input = z
-		try render(stream: z.with(y), interval: interval, capacity: 6.8, progress: 0.1, to: "/tmp/dump2")
+//        let (w, r) = buffer(2, capacity: 3)
+        
+//        let z = buffer(x + 0.6 * buffer(y, capacity: 1)[t - 0.3])
+//        y.source = z
+//        try render(stream: z.depends(on: x), interval: interval, capacity: 6.8, progress: 0.1, to: "/tmp/dump2")
 	}
 }
