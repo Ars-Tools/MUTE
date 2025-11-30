@@ -50,22 +50,15 @@ extension Buffer {
 	public func`import`(stream: DSP.Stream, interval: CMTime, capacity: Optional<Duration> = .none) throws {
 		var instance = Instance()
 		let length = capacity.map { $0.samples(for: interval) } ?? period
-		let kernel = try stream(interval: interval, capacity: length, instance: &instance)
-		let prefix = instance.prefix
-		let suffix = instance.suffix
+		let render = try stream(interval: interval, capacity: length, instance: &instance)
+		let commit = instance.commit
 		for cursor in stride(from: 0, to: period, by: length) {
-			prefix(moment: CMTimeMultiply(interval, multiplier: .init(cursor)),
-				   length: Swift.min(period - cursor, length))
-			kernel(CMTimeMultiply(interval, multiplier: .init(cursor)),
+            render(CMTimeMultiply(interval, multiplier: .init(cursor)),
 				   Swift.min(period - cursor, length),
 				   start.advanced(by: cursor),
 				   period)
-			suffix()
+            commit(moment: CMTimeMultiply(interval, multiplier: .init(cursor)),
+                   length: Swift.min(period - cursor, length))
 		}
 	}
-}
-extension Stream {
-    public func render(to buffer: Buffer, interval: CMTime, capacity: Optional<Duration> = .none) throws {
-        
-    }
 }
