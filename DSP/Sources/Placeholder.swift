@@ -8,6 +8,7 @@ import typealias Accelerate.vDSP
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import typealias Auxiliary.Autorelease
+import os.log
 public enum Placeholder {
     public struct Buffer {
         @usableFromInline let stream: Int
@@ -18,8 +19,9 @@ public enum Placeholder {
     public final class Memory: Identifiable, @unchecked Sendable {
         public let count: Int
         @usableFromInline let store: Mutex<Optional<(UnsafePointer<Float64>, Int)>>
-        init(count: Int) {
-            self.count = count
+        @inlinable
+        public init(stream: Int) {
+            count = stream
             store = .init(.none)
         }
     }
@@ -49,6 +51,7 @@ extension Placeholder.Memory: Stream {
                          y: $2, ldy: $3,
                          rows: count, cols: $1)
             case.none:
+                os_log(.error, "placeholder is empty")
                 for var target in fold(start: $2, count: $1, stream: count, period: $3) {
                     vDSP.clear(&target)
                 }
