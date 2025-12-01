@@ -18,11 +18,11 @@ public enum Placeholder {
     }
     public final class Memory: Identifiable, @unchecked Sendable {
         public let count: Int
-        @usableFromInline var store: Optional<(UnsafePointer<Float64>, Int)>
+        @usableFromInline let store: Mutex<Optional<(UnsafePointer<Float64>, Int)>>
         @inlinable
         public init(stream: Int) {
             count = stream
-            store = .none
+            store = .init(.none)
         }
     }
 }
@@ -33,7 +33,7 @@ extension Placeholder.Memory: Effect {
             break
         case.none:
             instance.updateValue({ [self] moment, length in
-                store = .none
+                store.withLock { $0 = .none }
             } as Commit.Element, forKey: .init(interval: interval, capacity: capacity, identity: id))
         case.some:
             throw TypedError.resourceConflict(of: self, interval: interval, capacity: capacity)
@@ -45,7 +45,7 @@ extension Placeholder.Memory: Stream {
     public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         try callAsFunction(interval: interval, capacity: capacity, instance: &instance) as Void
         return { [self] in
-            switch store {
+            switch store.withLock(\.self) {
             case.some((let memory, let stride)):
                 DSP.copy(x: memory, ldx: stride,
                          y: $2, ldy: $3,
@@ -62,7 +62,10 @@ extension Placeholder.Memory: Stream {
 extension Placeholder.Memory {
     @inlinable
     public func set(memory: UnsafePointer<Float64>, stride: Int) {
-        store = (memory, stride)
+        store.withLock(unsafeBitCast({
+            $0 = (memory, stride)
+        } as (inout Optional<(UnsafePointer<Float64>, Int)>) -> sending Void,
+                                     to: (@Sendable(inout Optional<(UnsafePointer<Float64>, Int)>) -> sending Void).self))
     }
 }
 extension Placeholder.Buffer {
