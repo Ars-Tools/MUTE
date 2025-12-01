@@ -4,20 +4,64 @@
 //
 //  Created by Kota on 12/1/25.
 //
+import typealias Accelerate.vDSP
+import typealias Synchronization.Atomic
+import typealias Synchronization.Mutex
 import typealias Auxiliary.Autorelease
 public enum Placeholder {
     public struct Buffer {
         @usableFromInline let stream: Int
+        @usableFromInline let period: Int
         @usableFromInline let offset: Int
-        @usableFromInline let length: Int
         @usableFromInline let buffer: Autorelease.Memory
     }
+    public final class Memory: Identifiable, @unchecked Sendable {
+        public let count: Int
+        @usableFromInline let store: Mutex<Optional<(UnsafePointer<Float64>, Int)>>
+        init(count: Int) {
+            self.count = count
+            store = .init(.none)
+        }
+    }
 }
+extension Placeholder.Memory: Effect {
+    public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws {
+        switch instance[.init(interval: interval, capacity: capacity, identity: id)] {
+        case.some(is Commit.Element):
+            break
+        case.none:
+            instance.updateValue({ [self] moment, length in
+                store.withLock { $0 = .none }
+            } as Commit.Element, forKey: .init(interval: interval, capacity: capacity, identity: id))
+        case.some:
+            throw TypedError.resourceConflict(of: self, interval: interval, capacity: capacity)
+        }
+    }
+}
+extension Placeholder.Memory: Stream {
+    @inlinable
+    public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        try callAsFunction(interval: interval, capacity: capacity, instance: &instance) as Void
+        return { [self] in
+            switch store.withLock(\.self) {
+            case.some((let memory, let stride)):
+                DSP.copy(x: memory, ldx: stride,
+                         y: $2, ldy: $3,
+                         rows: count, cols: $1)
+            case.none:
+                for var target in fold(start: $2, count: $1, stream: count, period: $3) {
+                    vDSP.clear(&target)
+                }
+            }
+        }
+    }
+}
+
 extension Placeholder.Buffer {
     @inlinable
     public init(stream: Int, length: Int) {
         self.stream = stream
-        self.length = length
+        period = length
         offset = 0
         buffer = .init(repeating: 0 as Float64, count: stream * length)
     }
@@ -30,9 +74,9 @@ extension Placeholder.Buffer {
 }
 extension Placeholder.Buffer {
     @inlinable
-    public func set(source: UnsafePointer<Float64>, stride: Int) {
+    public func set(source: UnsafePointer<Float64>, stride: Int, length: Int) {
         DSP.copy(x: source, ldx: stride,
-                 y: memory, ldy: length,
+                 y: memory, ldy: period,
                  rows: stream, cols: length)
     }
 }
@@ -44,9 +88,9 @@ extension Placeholder.Buffer: Stream {
     @inlinable
     public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         {
-            DSP.copy(x: memory, ldx: length,
+            DSP.copy(x: memory, ldx: period,
                      y: $2, ldy: $3,
-                     rows: stream, cols: length)
+                     rows: stream, cols: $1)
         }
     }
 }
@@ -62,8 +106,8 @@ extension Placeholder.Buffer: RandomAccessCollection {
     public subscript(bounds: some RangeExpression<Int>) -> Placeholder.Buffer {
         let bounds = bounds.relative(to: startIndex..<endIndex)
         return.init(stream: bounds.count,
-                    offset: offset + bounds.lowerBound * MemoryLayout<Float64>.stride,
-                    length: length,
+                    period: period,
+                    offset: offset + bounds.lowerBound * period * MemoryLayout<Float64>.stride,
                     buffer: buffer)
     }
 }
