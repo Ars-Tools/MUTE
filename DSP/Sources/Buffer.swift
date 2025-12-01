@@ -42,44 +42,10 @@ extension Buffer: Buffer.Object {
         { moment, length in self }
     }
 }
-extension Buffer: RandomAccessCollection {
-//	public typealias Element = Float64
-	public typealias Index = Int
-    @inlinable
-	public var startIndex: Int { 0 }
-    @inlinable
-	public var endIndex: Int { stream }
-    @inlinable
-	public subscript(position: Int) -> Buffer {
-        self[position...position, 0...]
-	}
-    @inlinable
-	public subscript(bounds: some RangeExpression<Int>) -> Buffer {
-        self[bounds, 0...]
-	}
-    @inlinable
-    public subscript(position: Int, sample: some RangeExpression<Int>) -> Buffer {
-        self[position...position, sample]
-    }
-    public subscript(bounds: some RangeExpression<Int>, sample: some RangeExpression<Int>) -> Buffer {
-        let bounds = bounds.relative(to: 0..<stream)
-        let sample = sample.relative(to: 0..<period)
-        precondition([bounds, sample].allSatisfy { !$0.isEmpty })
-        return.init(stream: bounds.count,
-                    period: period,
-                    memory: memory,
-                    offset: offset + (bounds.lowerBound * period + sample.lowerBound) * MemoryLayout<Float64>.stride)
-    }
-    @inlinable
-    public subscript(stream: Int, sample: Int) -> Float64 {
-        start[stream*period+sample]
-    }
-    @inlinable
-    public subscript(bounds: some RangeExpression<Int>, sample: Int) -> Array<Float64> {
-        stride(from: 0, to: stream * period, by: period)
-            .map(bounds.relative(to: 0..<stream).lowerBound.advanced(by:))
-            .map(start.advanced(by: sample).advanced(by:))
-            .map(\.pointee)
+extension Buffer {
+    @inlinable@_transparent
+    public var start: UnsafeMutablePointer<Float64> {
+        memory.start.advanced(by: offset).assumingMemoryBound(to: Float64.self)
     }
 }
 extension Buffer {
@@ -89,12 +55,6 @@ extension Buffer {
 		Swift.stride(from: 0, to: stream * period, by: period).lazy.map {
 			UnsafeMutableBufferPointer(start: start.advanced(by: $0), count: period)
 		}
-	}
-}
-extension Buffer {
-    @inlinable@_transparent
-	public var start: UnsafeMutablePointer<Float64> {
-		memory.start.advanced(by: offset).assumingMemoryBound(to: Float64.self)
 	}
 }
 extension Buffer {
@@ -131,7 +91,7 @@ extension Buffer {
 		assert([(0, cursor), (length, period)].allSatisfy(<=))
 		let source = start
 		let base = cursor % period
-        let head = Swift.min(length, period - base)
+        let head = Swift.min(length, period - base - 0)
         let tail = Swift.max(0, base + length - period)
 		DSP.copy(x: source.advanced(by: base), ldx: period,
 				 y: target, ldy: stride,
@@ -147,7 +107,7 @@ extension Buffer {
 		assert([(0, cursor), (length, period)].allSatisfy(<=))
 		let target = start
 		let base = cursor % period
-        let head = Swift.min(length, period - base)
+        let head = Swift.min(length, period - base - 0)
         let tail = Swift.max(0, base + length - period)
 		DSP.copy(x: source, ldx: stride,
 				 y: target.advanced(by: base), ldy: period,
@@ -196,16 +156,6 @@ extension Buffer {
 // Feed
 extension Buffer {
     @inlinable@_transparent
-    public func feed(cursor: UnsafePointer<Float64>, length: Int, target: UnsafeMutablePointer<Float64>, stride: Int) {
-        let source = start
-        for stream in (0..<stream).reversed() {
-            periodic_lookup_with_static(source.advanced(by: stream * period),
-                                        cursor,
-                                        target.advanced(by: stream * stride),
-                                        period, length)
-        }
-    }
-    @inlinable@_transparent
     public func read(cursor: UnsafePointer<Float64>, length: Int, target: UnsafeMutablePointer<Float64>, stride: Int) {
         let source = start
         for stream in (0..<stream).reversed() {
@@ -222,7 +172,7 @@ extension Buffer {
     public func flush(cursor: Int, length: Int) {
         let source = start
         let base = cursor % period
-        let head = Swift.min(length, period - base)
+        let head = Swift.min(length, period - base - 0)
         let tail = Swift.max(0, base + length - period)
         for cursor in Swift.stride(from: source, to: source.advanced(by: stream * period), by: period) {
             vDSP_vclrD(cursor.advanced(by: base), 1, .init(head))
@@ -234,7 +184,7 @@ extension Buffer {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let source = start
         let base = cursor % period
-        let head = Swift.min(length, period - base)
+        let head = Swift.min(length, period - base - 0)
         let tail = Swift.max(0, base + length - period)
         for offset in 0..<stream {
             let source = source.advanced(by: offset * period)
@@ -254,7 +204,7 @@ extension Buffer {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let target = start
         let base = cursor % period
-        let head = Swift.min(length, period - base)
+        let head = Swift.min(length, period - base - 0)
         let tail = Swift.max(0, base + length - period)
         for offset in 0..<stream {
             let source = source.advanced(by: offset * stride)
@@ -276,7 +226,7 @@ extension Buffer {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let target = start
         let base = cursor % period
-        let head = Swift.min(length, period - base)
+        let head = Swift.min(length, period - base - 0)
         let tail = Swift.max(0, base + length - period)
         for offset in 0..<stream {
             let source = source.advanced(by: offset * stride)
