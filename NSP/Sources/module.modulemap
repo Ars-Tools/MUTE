@@ -17,6 +17,7 @@ module NSP {
 	header "vforce+.h"
 	header "utility.h"
 	header "slerp.h"
+    header "ssm.h"
 	header "lms.h"
 	header "rls.h"
 	header "tfo.h"
