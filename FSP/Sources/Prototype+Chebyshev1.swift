@@ -109,7 +109,7 @@ public func filter(_ source: Stream, hpf ω₀: Frequency, chebyshev1 order: Int
 	filter(source, hpf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
 }
 public func filter(_ source: Stream, hpf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	let (H₁, H₂) = butterworth(hpf: order)
+	let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
 	assert(H₁.count + 2 * H₂.count == order)
 	return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
