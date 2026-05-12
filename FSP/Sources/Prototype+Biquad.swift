@@ -46,10 +46,12 @@ extension Prototype.Kr: Stream {
 	func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
 		let xₖ = try x₀(interval: interval, capacity: capacity, instance: &instance)
 		let stream = x₀.count
-		guard let opaque = vDSP_biquadm_CreateSetupD(repeatElement([1,0,0,0,0], count: x₀.count * (H₁.count + H₂.count)).flatMap(\.self), .init(H₁.count + H₂.count), .init(stream)) else {
-			throw Error.failedToAllocate(OpaquePointer.self)
-		}
-		let object = Autorelease.Opaque(pointer: opaque, release: vDSP_biquadm_DestroySetupD)
+        let object = switch vDSP_biquadm_CreateSetupD(repeatElement([1,0,0,0,0], count: x₀.count * (H₁.count + H₂.count)).flatMap(\.self), .init(H₁.count + H₂.count), .init(stream)) {
+        case.some(let opaque):
+            Autorelease.Opaque(pointer: opaque, release: vDSP_biquadm_DestroySetupD)
+        case.none:
+            throw Error.failedToAllocate(OpaquePointer.self)
+        }
 		let cancel = ω₀.sink {
 			switch $0 {
 			case 0..<stream:
@@ -81,11 +83,11 @@ extension Prototype.Kr: Stream {
 				assertionFailure("out of range")
 			}
 		}
-		return {
+		return { [cancel] in
 			xₖ($0, $1, $2, $3)
 			var x = stride(from: 0, to: stream * $3, by: $3).map(UnsafePointer($2).advanced(by:))
 			var y = stride(from: 0, to: stream * $3, by: $3).map($2.advanced(by:))
-			vDSP_biquadmD(withExtendedLifetime(cancel) { object }.pointer,
+			vDSP_biquadmD(object.pointer,
 						  &x, 1,
 						  &y, 1,
 						  .init($1))
