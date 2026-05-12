@@ -61,7 +61,7 @@ func chebyshev2(hpf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float6
 }
 // LPF
 public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev2 order: Int, ε: Float64) -> some Stream {
-	let (H₁, H₂) = chebyshev2(hpf: order, ε: ε)
+	let (H₁, H₂) = chebyshev2(lpf: order, ε: ε)
 	assert(H₁.count + 2 * H₂.count == order)
 	return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
