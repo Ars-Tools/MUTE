@@ -101,7 +101,7 @@ double const in(register intptr_t const d, register double const x) {
 }
 __attribute__((always_inline))
 void vvi0(register double * __nonnull const y, register double const * __nonnull const x, intptr_t const length) {
-	double * const p = (double*const)CFAllocatorAllocate(kCFAllocatorDefault, 2 * length * sizeof(double const), 0);
+    double * const p = (double*const)__malloc__(2 * length * sizeof(double const));
 	double * const q = p + length, r;
 	vDSP_vsmulD(x, 1, (double const[]){0.5}, q, 1, length);
 	vDSP_vsqD(q, 1, q, 1, length);
