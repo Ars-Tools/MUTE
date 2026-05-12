@@ -64,15 +64,15 @@ extension AVAudioPCMBuffer {
 	}
 	@inlinable
 	var f32: some Sequence<UnsafeMutablePointer<Float32>> {
-		repeatElement(floatChannelData, count: .init(format.channelCount)).enumerated().compactMap { $1?[$0] }
+		repeatElement(floatChannelData, count: .init(format.channelCount)).enumerated().lazy.compactMap { $1?[$0] }
 	}
 	@inlinable
 	var i32: some Sequence<UnsafeMutablePointer<Int32>> {
-		repeatElement(int32ChannelData, count: .init(format.channelCount)).enumerated().compactMap { $1?[$0] }
+		repeatElement(int32ChannelData, count: .init(format.channelCount)).enumerated().lazy.compactMap { $1?[$0] }
 	}
 	@inlinable
 	var i16: some Sequence<UnsafeMutablePointer<Int16>> {
-		repeatElement(int16ChannelData, count: .init(format.channelCount)).enumerated().compactMap { $1?[$0] }
+        repeatElement(int16ChannelData, count: .init(format.channelCount)).enumerated().lazy.compactMap { $1?[$0] }
 	}
 }
 extension AVAudioPCMBuffer {
