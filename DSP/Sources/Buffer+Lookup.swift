@@ -12,10 +12,66 @@ extension Buffer {
     @usableFromInline
     struct Cursor: Sendable {
         @usableFromInline let source: Buffer.Object
+        @usableFromInline let phasor: Stream
+    }
+    @usableFromInline
+    struct Elapse: Sendable {
+        @usableFromInline let source: Buffer.Object
         @usableFromInline let elapse: Stream
     }
 }
 extension Buffer.Cursor: Stream {
+    @inlinable
+    var count: Int {
+        broadcast(x: source.count, y: phasor.count)
+    }
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        let buffer = try source(interval: interval, capacity: capacity, instance: &instance)
+        let kernel = try phasor(interval: interval, capacity: capacity, instance: &instance)
+        let xc = source.count
+        let yc = phasor.count
+        switch broadcast(x: xc, y: yc) {
+        case xc:
+            return {
+                let xb = buffer($0, $1)
+                let xs = xb.period
+                kernel($0, $1, $2, $3)
+                let ys = broadcast(target: xc, source: yc, stride: $3)
+                for k in 0..<yc {
+                    vDSP_vsmulD($2.advanced(by: k * $3), 1,
+                                withUnsafePointer(to: Float64(xb.period), \.self),
+                                $2.advanced(by: k * $3), 1, .init($1))
+                }
+                for k in (0..<xc).reversed() {
+                    periodic_lookup_with_static(xb.start.advanced(by: k * xs),
+                                                $2.advanced(by: k * ys),
+                                                $2.advanced(by: k * $3),
+                                                xb.period, $1)
+                }
+            }
+        case yc:
+            return {
+                let xb = buffer($0, $1)
+                let xs = broadcast(target: yc, source: xc, stride: xb.period)
+                kernel($0, $1, $2, $3)
+                let ys = $3
+                for k in (0..<yc).reversed() {
+                    vDSP_vsmulD($2.advanced(by: k * $3), 1,
+                                withUnsafePointer(to: Float64(xb.period), \.self),
+                                $2.advanced(by: k * $3), 1, .init($1))
+                    periodic_lookup_with_static(xb.start.advanced(by: k * xs),
+                                                $2.advanced(by: k * ys),
+                                                $2.advanced(by: k * $3),
+                                                xb.period, $1)
+                }
+            }
+        case let zc:
+            throw TypedError.invalidChannel(of: self, require: zc)
+        }
+    }
+}
+extension Buffer.Elapse: Stream {
     @inlinable
     var count: Int {
         broadcast(x: source.count, y: elapse.count)
@@ -68,10 +124,11 @@ extension Buffer.Cursor: Stream {
     }
 }
 extension Buffer.Object {
-    public func callAsFunction(_ elapse: some Stream) -> some Stream {
-        Buffer.Cursor(source: self, elapse: elapse)
+    // index
+    public func callAsFunction(phasor: some Stream) -> some Stream {
+        Buffer.Cursor(source: self, phasor: phasor)
     }
+    // time
     public subscript(_ elapse: some Stream) -> some Stream {
-        Buffer.Cursor(source: self, elapse: elapse)
-    }
-}
+        Buffer.Elapse(source: self, elapse: elapse)
+    }}
