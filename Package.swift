@@ -25,10 +25,15 @@ let package = Package(
             name: "MUTE.FSP",
             targets: ["FSP"]
         ),
+        .library(
+            name: "MUTE.GSP",
+            targets: ["GSP"]
+        )
     ],
 	dependencies: [
 		.package(url: "https://github.com/ars-tools/muce", branch: "release"),
-		.package(url: "https://github.com/ars-tools/muse", branch: "release"),
+        .package(url: "https://github.com/ars-tools/muse", branch: "release"),
+        .package(url: "https://github.com/ars-tools/muge", branch: "release"),
 	],
     targets: [
 		.target(
@@ -42,7 +47,7 @@ let package = Package(
 		),
 		.testTarget(
 			name: "ASPTests",
-			dependencies: ["ASP", "BSP", "FSP"],
+            dependencies: ["ASP", "BSP", "FSP"],
 			path: "ASP/Tests"
 		),
         .target(
@@ -135,9 +140,17 @@ let package = Package(
 			],
 			path: "FSP/Tests"
 		),
+        .executableTarget(
+            name: "GSPPreview",
+            dependencies: [
+                "GSP",
+                .product(name: "MUGE.Artwork", package: "MUGE")
+            ],
+            path: "GSP/Preview"
+        ),
         .target(
             name: "GSP",
-            dependencies: ["ESP"],
+            dependencies: ["DSP", .product(name: "MUGE.Artwork", package: "MUGE")],
             path: "GSP/Sources",
             cSettings: [
                 .define("ACCELERATE_NEW_LAPACK"),
