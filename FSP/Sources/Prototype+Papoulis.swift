@@ -23,54 +23,46 @@ func legendre(count: Int) -> Array<Float64> {
                 $1 = $0.count
             })
         }
-        return .some(s.0)
+        return.some(s.0)
     }.dropFirst(count).prefix(1).flatMap(\.self)
 }
-
 @inlinable
-func papoulisAdd(_ lhs: Array<Float64>, _ rhs: Array<Float64>) -> Array<Float64> {
-    let count = max(lhs.count, rhs.count)
-    let l = Array(repeating: 0.0, count: count - lhs.count) + lhs
-    let r = Array(repeating: 0.0, count: count - rhs.count) + rhs
-    return zip(l, r).map(+)
+func papoulis(order: Int) -> Array<Float64> {
+    papoulisPolynomial(order: order)
+        .reversed()
+        .enumerated()
+        .dropFirst()
+        .reduce(into: Array(repeating: 0.0, count: 2 * order + 1)) { partial, term in
+            let (power, coefficient) = term
+            partial[2 * order - 2 * power] += power.isMultiple(of: 2) ? coefficient : -coefficient
+        }
+        .enumerated()
+        .map { offset, coefficient in
+            offset == 2 * order ? coefficient + 1 : coefficient
+        }
 }
 
 @inlinable
 func papoulisMultiply(_ lhs: Array<Float64>, _ rhs: Array<Float64>) -> Array<Float64> {
     var result = Array(repeating: 0.0, count: lhs.count + rhs.count - 1)
     for (i, x) in lhs.enumerated() {
-        for (j, y) in rhs.enumerated() {
-            result[i + j] += x * y
-        }
+        let slice = result[i..<i + rhs.count]
+        vDSP.add(multiplication: (rhs, x), slice, result: &result[i..<i + rhs.count])
     }
     return result
 }
 
 @inlinable
-func papoulisScale(_ lhs: Array<Float64>, by scalar: Float64) -> Array<Float64> {
-    lhs.map { scalar * $0 }
-}
-
-@inlinable
-func papoulisIntegrate(_ lhs: Array<Float64>) -> Array<Float64> {
-    let degree = lhs.count - 1
-    return lhs.enumerated().map { offset, value in
-        value / Float64(degree - offset + 1)
-    } + [0]
-}
-
-@inlinable
-func papoulisEvaluate(_ lhs: Array<Float64>, at x: Float64) -> Float64 {
-    lhs.reduce(0) { fma($0, x, $1) }
-}
-
-@inlinable
 func papoulisCompose(_ lhs: Array<Float64>, affine: SIMD2<Float64>) -> Array<Float64> {
-    lhs.reduce([0.0]) { partial, coefficient in
-        papoulisAdd(
-            papoulisMultiply(partial, [affine.x, affine.y]),
-            [coefficient]
-        )
+    guard let head = lhs.first else { return [] }
+    return lhs.dropFirst().reduce([head]) { partial, coefficient in
+        let product = papoulisMultiply(partial, [affine.x, affine.y])
+        return Array<Float64>(unsafeUninitializedCapacity: product.count) {
+            $0.initialize(repeating: .zero)
+            vDSP.add(product, $0[..<product.count], result: &$0[..<product.count])
+            vDSP.add([coefficient], $0[product.count - 1..<product.count], result: &$0[product.count - 1..<product.count])
+            $1 = product.count
+        }
     }
 }
 
@@ -87,38 +79,38 @@ func papoulisPolynomial(order n: Int) -> Array<Float64> {
         } else {
             a = Float64(2 * i + 1) / sqrt(2 * Float64(k + 1))
         }
-        return papoulisAdd(partial, papoulisScale(legendre(count: i), by: a))
+        let term = vDSP.multiply(a, legendre(count: i))
+        let count = max(partial.count, term.count)
+        return Array<Float64>(unsafeUninitializedCapacity: count) {
+            $0.initialize(repeating: .zero)
+            vDSP.add(partial, $0[count - partial.count..<count], result: &$0[count - partial.count..<count])
+            vDSP.add(term, $0[count - term.count..<count], result: &$0[count - term.count..<count])
+            $1 = count
+        }
     }
     let integrand = {
         let square = papoulisMultiply(phi, phi)
         if n.isMultiple(of: 2) {
             return papoulisMultiply([1, 1], square)
         }
-        return papoulisScale(square, by: 2 / Float64(n + 1))
+        return vDSP.multiply(2 / Float64(n + 1), square)
     }()
-    let integral = papoulisIntegrate(integrand)
+    let integral = Array<Float64>(unsafeUninitializedCapacity: integrand.count + 1) {
+        vDSP.formRamp(withInitialValue: .init($0.count), increment: -1, result: &$0[..<integrand.count])
+        vDSP.divide(integrand, $0[..<integrand.count], result: &$0[..<integrand.count])
+        $0[integrand.count] = 0
+        $1 = $0.count
+    }
     let shifted = papoulisCompose(integral, affine: SIMD2<Float64>(2, -1))
     var polynomial = shifted
-    polynomial[polynomial.endIndex - 1] -= papoulisEvaluate(integral, at: -1)
+    polynomial[polynomial.endIndex - 1] -= integral.reduce(0) { fma($0, -1, $1) }
     return polynomial
-}
-
-@inlinable
-func papoulisCharacteristic(order n: Int) -> Array<Float64> {
-    let l = papoulisPolynomial(order: n)
-    let u = Array(l.reversed())
-    var s = Array(repeating: 0.0, count: 2 * n + 1)
-    s[s.endIndex - 1] = 1
-    for (power, coefficient) in u.enumerated().dropFirst() {
-        s[2 * n - 2 * power] += power.isMultiple(of: 2) ? coefficient : -coefficient
-    }
-    return s
 }
 
 @inlinable
 func papoulisPoles(order n: Int) -> Array<Complex128> {
     let tolerance = sqrt(Float64.ulpOfOne)
-    let poles = roots(poly: papoulisCharacteristic(order: n)).filter {
+    let poles = roots(poly: papoulis(order: n)).filter {
         $0.real < -tolerance
     }
     assert(poles.count == n)
@@ -147,7 +139,7 @@ func papoulis(lpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array
 
 @inlinable // SOS
 func papoulis(hpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(SIMD3<Float64>, SIMD3<Float64>)>) {
-    let tolerance = sqrt(Float64.ulpOfOne)
+    let tolerance = Float64.ulpOfOne.squareRoot()
     let poles = papoulisPoles(order: order)
     let H1 = poles
         .filter { $0.imag.magnitude < tolerance }
@@ -168,7 +160,7 @@ func papoulis(hpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array
 public func filter(_ source: Stream, lpf omega0: some Publisher<(Int, Frequency), Never> & Sendable, papoulis order: Int) -> some Stream {
     let (H1, H2) = papoulis(lpf: order)
     assert(H1.count + 2 * H2.count == order)
-    return Prototype.Kr(x0: source, ω0: omega0, H₁: H1, H₂: H2)
+    return Prototype.Kr(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
 }
 
 public func filter(_ source: Stream, lpf omega0: some Publisher<Frequency, Never>, papoulis order: Int) -> some Stream {
@@ -186,13 +178,13 @@ public func filter(_ source: Stream, lpf omega0: Frequency, papoulis order: Int)
 public func filter(_ source: Stream, lpf omega0: Stream, papoulis order: Int) -> some Stream {
     let (H1, H2) = papoulis(lpf: order)
     assert(H1.count + 2 * H2.count == order)
-    return Prototype.Ar(x0: source, ω0: omega0, H₁: H1, H₂: H2)
+    return Prototype.Ar(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
 }
 
 public func filter(_ source: Stream, hpf omega0: some Publisher<(Int, Frequency), Never> & Sendable, papoulis order: Int) -> some Stream {
     let (H1, H2) = papoulis(hpf: order)
     assert(H1.count + 2 * H2.count == order)
-    return Prototype.Kr(x0: source, ω0: omega0, H₁: H1, H₂: H2)
+    return Prototype.Kr(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
 }
 
 public func filter(_ source: Stream, hpf omega0: some Publisher<Frequency, Never>, papoulis order: Int) -> some Stream {
@@ -210,5 +202,5 @@ public func filter(_ source: Stream, hpf omega0: Frequency, papoulis order: Int)
 public func filter(_ source: Stream, hpf omega0: Stream, papoulis order: Int) -> some Stream {
     let (H1, H2) = papoulis(hpf: order)
     assert(H1.count + 2 * H2.count == order)
-    return Prototype.Ar(x0: source, ω0: omega0, H₁: H1, H₂: H2)
+    return Prototype.Ar(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
 }
