@@ -5,6 +5,7 @@
 //  Created by CodingAssistant on 5/21/26.
 //
 @preconcurrency import protocol Combine.Publisher
+import protocol Accelerate.AccelerateBuffer
 import struct Synchronization.Mutex
 import func Layout.broadcast
 import Accelerate.vecLib
@@ -13,7 +14,7 @@ import typealias Numerics.Complex128
 
 public enum SpectralFilter {
     @usableFromInline
-    struct Kr<Spectrum: Collection & Sendable, Updates: Publisher<(Int, Spectrum), Never> & Sendable> where Spectrum.Element == Complex128 {
+    struct Kr<Spectrum: AccelerateBuffer & Collection & Sendable, Updates: Publisher<(Int, Spectrum), Never> & Sendable> where Spectrum.Element == Complex128 {
         @usableFromInline let stream: Stream
         @usableFromInline let spectrum: Updates
         @usableFromInline let extent: SIMD2<Int>
@@ -55,27 +56,32 @@ extension SpectralFilter.Kr: Stream {
             case 0..<fr:
                 buffer.withLock {
                     $0.withUnsafeMutablePointer {
-                        let real = $0.advanced(by: frame * (2 + 2 * sr + index))
-                        let imag = $0.advanced(by: frame * (2 + 2 * sr + fr + index))
-                        vDSP_vclrD(real, 1, .init(frame))
-                        vDSP_vclrD(imag, 1, .init(frame))
-                        var offset = 0
-                        for coefficient in value.prefix(nyquist + 1) {
-                            let r = coefficient.real * scale
-                            let i = coefficient.imag * scale
-                            switch offset {
-                            case 0:
-                                real.pointee = r
-                            case let bin where bin == nyquist:
-                                real.advanced(by: nyquist).pointee = r
-                            default:
-                                real.advanced(by: offset).pointee = r
-                                imag.advanced(by: offset).pointee = i
-                                real.advanced(by: frame - offset).pointee = r
-                                imag.advanced(by: frame - offset).pointee = -i
+                        var work = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (0)),
+                                                         imagp: $0.advanced(by: frame * (1)))
+                        var task = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 2 * sr + index)),
+                                                         imagp: $0.advanced(by: frame * (2 + 2 * sr + fr + index)))
+                        vDSP_vclrD(task.realp, 1, .init(frame))
+                        vDSP_vclrD(task.imagp, 1, .init(frame))
+                        let positive = nyquist + 1
+                        let negative = Swift.max(0, nyquist - 1)
+                        let length = Swift.min(value.count, positive)
+                        value.withUnsafeBufferPointer {
+                            guard let source = $0.baseAddress else { return }
+                            source.withMemoryRebound(to: DSPDoubleComplex.self, capacity: $0.count) {
+                                vDSP_ctozD($0, 1, &task, 1, .init(length))
                             }
-                            offset += 1
                         }
+                        work.realp.pointee = scale
+                        work.imagp.pointee = .zero
+                        vDSP_zvzsmlD(&task, 1, &work, &task, 1, .init(length))
+                        task.imagp.pointee = .zero
+                        task.imagp.advanced(by: nyquist).pointee = .zero
+                        let mirror = Swift.max(0, nyquist - 1)
+                        var source = DSPDoubleSplitComplex(realp: task.realp.advanced(by: mirror),
+                                                           imagp: task.imagp.advanced(by: mirror))
+                        var target = DSPDoubleSplitComplex(realp: task.realp.advanced(by: positive),
+                                                           imagp: task.imagp.advanced(by: positive))
+                        vDSP_zvconjD(&source, -1, &target, 1, .init(negative))
                     }
                 }
             default:
@@ -127,14 +133,14 @@ extension SpectralFilter.Kr: Stream {
     }
 }
 
-public func filter(_ source: Stream, spectrum: some Publisher<(Int, some Collection<Complex128> & Sendable), Never> & Sendable, extent: SIMD2<Int>) -> some Stream {
+public func filter<Spectrum, Updates>(_ source: Stream, spectrum: Updates, extent: SIMD2<Int>) -> some Stream where Spectrum: AccelerateBuffer & Collection & Sendable, Spectrum.Element == Complex128, Updates: Publisher<(Int, Spectrum), Never> & Sendable {
     SpectralFilter.Kr(stream: source, spectrum: spectrum, extent: extent)
 }
 
-public func filter(_ source: Stream, spectrum: some Collection<some Collection<Complex128> & Sendable>, length: Int) -> some Stream {
+public func filter<Spectra, Spectrum>(_ source: Stream, spectrum: Spectra, length: Int) -> some Stream where Spectra: Collection & Sendable, Spectra.Element == Spectrum, Spectrum: AccelerateBuffer & Collection & Sendable, Spectrum.Element == Complex128 {
     filter(source, spectrum: spectrum.enumerated().publisher.map(\.self), extent: .init(spectrum.count, length))
 }
 
-public func filter(_ source: Stream, spectrum: some Collection<Complex128> & Sendable, length: Int) -> some Stream {
+public func filter<Spectrum>(_ source: Stream, spectrum: Spectrum, length: Int) -> some Stream where Spectrum: AccelerateBuffer & Collection & Sendable, Spectrum.Element == Complex128 {
     filter(source, spectrum: CollectionOfOne(spectrum), length: length)
 }
