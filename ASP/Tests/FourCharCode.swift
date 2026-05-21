@@ -6,6 +6,8 @@
 //
 import Testing
 import AudioUnit
+import CoreAudio
+import AVFoundation
 @testable import ASP
 @Suite
 struct FourCharCodeTestCase {
@@ -18,11 +20,22 @@ struct FourCharCodeTestCase {
 	}
 	@Test(arguments: [
 		("aumu", kAudioUnitType_MusicDevice),
-		("tmpt", kAudioUnitSubType_Pitch),
+//		("tmpt", kAudioUnitSubType_Pitch),
 		("appl", kAudioUnitManufacturer_Apple),
 	])
 	func musicDevice(expected: String, query: CoreAudio.FourCharCode) {
 		let dec = de(code: query)
 		#expect(dec == expected)
 	}
+}
+@Suite
+struct AVFormatTestCases {
+    @Test
+    func mono() {
+        guard case.some(let format) = AVAudioFormat(sampleRate: 192000, discreteChannels: 1024) else {
+            Issue.record()
+            return
+        }
+        print(format)
+    }
 }

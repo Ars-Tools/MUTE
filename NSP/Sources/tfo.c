@@ -198,149 +198,64 @@ void tfo_filter_error(tfo_filter_t * __nonnull const object,
 	}
 	object->t = ( object->t + length ) % N;
 }
+static double tfo_rls_reference(double const * __nonnull x,
+                                double const * __nonnull y,
+                                double       * __nonnull w,
+                                intptr_t const T,
+                                intptr_t const p,
+                                double const lambda) {
+    static double const delta = 1e6;
+    static intptr_t const inc = 1;
+    static double const zero = 0, one = 1, minus = -1;
+    intptr_t const n = p + 1;
+    double * __nonnull const P = alloca((intptr_t)(n * n) * sizeof(double));
+    double * __nonnull const u = alloca((intptr_t)n * sizeof(double));
+    double * __nonnull const k = alloca((intptr_t)n * sizeof(double));
+    double * __nonnull const q = alloca((intptr_t)n * sizeof(double));
+    double e = 0;
+
+    __clr__(w, 1, n);
+    for ( intptr_t c = 0 ; c < n ; ++ c ) {
+        __clr__(P + c * n, 1, n);
+        P[c * n + c] = delta;
+    }
+
+    for ( intptr_t t = p ; t < T ; ++ t ) {
+        for ( intptr_t i = 0 ; i < n ; ++ i ) u[i] = x[t - i];
+        dgemv_("N",
+               &n, &n,
+               &one,
+               P, &n,
+               u, &inc,
+               &zero,
+               q, &inc);
+        double const denom = lambda + ddot_(&n, u, &inc, q, &inc);
+        double const scale = simd_precise_recip(denom);
+        dcopy_(&n, q, &inc, k, &inc);
+        dscal_(&n, &scale, k, &inc);
+
+        e = y[t] - ddot_(&n, w, &inc, u, &inc);
+        daxpy_(&n, &e, k, &inc, w, &inc);
+
+        // P <- (P - k * u^T * P) / lambda = (P - k * q^T) / lambda
+        dger_(&n, &n,
+              &minus,
+              k, &inc,
+              q, &inc,
+              P, &n);
+        intptr_t info = 0;
+        dlascl_("G", &info, &info,
+                &lambda, &one,
+                &n, &n,
+                P, &n,
+                &info);
+        assert(!info);
+    }
+    return e;
+}
 double tfo_ref(double const * __nonnull x, double const * __nonnull y, double * __nonnull w, intptr_t T, intptr_t p, double lambda) {
-	double gp[p+1], g[p+2], newgp[p+1];
-	double alpha[p+1], beta[p+1], be, e, rr;
-	double oldff, theta, br, r, ff, thetap, bf, f, fff;
-	intptr_t i, t, m, n, ip;
-	ff = x[0] * x[0];
-	w[0] = -y[0] / x[0];
-	thetap = 1;
-	for ( n = 1 ; n <= p ; ++ n ) {
-		bf = x[n];
-		for ( i = 0 ; i <= n - 1 ; ++ i ) bf = bf + x[n-i] * alpha[i];
-		f = bf * thetap;
-		ff = lambda * ff;
-		fff = ff + bf * f;
-		thetap = ff / fff * thetap;
-		newgp[1] = bf / ff;
-		for ( i = 2 ; i <= n ; ++ i ) newgp[i] = gp[i-1] + newgp[1] * alpha[i-1];
-		for ( i = 1 ; i <= n ; ++ i ) gp[i] = newgp[i];
-		be = y[n];
-		for ( i = 0 ; i <= n - 1 ; ++ i ) be = be + x[n-i] * w[i];
-		e = be * thetap;
-		alpha[n] = -bf / x[0];
-		w[n] = -be / x[0];
-	}
-	
-	rr = x[0] * x[0] * thetap;
-	
-	for ( i = 1 ; i <= p ; ++ i ) beta[i] = -x[0] * thetap * gp[i];
-	
-	for ( i = 0 ; i <= p ; ++ i )
-		printf("%lf, ", beta[i]);
-	printf("\r\n");
-	for ( n = p + 1 ; n < T ; ++ n ) {
-
-		bf = x[n];
-		for ( i = 1 ; i <= p ; ++ i ) bf = bf + x[n-i] * alpha[i]; // (6.10)
-
-		f = bf * thetap; // (6.34)
-
-		oldff = ff;
-		
-		ff = lambda * oldff + bf * f; // (6.38)
-		
-		theta = lambda * ( oldff / ff ) * thetap; // (6.39)
-		
-		g[1] = bf / ( lambda * oldff ); // (6.51)
-		for ( i = 2 ; i <= p + 1 ; ++ i ) g[i] = gp[i-1] + g[1] * alpha[i-1];
-		
-		br = lambda * g[p+1] * rr; // (6.54)
-		
-		thetap = theta / ( 1 - g[p+1] * theta * br ); // (6.49)
-		
-		r = br * thetap; // (6.37)
-		
-		rr = lambda * rr + br * r; // (6.40)
-		
-		for ( i = 1 ; i <= p ; ++ i ) alpha[i] = alpha[i] - f * gp[i]; // (6.47)
-		
-		for ( i = 1 ; i <= p ; ++ i ) gp[i] = g[i] - g[p+1] * beta[i]; // (6.53)
-		
-		for ( i = 1 ; i <= p ; ++ i ) beta[i] = beta[i] - r * gp[i]; // (6.48)
-		
-		be = y[n];
-		for ( i = 0 ; i <= p ; ++ i ) be = be + x[n-i] * w[i]; // (6.16)
-		e = be * theta; // (6.22)
-		
-		for ( i = 0 ; i <= p ; ++ i ) w[i] = w[i] - e * g[i+1]; // (6.46)
-		
-//		theta *= simd_precise_rsqrt(ff * rr);
-//		ff = 1;
-//		rr = 1;
-		
-	}
-	for ( i = 0 ; i <= p ; ++ i )
-		printf("%lf, ", beta[i]);
-	printf("\r\n%lf, %lf, %lf, %lf, %lf\r\n", rr, ff, rr, theta, thetap);
-	return e;
+    return tfo_rls_reference(x, y, w, T, p, lambda);
 }
 double tfo_raw(double const * __nonnull x, double const * __nonnull y, double * __nonnull w, intptr_t T, intptr_t p, double lambda) {
-	double gp[p+1], g[p+2], newgp[p+1];
-	double alpha[p+1], beta[p+1], be, e, rr;
-	double oldff, theta, br, r, ff, thetap, bf, f, fff;
-	intptr_t i, t, m, n, ip;
-	ff = x[0] * x[0];
-	w[0] = -y[0] / x[0];
-	thetap = 1;
-	for ( n = 1 ; n <= p ; ++ n ) {
-		bf = x[n];
-		for ( i = 0 ; i <= n - 1 ; ++ i ) bf = bf + x[n-i] * alpha[i];
-		f = bf * thetap;
-		ff = lambda * ff;
-		fff = ff + bf * f;
-		thetap = ff / fff * thetap;
-		newgp[1] = bf / ff;
-		for ( i = 2 ; i <= n ; ++ i ) newgp[i] = gp[i-1] + newgp[1] * alpha[i-1];
-		for ( i = 1 ; i <= n ; ++ i ) gp[i] = newgp[i];
-		be = y[n];
-		for ( i = 0 ; i <= n - 1 ; ++ i ) be = be + x[n-i] * w[i];
-		e = be * thetap;
-		alpha[n] = -bf / x[0];
-		w[n] = -be / x[0];
-	}
-	
-	rr = x[0] * x[0] * thetap;
-	
-	for ( i = 1 ; i <= p ; ++ i ) beta[i] = -x[0] * thetap * gp[i];
-	
-	for ( n = p + 1 ; n < T ; ++ n ) {
-
-		bf = x[n];
-		for ( i = 1 ; i <= p ; ++ i ) bf = bf + x[n-i] * alpha[i]; // (6.10)
-
-		f = bf * thetap; // (6.34)
-
-		oldff = ff;
-		
-		ff = lambda * oldff + bf * f; // (6.38)
-		
-		theta = lambda * ( oldff / ff ) * thetap; // (6.39)
-		
-		g[1] = bf / ( lambda * oldff ); // (6.51)
-		for ( i = 2 ; i <= p + 1 ; ++ i ) g[i] = gp[i-1] + g[1] * alpha[i-1];
-		
-		br = lambda * g[p+1] * rr; // (6.54)
-		
-		thetap = theta / ( 1 - g[p+1] * theta * br ); // (6.49)
-		
-		r = br * thetap; // (6.37)
-		
-		rr = lambda * rr + br * r; // (6.40)
-		
-		for ( i = 1 ; i <= p ; ++ i ) alpha[i] = alpha[i] - f * gp[i]; // (6.47)
-		
-		for ( i = 1 ; i <= p ; ++ i ) gp[i] = g[i] - g[p+1] * beta[i]; // (6.53)
-		
-		for ( i = 1 ; i <= p ; ++ i ) beta[i] = beta[i] - r * gp[i]; // (6.48)
-		
-		be = y[n];
-		for ( i = 0 ; i <= p ; ++ i ) be = be + x[n-i] * w[i]; // (6.16)
-		e = be * theta; // (6.22)
-		
-		for ( i = 0 ; i <= p ; ++ i ) w[i] = w[i] - e * g[i+1]; // (6.46)
-	}
-	printf("%lf\r\n", rr);
-	return e;
+    return tfo_rls_reference(x, y, w, T, p, lambda);
 }

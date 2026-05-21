@@ -17,7 +17,7 @@ import protocol DSP.Stream
 import typealias DSP.Instance
 extension Special {
     @usableFromInline
-    enum SVF {
+    enum StateVariable {
         @usableFromInline
         struct Kr<Cutoff: Publisher<(Int, Frequency), Never> & Sendable, Factor: Publisher<(Int, Float64), Never> & Sendable> {
             @usableFromInline let source: Stream
@@ -32,7 +32,7 @@ extension Special {
         }
     }
 }
-extension Special.SVF.Kr: Stream {
+extension Special.StateVariable.Kr: Stream {
     @usableFromInline
     var count: Int {
         source.count * 3
@@ -76,7 +76,7 @@ extension Special.SVF.Kr: Stream {
         }
     }
 }
-extension Special.SVF.Ar: Stream {
+extension Special.StateVariable.Ar: Stream {
     @usableFromInline
     var count: Int {
         broadcast(x: source.count, y: cutoff.count, z: factor.count) * 3
@@ -121,18 +121,14 @@ extension Special.SVF.Ar: Stream {
     }
 }
 public func filter(_ source: Stream, svf: (ω₀: some Publisher<(Int, Frequency), Never> & Sendable, quality: some Publisher<(Int, Float64), Never> & Sendable)) -> some Stream {
-    Special.SVF.Kr(source: source, cutoff: svf.ω₀, factor: svf.quality)
+    Special.StateVariable.Kr(source: source, cutoff: svf.ω₀, factor: svf.quality)
 }
 public func filter(_ source: Stream, svf: (ω₀: some Publisher<Frequency, Never>, quality: some Publisher<Float64, Never>)) -> some Stream {
-    Special.SVF.Kr(source: source,
-                           cutoff: svf.ω₀.repeat(count: source.count),
-                           factor: svf.quality.repeat(count: source.count))
+    filter(source, svf: (svf.ω₀.repeat(count: source.count), svf.quality.repeat(count: source.count)))
 }
 public func filter(_ source: Stream, svf: (ω₀: Frequency, quality: Float64)) -> some Stream {
-    Special.SVF.Kr(source: source,
-                           cutoff: `repeat`(svf.ω₀, count: source.count),
-                           factor: `repeat`(svf.quality, count: source.count))
+    filter(source, svf: (`repeat`(svf.ω₀, count: source.count), `repeat`(svf.quality, count: source.count)))
 }
 public func filter(_ source: Stream, svf: (ω₀: Stream, quality: Stream)) -> some Stream {
-    Special.SVF.Ar(source: source, cutoff: svf.ω₀, factor: svf.quality)
+    Special.StateVariable.Ar(source: source, cutoff: svf.ω₀, factor: svf.quality)
 }

@@ -100,6 +100,15 @@ void ssm_filter_z(ssm_filter_t * __nonnull const object, double const* __nonnull
 void ssm_filter_z_clear(ssm_filter_t * __nonnull const object) {
     __clr__(object->W, 1, object->Z);
 }
+intptr_t const ssm_filter_input(ssm_filter_t const * __nonnull const object) {
+    return object->X;
+}
+intptr_t const ssm_filter_state(ssm_filter_t const * __nonnull const object) {
+    return object->Z;
+}
+intptr_t const ssm_filter_output(ssm_filter_t const * __nonnull const object) {
+    return object->Y;
+}
 bool const ssm_filter_set(ssm_filter_t * __nonnull const object, ssm_matrix_t const matrix, intptr_t const row, intptr_t const col, double const val) {
     simd_long2 const pos = {row, col};
     switch (matrix) {

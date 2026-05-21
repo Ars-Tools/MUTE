@@ -18,8 +18,8 @@ extension GenTest {
             let x = pulse(freqs: 1)
 //            let x = 0.5 * sin(freqs: 220)
             let y = buffer(x, capacity: 0.5)
-            let z = buffer(y(t) + y(t-0.1), capacity: 0.5)
-            let w = z(t) + z(t-0.2)
+            let z = buffer(y[t] + y[t-0.1], capacity: 0.5)
+            let w = z[t] + z[t-0.2]
             let bus = try Output.Direct(sampleRate: fs, source: w)
 //            let bus = try Output.Direct(sampleRate: fs, source: 0.3 * w)
             $0.append(bus)
