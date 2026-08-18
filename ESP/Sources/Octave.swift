@@ -5,9 +5,9 @@
 //  Created by Kota on 10/30/25.
 //
 import protocol Accelerate.AccelerateBuffer
+import func LAPACK.gels
 import enum Accelerate.vDSP
 import enum Accelerate.vForce
-import func Accelerate.vecLib.dgels_
 import let Darwin.M_LN10
 // estimate slope and intercept for dB/oct. from frequency response
 @inlinable
@@ -17,18 +17,12 @@ public func`dB/oct.`(frequency: some AccelerateBuffer<Float64> & Sequence<Float6
     precondition(frequency.count == magnitude.count)
     let range = frequency.enumerated().compactMap { bandwidth.contains($1) ? .some(UInt($0 + 1)) : .none }
     let count = range.count
-    var info = 0
-    var size = 0 as Float64
-    dgels_("N",
-           withUnsafePointer(to: count, \.self), withUnsafePointer(to: 2, \.self),
-           withUnsafePointer(to: 1, \.self),
-           .none, withUnsafePointer(to: count, \.self),
-           .none, withUnsafePointer(to: count, \.self),
-           &size,
-           withUnsafePointer(to: -1, \.self),
-           &info)
-    assert(info == 0)
-    return withUnsafeTemporaryAllocation(of: Float64.self, capacity: 2 * count + max(2, count) + .init(size)) {
+    let size = gels(count, 2, 1,
+                    unsafeBitCast(Optional<UnsafeMutablePointer<Float64>>.none, to: UnsafeMutablePointer<Float64>.self), count, .N,
+                    unsafeBitCast(Optional<UnsafeMutablePointer<Float64>>.none, to: UnsafeMutablePointer<Float64>.self), count,
+                    .none, -1)
+    assert(0 < size, "lapack error \(size)")
+    return withUnsafeTemporaryAllocation(of: Float64.self, capacity: 2 * count + max(2, count) + size) {
         // A
         vDSP.gather(frequency, indices: range, result: &$0[0*count..<1*count])
         vForce.log2($0[0*count..<1*count], result: &$0[0*count..<1*count])
@@ -38,14 +32,11 @@ public func`dB/oct.`(frequency: some AccelerateBuffer<Float64> & Sequence<Float6
         vForce.log10($0[2*count..<3*count], result: &$0[2*count..<3*count])
         vDSP.multiply(20, $0[2*count..<3*count], result: &$0[2*count..<3*count])
         // solve
-        dgels_("N",
-               withUnsafePointer(to: count, \.self), withUnsafePointer(to: 2, \.self),
-               withUnsafePointer(to: 1, \.self),
-               $0.baseAddress.unsafelyUnwrapped.advanced(by: 0 * count), withUnsafePointer(to: count, \.self),
-               $0.baseAddress.unsafelyUnwrapped.advanced(by: 2 * count), withUnsafePointer(to: count, \.self),
-               $0.baseAddress.unsafelyUnwrapped.advanced(by: 2 * count + max(2, count)),
-               withUnsafePointer(to: .init(size), \.self), &info)
-        assert(info == 0)
+        let info = gels(count, 2, 1,
+                        $0.baseAddress.unsafelyUnwrapped.advanced(by: 0 * count), count, .N,
+                        $0.baseAddress.unsafelyUnwrapped.advanced(by: 2 * count), count,
+                        $0.baseAddress.unsafelyUnwrapped.advanced(by: 2 * count + max(2, count)), size)
+        assert(info == 0, "lapack error \(info)")
         return ($0[2*count+0], $0[2*count+1])
     }
 }
