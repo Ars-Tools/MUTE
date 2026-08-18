@@ -1,0 +1,70 @@
+//
+//  DFT+BFS.swift
+//  MUTE
+//
+//  Created by Kota on 8/18/26.
+//
+import typealias Numerics.Complex128
+import NSP
+extension DFT {
+    public final class BFS: @unchecked Sendable {
+        @usableFromInline
+        let setup: UnsafePointer<bdft_t>
+        @inlinable
+        public init(count: Int) {
+            setup = bdft_create(count)
+        }
+        @inlinable
+        deinit {
+            dft_destroy(setup)
+        }
+    }
+}
+extension DFT.BFS: DFT.`Protocol` {
+    @inlinable@_transparent
+    public var count: Int {
+        dft_count(setup)
+    }
+    @inlinable
+    public func forward(x: UnsafePointer<Complex128>, inc incx: Int,
+                        y: UnsafeMutablePointer<Complex128>, inc incy: Int) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count) {
+            dft_forward(setup, .DFT_SCALE_ONE,
+                        .init(x), incx,
+                        .init(y), incy,
+                        .init($0.baseAddress))
+        }
+    }
+    @inlinable
+    public func inverse(x: UnsafePointer<Complex128>, inc incx: Int,
+                        y: UnsafeMutablePointer<Complex128>, inc incy: Int) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count) {
+            dft_inverse(setup, .DFT_SCALE_ONE_OVER_N,
+                        .init(x), incx,
+                        .init(y), incy,
+                        .init($0.baseAddress))
+        }
+    }
+    @inlinable
+    public func forward(x: UnsafePointer<Complex128>, ld ldx: Int,
+                        y: UnsafeMutablePointer<Complex128>, ld ldy: Int,
+                        nrhs: Int) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count * nrhs) {
+            dft_forward(setup, .DFT_SCALE_ONE, nrhs,
+                        .init(x), ldx,
+                        .init(y), ldy,
+                        .init($0.baseAddress))
+        }
+    }
+    @inlinable
+    public func inverse(x: UnsafePointer<Complex128>, ld ldx: Int,
+                        y: UnsafeMutablePointer<Complex128>, ld ldy: Int,
+                        nrhs: Int) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count * nrhs) {
+            dft_inverse(setup, .DFT_SCALE_ONE_OVER_N, nrhs,
+                        .init(x), ldx,
+                        .init(y), ldy,
+                        .init($0.baseAddress))
+        }
+    }
+}
