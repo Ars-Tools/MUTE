@@ -38,9 +38,7 @@ func chebyshev1(lpf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float6
 		let e = __sincospi_stret(θ)
 		let αₖ = 2 * β * e.__cosval
 		let βₖ = length_squared(SIMD2(β, e.__sinval))
-		return (SIMD3<Float64>(0, 0, βₖ), SIMD3<Float64>(1, αₖ, βₖ)) // LPF
-//		return (SIMD3<Float64>(βₖ, -αₖ, 1), SIMD3<Float64>(βₖ, αₖ, 1)) // AHF
-//		return (SIMD3<Float64>(1, -αₖ, βₖ), SIMD3<Float64>(1, αₖ, βₖ)) // ALF
+		return (SIMD3<Float64>(0, 0, βₖ), SIMD3<Float64>(1, αₖ, βₖ))
 	}
 	return (H₁, H₂)
 }
@@ -60,19 +58,34 @@ func chebyshev1(hpf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float6
 	return (H₁, H₂)
 }
 @inlinable // SOS
-func chebyshev1(ahf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(SIMD3<Float64>, SIMD3<Float64>)>) {
-	let β = sinh(asinh(recip(ε)) / .init(n))
-	let H₁ = n.isMultiple(of: 2) ? [] : [
-		(SIMD2<Float64>(β, 0), SIMD2<Float64>(β, 1))
-	]
-	let H₂ = (0..<n/2).map {
-		let θ = Float64(n - 2 * $0 - 1) / Float64(2 * n)
-		let e = __sincospi_stret(θ)
-		let αₖ = 2 * β * e.__cosval
-		let βₖ = length_squared(SIMD2(β, e.__sinval))
-		return (SIMD3<Float64>(1, -αₖ, βₖ), SIMD3<Float64>(1, αₖ, βₖ))
-	}
-	return (H₁, H₂)
+func chebyshev1(hdf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(SIMD3<Float64>, SIMD3<Float64>)>) {
+    let β = sinh(asinh(recip(ε)) / .init(n))
+    let H₁ = n.isMultiple(of: 2) ? [] : [
+        (SIMD2<Float64>(β, 0), SIMD2<Float64>(β, 1))
+    ]
+    let H₂ = (0..<n/2).map {
+        let θ = Float64(n - 2 * $0 - 1) / Float64(2 * n)
+        let e = __sincospi_stret(θ)
+        let αₖ = 2 * β * e.__cosval
+        let βₖ = length_squared(SIMD2(β, e.__sinval))
+        return (SIMD3<Float64>(1, -αₖ, βₖ), SIMD3<Float64>(1, αₖ, βₖ))
+    }
+    return (H₁, H₂)
+}
+@inlinable // SOS
+func chebyshev1(ldf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(SIMD3<Float64>, SIMD3<Float64>)>) {
+    let β = sinh(asinh(recip(ε)) / .init(n))
+    let H₁ = n.isMultiple(of: 2) ? [] : [
+        (SIMD2<Float64>(β, 0), SIMD2<Float64>(β, 1))
+    ]
+    let H₂ = (0..<n/2).map {
+        let θ = Float64(n - 2 * $0 - 1) / Float64(2 * n)
+        let e = __sincospi_stret(θ)
+        let αₖ = 2 * β * e.__cosval
+        let βₖ = length_squared(SIMD2(β, e.__sinval))
+        return (SIMD3<Float64>(βₖ, -αₖ, 1), SIMD3<Float64>(βₖ, αₖ, 1))
+    }
+    return (H₁, H₂)
 }
 // LPF
 public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
@@ -112,4 +125,43 @@ public func filter(_ source: Stream, hpf ω₀: Stream, chebyshev1 order: Int, �
 	let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
 	assert(H₁.count + 2 * H₂.count == order)
 	return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+// LDF
+public func filter(_ source: Stream, ldf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+public func filter(_ source: Stream, ldf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    filter(source, ldf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
+}
+public func filter(_ source: Stream, ldf ω₀: some Publisher<Frequency, Never>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    filter(source, ldf: ω₀.repeat(count: source.count), chebyshev1: order, ε: ε)
+}
+public func filter(_ source: Stream, ldf ω₀: Frequency, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    filter(source, ldf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
+}
+public func filter(_ source: Stream, ldf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
+    return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+// HDF
+public func filter(_ source: Stream, hdf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+public func filter(_ source: Stream, hdf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    filter(source, hdf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
+}
+public func filter(_ source: Stream, hdf ω₀: some Publisher<Frequency, Never>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    filter(source, hdf: ω₀.repeat(count: source.count), chebyshev1: order, ε: ε)
+}
+public func filter(_ source: Stream, hdf ω₀: Frequency, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    filter(source, hdf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
+}
+public func filter(_ source: Stream, hdf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
