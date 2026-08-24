@@ -5,8 +5,6 @@
 //  Created by Kota on 8/18/26.
 //
 import typealias Accelerate.vDSP
-import protocol Accelerate.AccelerateBuffer
-import protocol Accelerate.AccelerateMutableBuffer
 extension Convolvers {
     @usableFromInline
     struct DSP {}
