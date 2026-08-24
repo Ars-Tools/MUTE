@@ -53,7 +53,7 @@ extension Playback: Stream {
 		let stream = Int(rawValue.processingFormat.channelCount)
 		guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat64,
 										 sampleRate: .init(interval.timescale) / .init(interval.value),
-										 monoChannels: stream,
+                                         discreteChannels: stream,
 										 interleaved: false) else {
 			throw Error.unsupportedFormat
 		}
