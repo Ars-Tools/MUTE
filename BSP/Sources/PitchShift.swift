@@ -16,6 +16,8 @@ import Accelerate.vecLib
 import typealias Auxiliary.Autorelease
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
+import MKL
+import vFORCE
 @usableFromInline
 enum PitchShift {
     @usableFromInline
@@ -72,9 +74,9 @@ extension PitchShift.Kr: DSP.Stream {
                 let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * count + 0 ) * frame)
                 for cursor in cursor {
                     //
-                    vDSP_vrampD(withUnsafePointer(to: Float64(cursor), \.self),
-                                withUnsafePointer(to: factor, \.self),
-                                λ, 1, .init(frame))
+                    vDSP.formRamp(withInitialValue: .init(cursor),
+                                  increment: factor,
+                                  result: &UnsafeMutableBufferPointer(start: λ, count: frame)[0..<frame])
                     // radius
                     i.read(cursor: λ, length: frame, target: z.realp, stride: frame)
                     for r in stride(from: z.realp, to: z.realp.advanced(by: count * frame), by: frame) {
