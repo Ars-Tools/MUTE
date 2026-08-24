@@ -10,14 +10,17 @@ import NSP
 public enum Convolvers: Sendable {}
 extension Convolvers {
     public protocol `Protocol`: Sendable {
+        @inlinable
         func convolve(x: UnsafePointer<Float64>, count xc: Int,
                       y: UnsafePointer<Float64>, count yc: Int,
                       z: UnsafeMutablePointer<Float64>)
+        @inlinable
         func convolve(x: some AccelerateBuffer<Float64>,
                       y: some AccelerateBuffer<Float64>) -> Array<Float64>
     }
 }
 extension Convolvers.`Protocol` {
+    @inlinable
     public func convolve(x: some AccelerateBuffer<Float64>,
                          y: some AccelerateBuffer<Float64>) -> Array<Float64> {
         x.withUnsafeBufferPointer { x in
