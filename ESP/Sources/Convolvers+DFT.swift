@@ -9,14 +9,14 @@ import AltVec
 extension Convolvers {
     public enum DFT: Sendable {
         case Fast
-        case Accurate
-        case Fixed(dft: ESP.DFT.DFS)
+        case Just
+        case Keep(dft: ESP.DFT.DFS)
     }
 }
 extension Convolvers.DFT {
     @inlinable
-    public init(fixed count: Int) {
-        self = .Fixed(dft: .init(count: count))
+    public init(count: Int) {
+        self = .Keep(dft: .init(count: count))
     }
 }
 extension Convolvers.DFT: Convolvers.`Protocol` {
@@ -28,11 +28,11 @@ extension Convolvers.DFT: Convolvers.`Protocol` {
         let dft = switch self {
         case.Fast:
             DFT.DFS(count: 1 << (MemoryLayout<Int>.size * 8 - ( count - 1 ).leadingZeroBitCount))
-        case.Accurate:
+        case.Just:
             DFT.DFS(count: count)
-        case.Fixed(let dft) where dft.count < count:
-            preconditionFailure()
-        case.Fixed(let dft):
+        case.Keep(let dft) where dft.count < count:
+            preconditionFailure("oversized")
+        case.Keep(let dft):
             dft
         }
         withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 4 * dft.count) {
