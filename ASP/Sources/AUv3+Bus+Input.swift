@@ -46,7 +46,7 @@ public enum Input {
 		@inlinable
 		public init(sampleRate: Float64, target: Int) throws {
 			buffer = .init()
-			guard let format = AVAudioFormat(sampleRate: sampleRate, monoChannels: target) else {
+			guard let format = AVAudioFormat(sampleRate: sampleRate, discreteChannels: target) else {
 				throw Error.unsupportedFormat
 			}
 			try super.init(format: format)
@@ -57,7 +57,7 @@ public enum Input {
 		var latest: (AudioUnitRenderActionFlags, AudioTimeStamp, AURenderPullInputBlock)
 		@inlinable
 		public init(sampleRate: Float64, target: Int) throws {
-			guard let format = AVAudioFormat(sampleRate: sampleRate, monoChannels: target) else {
+			guard let format = AVAudioFormat(sampleRate: sampleRate, discreteChannels: target) else {
 				throw Error.unsupportedFormat
 			}
 			latest = (
@@ -146,7 +146,7 @@ extension Input.WithConverter: DSP.Stream {
 	public func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
 		guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat64,
 										 sampleRate: .init(interval.timescale) / .init(interval.value),
-										 monoChannels: .init(format.channelCount),
+                                         discreteChannels: .init(format.channelCount),
 										 interleaved: false) else {
 			throw Error.unsupportedFormat
 		}
