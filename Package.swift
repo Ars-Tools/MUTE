@@ -36,6 +36,19 @@ let package = Package(
         .package(url: "https://github.com/ars-tools/muge", branch: "release"),
 	],
     targets: [
+        .executableTarget(
+            name: "ASPStage",
+            dependencies: [
+                "ASP",
+                "PSP",
+                "NSP",
+            ],
+            path: "ASP/Stage",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64"),
+            ]
+        ),
 		.target(
 			name: "ASP",
 			dependencies: ["DSP", "MIDI"],
@@ -48,7 +61,11 @@ let package = Package(
 		.testTarget(
 			name: "ASPTests",
             dependencies: ["ASP", "BSP", "FSP"],
-			path: "ASP/Tests"
+			path: "ASP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
 		),
         .target(
             name: "BSP",
@@ -62,7 +79,11 @@ let package = Package(
         .testTarget(
             name: "BSPTests",
             dependencies: ["BSP"],
-            path: "BSP/Tests"
+            path: "BSP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
         ),
 		.target(
 			name: "DSP",
@@ -85,7 +106,11 @@ let package = Package(
         .testTarget(
             name: "DSPTests",
             dependencies: ["DSP"],
-            path: "DSP/Tests"
+            path: "DSP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
         ),
         .target(
             name: "ESP",
@@ -103,10 +128,17 @@ let package = Package(
         .testTarget(
             name: "ESPTests",
             dependencies: ["ESP"],
-            path: "ESP/Tests"
+            path: "ESP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
         ),
 		.target(
 			name: "NSP",
+            dependencies: [
+                .product(name: "MUSE.Essentials", package: "MUSE"),
+            ],
 			path: "NSP/Sources",
 			publicHeadersPath: ".",
 			cSettings: [
@@ -120,11 +152,19 @@ let package = Package(
 				"NSP",
 				.product(name: "MUSE.Primitives", package: "MUSE"),
 			],
-			path: "NSP/Tests"
+			path: "NSP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ],
 		),
 		.target(
 			name: "FSP",
-			dependencies: ["DSP", "ESP"],
+			dependencies: [
+                "DSP", 
+                "ESP",
+                .product(name: "MUSE.Algorithms", package: "MUSE"),
+            ],
 			path: "FSP/Sources",
 			cSettings: [
 				.define("ACCELERATE_NEW_LAPACK"),
@@ -138,7 +178,11 @@ let package = Package(
 				.product(name: "MUSE.Primitives", package: "MUSE"),
 				.product(name: "MUCE.Auxiliary", package: "MUCE"),
 			],
-			path: "FSP/Tests"
+			path: "FSP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
 		),
         .executableTarget(
             name: "GSPPreview",
@@ -146,7 +190,11 @@ let package = Package(
                 "GSP",
                 .product(name: "MUGE.Artwork", package: "MUGE")
             ],
-            path: "GSP/Preview"
+            path: "GSP/Preview",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
         ),
         .target(
             name: "GSP",
@@ -162,7 +210,11 @@ let package = Package(
             dependencies: [
                 "GSP",
             ],
-            path: "GSP/Tests"
+            path: "GSP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
         ),
 		// Symbolic OPS
 		.target(
@@ -173,7 +225,36 @@ let package = Package(
 		.testTarget(
 			name: "MIDITests",
 			dependencies: ["MIDI"],
-			path: "MIDI/Tests"
+			path: "MIDI/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
 		),
+        //
+        .target(
+            name: "PSP",
+            dependencies: [
+                "DSP",
+                "NSP",
+                .product(name: "MUSE.Essentials", package: "MUSE"),
+                .product(name: "MUCE.Auxiliary", package: "MUCE"),
+            ],
+            path: "PSP/Sources",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
+        ),
+        .testTarget(
+            name: "PSPTests",
+            dependencies: ["PSP"],
+            path: "PSP/Tests",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
+        )
     ]
 )
+
