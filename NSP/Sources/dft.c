@@ -871,11 +871,11 @@ ddft_t const * __nonnull const ddft_create(intptr_t const count) {
                              object->prime[object->count-2]);
             break;
         default:
-            object->count = found - log2n + 1;
+            object->count = found - object->log2n + 1;
             object->prime[object->count-1] = 1;
-            object->prime[object->count-2] = 1 << log2n;
+            object->prime[object->count-2] = 1 << object->log2n;
             for ( register intptr_t k = object->count-2 ; 0 < k -- ;  )
-                object->prime[k] = object->prime[k+1] * prime[log2n+k] / prime[log2n+k+1];
+                object->prime[k] = object->prime[k+1] * prime[object->log2n+k] / prime[object->log2n+k+1];
             assert(count == object->prime[0]);
             object->setup = setup;
             break;
@@ -947,7 +947,7 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double       * __nonnull const y, intptr_t const incy,
                  __complex double       * __nullable w) {
     if ( !w )
-        w = alloca(2 * object->prime[0] * sizeof(__complex double const));
+        w = alloca(object->prime[0] * sizeof(__complex double const));
     assert(w);
     switch ( object->log2n ) {
         case 0:
@@ -957,8 +957,8 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         object->prime,
                         ^(__complex double const * const __nonnull _x, intptr_t const _incx,
                           __complex double       * const __nonnull _y, intptr_t const _incy,
-                          intptr_t const n) {
-                assert(n == object->prime[object->count-2]);
+                          intptr_t const _count) {
+                assert(_count == object->prime[object->count-2]);
                 assert(_x != _y);
                 zgemv_("N",
                        object->prime + object->count - 2, object->prime + object->count - 2,
@@ -976,8 +976,8 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         object->prime,
                         ^(__complex double const * const __nonnull _x, intptr_t const _incx,
                           __complex double       * const __nonnull _y, intptr_t const _incy,
-                          intptr_t const n) {
-                assert(n == 1 << object->log2n);
+                          intptr_t const _count) {
+                assert(_count == 1 << object->log2n);
                 if ( _x == _y )
                     vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
                         .realp = &__real(*_y),
@@ -1012,7 +1012,7 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double       * __nonnull const y, intptr_t const incy,
                  __complex double       * __nullable w) {
     if ( !w )
-        w = alloca(2 * object->prime[0] * sizeof(__complex double const));
+        w = alloca(object->prime[0] * sizeof(__complex double const));
     assert(w);
     switch ( object->log2n ) {
         case 0:
@@ -1022,7 +1022,8 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         object->prime,
                         ^(__complex double const * const __nonnull _x, intptr_t const _incx,
                           __complex double       * const __nonnull _y, intptr_t const _incy,
-                          intptr_t const n) {
+                          intptr_t const _count) {
+                assert(_count == object->prime[object->count-2]);
                 assert(_x != _y);
                 zgemv_("C",
                        object->prime + object->count - 2, object->prime + object->count - 2,
@@ -1040,8 +1041,8 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         object->prime,
                         ^(__complex double const * const __nonnull _x, intptr_t const _incx,
                           __complex double       * const __nonnull _y, intptr_t const _incy,
-                          intptr_t const n) {
-                assert(n == 1 << object->log2n);
+                          intptr_t const _count) {
+                assert(_count == 1 << object->log2n);
                 if ( _x == _y )
                     vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
                         .realp = &__real(*_y),
@@ -1075,7 +1076,7 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double       * __nonnull const y, intptr_t const ldy,
                  __complex double       * __nullable w) {
     if ( !w )
-        w = alloca(2 * object->prime[0] * sizeof(__complex double const));
+        w = alloca(nrhs * object->prime[0] * sizeof(__complex double const));
     assert(w);
     switch ( object->log2n ) {
         case 0:
@@ -1087,17 +1088,18 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         nrhs,
                         ^(__complex double const * __nonnull const _x, intptr_t const _incx, intptr_t const _ldx,
                           __complex double       * __nonnull const _y, intptr_t const _incy, intptr_t const _ldy,
-                          intptr_t const count, intptr_t nrhs) {
-                assert(object->prime[object->count-2] == count);
+                          intptr_t const _count, intptr_t const _nrhs) {
+                assert(_count == object->prime[object->count-2]);
+                assert(_x != _y);
                 if ( simd_all(simd_make_long2(_incx, _incy) == 1) )
                     zgemm_("N", "N",
-                           object->prime + object->count - 2, &nrhs, object->prime + object->count - 2,
+                           object->prime + object->count - 2, &_nrhs, object->prime + object->count - 2,
                            &one,
                            object->dense, object->prime + object->count - 2,
                            _x, &_ldx,
                            &zero,
                            _y, &_ldy);
-                else for ( intptr_t k = 0 ; k < nrhs ; ++ k )
+                else for ( intptr_t k = 0 ; k < _nrhs ; ++ k )
                     zgemv_("N",
                            object->prime + object->count - 2, object->prime + object->count - 2,
                            &one,
@@ -1114,23 +1116,23 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         w,
                         object->prime,
                         nrhs,
-                        ^(__complex double const * __nonnull const _x, intptr_t const _incx, intptr_t const ldx,
-                          __complex double       * __nonnull const _y, intptr_t const _incy, intptr_t const ldy,
-                          intptr_t const count, intptr_t nrhs) {
-                assert(count == 1 << object->log2n);
-            if ( _x == _y )
-                vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
-                    .realp = &__real(*_y),
-                    .imagp = &__imag(*_y)
-                }, 2 * _incy, 2 * ldy, object->log2n, nrhs, FFT_FORWARD);
-            else
-                vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
-                    .realp = &__real(*_x),
-                    .imagp = &__imag(*_x)
-                }, 2 * _incx, 2 * ldx, &(DSPDoubleSplitComplex const) {
-                    .realp = &__real(*_y),
-                    .imagp = &__imag(*_y)
-                }, 2 * _incy, 2 * ldy, object->log2n, nrhs, FFT_FORWARD);
+                        ^(__complex double const * __nonnull const _x, intptr_t const _incx, intptr_t const _ldx,
+                          __complex double       * __nonnull const _y, intptr_t const _incy, intptr_t const _ldy,
+                          intptr_t const _count, intptr_t const _nrhs) {
+                assert(_count == 1 << object->log2n);
+                if ( _x == _y )
+                    vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                        .realp = &__real(*_y),
+                        .imagp = &__imag(*_y)
+                    }, 2 * _incy, 2 * _ldy, object->log2n, _nrhs, FFT_FORWARD);
+                else
+                    vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
+                        .realp = &__real(*_x),
+                        .imagp = &__imag(*_x)
+                    }, 2 * _incx, 2 * _ldx, &(DSPDoubleSplitComplex const) {
+                        .realp = &__real(*_y),
+                        .imagp = &__imag(*_y)
+                    }, 2 * _incy, 2 * _ldy, object->log2n, _nrhs, FFT_FORWARD);
             });
             break;
     }
@@ -1153,7 +1155,7 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double       * __nonnull const y, intptr_t const ldy,
                  __complex double       * __nullable w) {
     if ( !w )
-        w = alloca(2 * object->prime[0] * sizeof(__complex double const));
+        w = alloca(nrhs * object->prime[0] * sizeof(__complex double const));
     assert(w);
     switch ( object->log2n ) {
         case 0:
@@ -1165,8 +1167,9 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         nrhs,
                         ^(__complex double const * __nonnull const _x, intptr_t const _incx, intptr_t const _ldx,
                           __complex double       * __nonnull const _y, intptr_t const _incy, intptr_t const _ldy,
-                          intptr_t const count, intptr_t nrhs) {
-                assert(object->prime[object->count-2] == count);
+                          intptr_t const _count, intptr_t _nrhs) {
+                assert(_count == object->prime[object->count-2]);
+                assert(_x != _y);
                 if ( simd_all(simd_make_long2(_incx, _incy) == 1) )
                     zgemm_("C", "N",
                            object->prime + object->count - 2, &nrhs, object->prime + object->count - 2,
@@ -1175,7 +1178,7 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                            _x, &_ldx,
                            &zero,
                            _y, &_ldy);
-                else for ( intptr_t k = 0 ; k < nrhs ; ++ k )
+                else for ( intptr_t k = 0 ; k < _nrhs ; ++ k )
                     zgemv_("C",
                            object->prime + object->count - 2, object->prime + object->count - 2,
                            &one,
@@ -1192,23 +1195,23 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
                         w,
                         object->prime,
                         nrhs,
-                        ^(__complex double const * __nonnull const _x, intptr_t const _incx, intptr_t const ldx,
-                          __complex double       * __nonnull const _y, intptr_t const _incy, intptr_t const ldy,
-                          intptr_t const count, intptr_t nrhs) {
-                assert(count == 1 << object->log2n);
+                        ^(__complex double const * __nonnull const _x, intptr_t const _incx, intptr_t const _ldx,
+                          __complex double       * __nonnull const _y, intptr_t const _incy, intptr_t const _ldy,
+                          intptr_t const _count, intptr_t const _nrhs) {
+                assert(_count == 1 << object->log2n);
             if ( _x == _y )
                 vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
                     .realp = &__real(*_y),
                     .imagp = &__imag(*_y)
-                }, 2 * _incy, 2 * ldy, object->log2n, nrhs, FFT_INVERSE);
+                }, 2 * _incy, 2 * _ldy, object->log2n, _nrhs, FFT_INVERSE);
             else
                 vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
                     .realp = &__real(*_x),
                     .imagp = &__imag(*_x)
-                }, 2 * _incx, 2 * ldx, &(DSPDoubleSplitComplex const) {
+                }, 2 * _incx, 2 * _ldx, &(DSPDoubleSplitComplex const) {
                     .realp = &__real(*_y),
                     .imagp = &__imag(*_y)
-                }, 2 * _incy, 2 * ldy, object->log2n, nrhs, FFT_INVERSE);
+                }, 2 * _incy, 2 * _ldy, object->log2n, _nrhs, FFT_INVERSE);
             });
             break;
     }
@@ -1250,11 +1253,10 @@ bdft_t const * __nonnull const bdft_create(intptr_t const * __nonnull const coun
             for ( register intptr_t r = 0 ; r < m ; ++ r ) {
                 __complex double e = 0;
                 sincospi(-2.0 * c * r / m, &__imag(e), &__real(e));
-                for ( register intptr_t j = 0 ; j < *count ; j += m ) {
+                for ( register intptr_t j = 0 ; j < *count ; j += m, ++ U ) {
                     P[U] = j + r;
                     Q[U] = j + c * k + r % k;
                     V[U] = e;
-                    ++U;
                 }
             }
             sparse_insert_entries_double_complex(object->prime[i], U, V, P, Q);
