@@ -5,14 +5,19 @@
 //  Created by Kota on 8/18/26.
 //
 import typealias Numerics.Complex128
-import NSP
+import typealias NSP.pdft_t
+import func NSP.pdft_create
+import func NSP.dft_destroy
+import func NSP.dft_count
+import func NSP.dft_forward
+import func NSP.dft_inverse
 extension DFT {
     public final class PWT: @unchecked Sendable {
         @usableFromInline
         let setup: UnsafePointer<pdft_t>
         @inlinable
         public init(count: Int) throws (Error) {
-            precondition(count.nonzeroBitCount == 1, "Power of Two supports only 2ⁿ")
+            precondition(count.nonzeroBitCount == 1, "Power-of-Two DFT supports only 2ⁿ length")
             setup = switch pdft_create(count) {
             case.some(let table):
                 table
