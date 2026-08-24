@@ -87,7 +87,7 @@ void ddft_forward(ddft_t const * __nonnull const, __complex double const * __non
 __attribute__((overloadable))
 void ddft_inverse(ddft_t const * __nonnull const, __complex double const * __nonnull const, __complex double * __nonnull const);
 #endif
-// MARK: DFS - higher performance when the length can be devided by large 2ⁿ
+// MARK: DFS - better performance for shallow composite excluding 2ⁿ, note: best performance for N=(ΠₖPₖ)*2ⁿ
 typedef __attribute__((__swift_attr__("BitwiseCopyable"), __swift_attr__("Sendable"))) struct {
     intptr_t count;
     intptr_t log2n;
@@ -139,7 +139,7 @@ void dft_inverse(ddft_t const * __nonnull const, dft_scale_t const, intptr_t con
                  __complex double const * __nonnull const x, intptr_t const,
                  __complex double       * __nonnull const y, intptr_t const,
                  __complex double       * __nullable);
-// MARK: BFS, better performance for non 2ⁿ length, slow setup to optimize (sparse_commit) larger N
+// MARK: BFS - better performance for deep composite, note: slow setup, faster operation
 typedef __attribute__((__swift_attr__("BitwiseCopyable"), __swift_attr__("Sendable"))) struct {
     intptr_t const count;
     sparse_matrix_double_complex __nonnull const prime[1];
