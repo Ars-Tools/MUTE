@@ -4,11 +4,8 @@
 //
 //  Created by Kota on 11/4/25.
 //
-import Accelerate
-import NSP
-import Numerics
-import Dense
-import AltVec
+import protocol Accelerate.AccelerateBuffer
+import typealias Numerics.Complex128
 public enum DFT: Sendable {}
 extension DFT {
     public protocol `Protocol`: Sendable {
