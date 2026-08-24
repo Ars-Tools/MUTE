@@ -7,7 +7,7 @@
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import typealias Accelerate.Quadrature
-import func Accelerate.vecLib.dgemm_
+import BLAS
 import simd
 import os.log
 @preconcurrency import protocol Combine.Publisher
@@ -132,21 +132,27 @@ extension Prototype.Ar: Stream {
 					vDSP.multiply(accum, scale, result: &accum)
 					vDSP.multiply(accum, $0[offset..<offset+length], result: &$0[offset..<offset+length])
 				}
-				var m = length
-				var n = degree
-				var k = degree
-				var α = 1.0
-				var β = 0.0
-				var lda = length
-				var ldb = degree
-				var ldc = stride
-				dgemm_("N", "T",
-					   &m, &n, &k,
-					   &α,
-					   $0.baseAddress, &lda,
-					   matrix, &ldb,
-					   &β,
-					   target, &ldc)
+//				var m = length
+//				var n = degree
+//				var k = degree
+//				var α = 1.0
+//				var β = 0.0
+//				var lda = length
+//				var ldb = degree
+//				var ldc = stride
+//				dgemm_("N", "T",
+//					   &m, &n, &k,
+//					   &α,
+//					   $0.baseAddress, &lda,
+//					   matrix, &ldb,
+//					   &β,
+//					   target, &ldc)
+                gemm(length, degree, degree,
+                     1,
+                     $0.baseAddress.unsafelyUnwrapped, length, .N,
+                     matrix, degree, .T,
+                     0,
+                     target, stride)
 			}
 		}
 	}
