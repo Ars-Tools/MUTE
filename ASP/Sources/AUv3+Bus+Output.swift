@@ -50,7 +50,7 @@ public enum Output {
 			source = stream
 			system = 0
 			kernel = type(of: self).UninitializedKernel
-			guard case.some(let format) = AVAudioFormat(sampleRate: sampleRate, monoChannels: source.count) else {
+			guard case.some(let format) = AVAudioFormat(sampleRate: sampleRate, discreteChannels: source.count) else {
 				throw Error.unsupportedFormat
 			}
 			try super.init(format: format)
@@ -66,7 +66,7 @@ public enum Output {
 			system = 0
 			kernel = type(of: self).UninitializedKernel
 			desire = sampleRate
-			switch AVAudioFormat(sampleRate: sampleRate, monoChannels: source.count) {
+			switch AVAudioFormat(sampleRate: sampleRate, discreteChannels: source.count) {
 			case.some(let format):
 				try super.init(format: format)
 			case.none:
@@ -232,7 +232,7 @@ extension Output.WithConverter {
 extension Output.WithConverter: Output.`Protocol` {
 	@inlinable
 	func allocate() throws {
-		let scheme = if case.some(let source) = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: desire, monoChannels: source.count, interleaved: false), case.some(let object) = AVAudioConverter(from: source, to: format) {
+		let scheme = if case.some(let source) = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: desire, discreteChannels: source.count, interleaved: false), case.some(let object) = AVAudioConverter(from: source, to: format) {
 			object
 		} else {
 			throw Error.unsupportedFormat
