@@ -68,8 +68,8 @@ extension Buffer {
     public static func Export(into path: URL, rate: Float64, data: Buffer) throws {
         try data.withUnsafeAudioBuffer {
             guard
-                let format = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: rate, monoChannels: data.stream, interleaved: false),
-                let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: $0, deallocator: .none) else {
+                case.some(let format) = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: rate, discreteChannels: data.stream, interleaved: false),
+                case.some(let buffer) = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: $0, deallocator: .none) else {
                 throw Error.unsupportedFormat
             }
             try AVAudioFile(forWriting: path, settings: format.settings, commonFormat: .pcmFormatFloat64, interleaved: false).write(from: buffer)
@@ -81,10 +81,10 @@ extension Buffer {
     @inlinable
     public func resample(ratio: some RationalNumber<some BinaryInteger>, to target: Buffer) throws -> Bool {
         guard
-            let input = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: .init(ratio.denominator), monoChannels: stream, interleaved: false),
-            let output = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: .init(ratio.numerator), monoChannels: target.stream, interleaved: false),
-            let target = AVAudioPCMBuffer(pcmFormat: output, length: target.period, target: target.start, stride: target.period, deallocator: .none),
-            let converter = AVAudioConverter(from: input, to: output) else {
+            case.some(let input) = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: .init(ratio.denominator), discreteChannels: stream, interleaved: false),
+            case.some(let output) = AVAudioFormat(commonFormat: .pcmFormatFloat64, sampleRate: .init(ratio.numerator), discreteChannels: target.stream, interleaved: false),
+            case.some(let target) = AVAudioPCMBuffer(pcmFormat: output, length: target.period, target: target.start, stride: target.period, deallocator: .none),
+            case.some(let converter) = AVAudioConverter(from: input, to: output) else {
             throw Error.unsupportedFormat
         }
         converter.sampleRateConverterAlgorithm = AVSampleRateConverterAlgorithm_Mastering
@@ -92,7 +92,7 @@ extension Buffer {
         var error: NSError?
         let cursor = Atomic<Int>(0)
         let status = converter.convert(to: target, error: &error) {
-            let range = switch cursor.add(Int($0), ordering: .acquiring) {
+            let range = switch cursor.add(.init($0), ordering: .acquiring) {
             case(let old, let new):
                 Swift.min(old, period)..<Swift.min(new, period)
             }
