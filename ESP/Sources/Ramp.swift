@@ -11,6 +11,14 @@ import func simd.exp2
 public enum Ramp {}
 extension Ramp {
     @inlinable@_transparent
+    public static func arange(in range: ClosedRange<Float64>, count: Int) -> Array<Float64> {
+        vDSP.ramp(withInitialValue: range.lowerBound, increment: ( range.upperBound - range.lowerBound ) / .init(count), count: count)
+    }
+    @inlinable@_transparent
+    public static func linspace(in range: ClosedRange<Float64>, count: Int) -> Array<Float64> {
+        vDSP.ramp(in: range, count: count)
+    }
+    @inlinable@_transparent
     public static func logspace(in range: ClosedRange<Float64>, count: Int) -> Array<Float64> {
         .init(unsafeUninitializedCapacity: count) {
             let range = log2(SIMD2<Float64>(range.lowerBound, range.upperBound))
