@@ -12,19 +12,71 @@ void * __nonnull const __malloc__(size_t const size) {
 	return CFAllocatorAllocate(kCFAllocatorDefault, size, 0);
 }
 __attribute__((always_inline)) static inline // free allocated memory
-void __free__(void * __nonnull const memory) {
-	CFAllocatorDeallocate(kCFAllocatorDefault, memory);
+void __free__(void const * __nonnull const memory) {
+	CFAllocatorDeallocate(kCFAllocatorDefault, (void*const)memory);
+}
+__attribute__((always_inline)) static inline
+bool __with_memory__(size_t const size, void(__attribute__((noescape))^__nonnull const body)(void*__nonnull const)) {
+    void * __nullable memory = __malloc__(size);
+    if ( memory ) {
+        body(memory);
+        __free__(memory);
+    }
+    return!memory;
+//
+//    void * __nullable memory = alloca(size);
+//    if ( memory )
+//        body(memory);
+//    else if ( ( memory = __malloc__(size) ) ) {
+//        body(memory);
+//        __free__(memory);
+//    }
+//    return!memory;
 }
 // vecLib
-__attribute__((always_inline)) static inline // for each (0<=k<length), A[k*iA] = 0
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), A[k*iA] = 0
 void __clr__(double * __nonnull const A, intptr_t const iA, intptr_t const length) {
 	vDSP_vclrD(A, iA, length);
 }
-__attribute__((always_inline)) static inline // for each (0<=k<length), B[k*iA] = A
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), A[k*iA] = 0
+void __clr__(__complex double * __nonnull const A, intptr_t const iA, intptr_t const length) {
+    vDSP_vclrD(((double*__nonnull const)A)+0, 2*iA, length);
+    vDSP_vclrD(((double*__nonnull const)A)+1, 2*iA, length);
+}
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A
 void __fill__(double const A, double * __nonnull const B, intptr_t const iB, intptr_t const length) {
 	vDSP_vfillD(&A, B, iB, length);
 }
-__attribute__((always_inline)) static inline // for each (0<=k<length), B[k*iA] = A
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A
+void __fill__(__complex double const A, __complex double * __nonnull const B, intptr_t const iB, intptr_t const length) {
+    vDSP_vfillD(&__real(A), ((double*__nonnull const)B)+0, 2*iB, length);
+    vDSP_vfillD(&__imag(A), ((double*__nonnull const)B)+1, 2*iB, length);
+}
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A[k*iA]
+void __copy__(double const * __nonnull const A, intptr_t const iA,
+              double       * __nonnull const B, intptr_t const iB,
+              intptr_t const length) {
+    dcopy_(&length, A, &iA, B, &iB);
+}
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A[k*iA]
+void __copy__(__complex double const * __nonnull const A, intptr_t const iA,
+              __complex double       * __nonnull const B, intptr_t const iB,
+              intptr_t const length) {
+    zcopy_(&length, A, &iA, B, &iB);
+}
+__attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A[k*iA]
+void __conj__(__complex double const * __nonnull const A, intptr_t const iA,
+              __complex double       * __nonnull const B, intptr_t const iB,
+              intptr_t const length) {
+    vDSP_zvconjD(&(DSPDoubleSplitComplex const) {
+        .realp = &__real(*A),
+        .imagp = &__imag(*A),
+    }, 2 * iA, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*B),
+        .imagp = &__imag(*B),
+    }, 2 * iB, length);
+}
+__attribute__((always_inline)) static inline // for each (0<=k<length), B[k*iB] = A
 void __sort__(double const * __nonnull const A, double       * __nonnull const B, intptr_t const length) {
 	memcpy(B, A, length * sizeof(double const));
 	vDSP_vsortD(B, length, 1);
@@ -33,11 +85,17 @@ __attribute__((always_inline)) static inline // for each (0<=k<length), B[k*iA] 
 void __ramp__(double const A, double const B, double * __nonnull const C, intptr_t const iC, intptr_t const length) {
 	vDSP_vrampD(&A, &B, C, iC, length);
 }
-__attribute__((always_inline)) static inline // formaly matrix copy (row-major), copy [length] elements, [count] times
+__attribute__((always_inline, overloadable)) static inline // formaly matrix copy (row-major), copy [length] elements, [count] times
 void __mcopy__(double const * __nonnull const A, intptr_t const ldA,
 			   double       * __nonnull const B, intptr_t const ldB,
 			   intptr_t const times, intptr_t const length) {
 	vDSP_mmovD(A, B, length, times, ldA, ldB);
+}
+__attribute__((always_inline, overloadable)) static inline // formaly matrix copy (row-major), copy [length] elements, [count] times
+void __mcopy__(__complex double const * __nonnull const A, intptr_t const ldA,
+               __complex double       * __nonnull const B, intptr_t const ldB,
+               intptr_t const times, intptr_t const length) {
+    vDSP_mmovD(A, B, 2 * length, times, 2 * ldA, 2 * ldB);
 }
 __attribute__((always_inline)) static inline // for each (0<=k<length), D[k*iD] = A[k*iE] * B + C[k*iC]
 void __vsm__(double const * __nonnull const A, intptr_t const iA,
@@ -63,7 +121,15 @@ void __vsdiv__(double const * __nonnull const A,
 			   intptr_t const length) {
 	vDSP_vsdivD(A, iA, &B, C, iC, length);
 }
-__attribute__((always_inline)) static inline // for each (0<=k<length), E[k*iE] = A[k*iE] * B + C[k*iC] * D
+__attribute__((always_inline)) static inline // for each (0<=k<length), D[k*iD] = A[k*iA] * B + C
+void __vsmsa__(double const * __nonnull const A, intptr_t const iA,
+               double const B,
+               double const C,
+               double       * __nonnull const D, intptr_t const iD,
+               intptr_t const length) {
+    vDSP_vsmsaD(A, iA, &B, &C, D, iD, length);
+}
+__attribute__((always_inline)) static inline // for each (0<=k<length), E[k*iE] = A[k*iA] * B + C[k*iC] * D
 void __vsmsma__(double const * __nonnull const A, intptr_t const iA,
 				double const B,
 				double const * __nonnull const C, intptr_t const iC,
