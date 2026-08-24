@@ -5,7 +5,12 @@
 //  Created by Kota on 8/18/26.
 //
 import typealias Numerics.Complex128
-import NSP
+import typealias NSP.bdft_t
+import func NSP.bdft_create
+import func NSP.dft_destroy
+import func NSP.dft_count
+import func NSP.dft_forward
+import func NSP.dft_inverse
 extension DFT {
     public final class BFS: @unchecked Sendable {
         @usableFromInline
