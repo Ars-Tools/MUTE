@@ -24,3 +24,16 @@ __attribute__((always_inline)) double const i1(double const x);
 __attribute__((always_inline)) double const in(intptr_t const n, double const x);
 __attribute__((always_inline)) void vvi0(double * __nonnull const y, double const * __nonnull const x, intptr_t const length);
 __attribute__((always_inline)) void vvi1(double * __nonnull const y, double const * __nonnull const x, intptr_t const length);
+// Hankel functions
+__attribute__((always_inline)) _Complex double const h0(double const x);
+__attribute__((always_inline)) _Complex double const h0c(double const x);
+__attribute__((always_inline)) _Complex double const h1(double const x);
+__attribute__((always_inline)) _Complex double const h1c(double const x);
+__attribute__((always_inline)) _Complex double const hn(double const x, intptr_t const a);
+__attribute__((always_inline)) _Complex double const hnc(double const x, intptr_t const a);
+__attribute__((always_inline, overloadable)) void vvh0(double const * __nonnull const x, _Complex double * __nonnull const y, intptr_t const length);
+__attribute__((always_inline, overloadable)) void vvh0c(double const * __nonnull const x, _Complex double * __nonnull const y, intptr_t const length);
+__attribute__((always_inline, overloadable)) void vvh0(double const * __nonnull const x, double * __nonnull const r, double * __nonnull const i, intptr_t const length);
+__attribute__((always_inline, overloadable)) void vvh0c(double const * __nonnull const x, double * __nonnull const r, double * __nonnull const i, intptr_t const length);
+__attribute__((always_inline, overloadable)) void vvh1(double const * __nonnull const x, _Complex double * __nonnull const y, intptr_t const length);
+__attribute__((always_inline, overloadable)) void vvh1c(double const * __nonnull const x, _Complex double * __nonnull const y, intptr_t const length);

@@ -128,3 +128,53 @@ void vvi1(register double * __nonnull const y, register double const * __nonnull
 	}
 	__free__(p);
 }
+__attribute__((always_inline)) _Complex double const h0(double const x) {
+    return j0(x) + y0(x) * _Complex_I;
+}
+__attribute__((always_inline)) _Complex double const h0c(double const x) {
+    return j0(x) - y0(x) * _Complex_I;
+}
+__attribute__((always_inline)) _Complex double const h1(double const x) {
+    return j1(x) + y1(x) * _Complex_I;
+}
+__attribute__((always_inline)) _Complex double const h1c(double const x) {
+    return j1(x) - y1(x) * _Complex_I;
+}
+__attribute__((always_inline)) _Complex double const hn(double const x, intptr_t const a) {
+    return jn(a, x) + yn(a, x) * _Complex_I;
+}
+__attribute__((always_inline)) _Complex double const hnc(double const x, intptr_t const a) {
+    return jn(a, x) - yn(a, x) * _Complex_I;
+}
+__attribute__((always_inline, overloadable)) void vvh0(double const * __nonnull x, _Complex double * __nonnull y, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ y )
+        *y = j0(*x) + y0(*x) * _Complex_I;
+}
+__attribute__((always_inline, overloadable)) void vvh0c(double const * __nonnull x, _Complex double * __nonnull y, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ y )
+        *y = j0(*x) - y0(*x) * _Complex_I;
+}
+__attribute__((always_inline, overloadable)) void vvh0(double const * __nonnull x, double * __nonnull r, double * __nonnull i, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ r, ++ i )
+        *r = j0(*x), *i = y0(*x);
+}
+__attribute__((always_inline, overloadable)) void vvh0c(double const * __nonnull x, double * __nonnull r, double * __nonnull i, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ r, ++ i )
+        *r = j0(*x), *i = -y0(*x);
+}
+__attribute__((always_inline, overloadable)) void vvh1(double const * __nonnull x, _Complex double * __nonnull y, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ y )
+        *y = j1(*x) + y1(*x) * _Complex_I;
+}
+__attribute__((always_inline, overloadable)) void vvh1c(double const * __nonnull x, _Complex double * __nonnull y, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ y )
+        *y = j1(*x) - y1(*x) * _Complex_I;
+}
+__attribute__((always_inline, overloadable)) void vvh1(double const * __nonnull x, double * __nonnull r, double * __nonnull i, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ r, ++ i )
+        *r = j1(*x), *i = y1(*x);
+}
+__attribute__((always_inline, overloadable)) void vvh1c(double const * __nonnull x, double * __nonnull r, double * __nonnull i, intptr_t const length) {
+    for ( register intptr_t k = 0, K = length ; k < K ; ++ k, ++ x, ++ r, ++ i )
+        *r = j1(*x), *i = -y1(*x);
+}
