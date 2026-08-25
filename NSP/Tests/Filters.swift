@@ -73,6 +73,45 @@ struct FiltersTestCase {
 			$1 = $0.count
 		}
 	}
+    @Test(
+        arguments: [100]
+    )
+    func biquad(count: Int) {
+        let ch = 1
+        let object = biquad_filter_create(ch)
+        defer {
+            biquad_filter_destroy(object)
+        }
+        let X0 = repeatElement(-1.0 ... 1.0, count: ch * count).map(Float64.random(in:))
+        let X1 = repeatElement(-1.0 ... 1.0, count: ch * count).map(Float64.random(in:))
+        let A0 = Array<Float64>(repeating: 1, count: count)
+        let A1 = Array<Float64>(repeating: 0, count: count)
+        let A2 = Array<Float64>(repeating: 0, count: count)
+        let B0 = Array<Float64>(repeating: 0, count: count)
+        let B1 = Array<Float64>(repeating: 1, count: count)
+        let B2 = Array<Float64>(repeating: 0, count: count)
+        let Y0 = Array<Float64>(unsafeUninitializedCapacity: ch * count) {
+            $1 = $0.count
+            biquad_filter_active(object,
+                                 [B0, B1, B2].flatMap(\.self), count,
+                                 [A0, A1, A2].flatMap(\.self), count,
+                                 X0, count,
+                                 $0.baseAddress.unsafelyUnwrapped, count,
+                                 count)
+        }
+        let Y1 = Array<Float64>(unsafeUninitializedCapacity: ch * count) {
+            $1 = $0.count
+            biquad_filter_active(object,
+                                 [B0, B1, B2].flatMap(\.self), count,
+                                 [A0, A1, A2].flatMap(\.self), count,
+                                 X1, count,
+                                 $0.baseAddress.unsafelyUnwrapped, count,
+                                 count)
+        }
+        let X = [X0, X1].flatMap(\.self)
+        let Y = [Y0, Y1].flatMap(\.self)
+        #expect(zip(X.dropLast(1), Y.dropFirst(1)).allSatisfy(==))
+    }
 	@Test
 	func svf() {
 		let N = 1024
