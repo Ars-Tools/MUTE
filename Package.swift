@@ -18,6 +18,10 @@ let package = Package(
             targets: ["BSP"]
         ),
         .library(
+            name: "MUTE.ESP",
+            targets: ["ESP"]
+        ),
+        .library(
             name: "MUTE.DSP",
             targets: ["DSP"]
         ),
