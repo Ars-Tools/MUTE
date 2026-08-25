@@ -95,7 +95,7 @@ void ssm_filter_d(ssm_filter_t * __nonnull const object, double const * __nonnul
 }
  */
 void ssm_filter_z(ssm_filter_t * __nonnull const object, double const* __nonnull const z, intptr_t const inc) {
-    dcopy_(&object->Z, z, inc, object->W, (intptr_t const[]){1});
+    dcopy_(&object->Z, z, &inc, object->W, (intptr_t const[]){1});
 }
 void ssm_filter_z_clear(ssm_filter_t * __nonnull const object) {
     __clr__(object->W, 1, object->Z);

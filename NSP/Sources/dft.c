@@ -823,7 +823,7 @@ __attribute__((visibility("hidden"), always_inline)) static inline
 __complex double * __nonnull const ddft_table(ddft_t const * __nonnull const object) {
     uintptr_t static const mask = sizeof(__complex double const) - 1;
     uintptr_t const base = &object->prime[object->count];
-    return ( base + mask ) & ~mask;
+    return (__complex double * __nonnull const)(( base + mask ) & ~mask);
 }
 __attribute__((overloadable)) // custom factorised series, forcely dense
 ddft_t const * __nonnull const ddft_create(intptr_t const * __nonnull const prime) {
