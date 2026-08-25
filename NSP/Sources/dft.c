@@ -821,8 +821,8 @@ void dft_forward(ddft_t const * __nonnull const object,
 // MARK: DDFT
 __attribute__((visibility("hidden"), always_inline)) static inline
 __complex double * __nonnull const ddft_table(ddft_t const * __nonnull const object) {
-    uintptr_t static const mask = sizeof(__complex double const) - 1;
-    uintptr_t const base = &object->prime[object->count];
+    size_t static const mask = sizeof(__complex double const) - 1;
+    uintptr_t const base = (uintptr_t const)&object->prime[object->count];
     return (__complex double * __nonnull const)(( base + mask ) & ~mask);
 }
 __attribute__((overloadable)) // custom factorised series, forcely dense
