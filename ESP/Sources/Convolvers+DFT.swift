@@ -20,21 +20,11 @@ extension Convolvers.DFT {
     }
 }
 extension Convolvers.DFT: Convolvers.`Protocol` {
-    @inlinable
-    public func convolve(x: UnsafePointer<Float64>, count xc: Int,
+    @inlinable@inline(__always)@_transparent
+    static func convolve(x: UnsafePointer<Float64>, count xc: Int,
                          y: UnsafePointer<Float64>, count yc: Int,
-                         z: UnsafeMutablePointer<Float64>) {
-        let count = xc + yc - 1
-        let dft = switch self {
-        case.Fast:
-            DFT.DFS(count: 1 << (MemoryLayout<Int>.size * 8 - ( count - 1 ).leadingZeroBitCount))
-        case.Just:
-            DFT.DFS(count: count)
-        case.Keep(let dft) where dft.count < count:
-            preconditionFailure("oversized")
-        case.Keep(let dft):
-            dft
-        }
+                         z: UnsafeMutablePointer<Float64>,
+                         with dft: some DFT.`Protocol`) {
         withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 4 * dft.count) {
             $0.initialize(repeating: .zero)
             let U = $0.baseAddress.unsafelyUnwrapped
@@ -46,7 +36,31 @@ extension Convolvers.DFT: Convolvers.`Protocol` {
             dft.forward(x: U, ld: dft.count, y: S, ld: dft.count, nrhs: 2)
             Complex128.Mul(x: S, inc: 1, y: T, inc: 1, z: S, inc: 1, length: dft.count)
             dft.inverse(x: S, inc: 1, y: U, inc: 1)
-            Complex128.Copy(z: U, inc: 1, r: z, inc: 1, length: count)
+            Complex128.Copy(z: U, inc: 1, r: z, inc: 1, length: xc + yc - 1)
+        }
+    }
+    @inlinable
+    public func convolve(x: UnsafePointer<Float64>, count xc: Int,
+                         y: UnsafePointer<Float64>, count yc: Int,
+                         z: UnsafeMutablePointer<Float64>) {
+        let count = xc + yc - 1
+        switch self {
+        case.Fast:
+            Self.convolve(x: x, count: xc,
+                          y: y, count: yc,
+                          z: z,
+                          with: DFT.DFS(count: 1 << (MemoryLayout<Int>.size * 8 - ( count - 1 ).leadingZeroBitCount)))
+        case.Just:
+            Self.convolve(x: x, count: xc,
+                          y: y, count: yc,
+                          z: z,
+                          with: DFT.DFS(count: count))
+        case.Keep(let dft):
+            precondition(count <= dft.count, "DFT frame size should be larger than \(xc) + \(yc) - 1 (\(count))")
+            Self.convolve(x: x, count: xc,
+                          y: y, count: yc,
+                          z: z,
+                          with: dft)
         }
     }
 }
