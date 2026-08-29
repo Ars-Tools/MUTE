@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 8/18/26.
 //
+import typealias Accelerate.vDSP
 import typealias Numerics.Complex128
 import AltVec
 extension Convolvers {
@@ -20,13 +21,15 @@ extension Convolvers.DFT {
     }
 }
 extension Convolvers.DFT: Convolvers.`Protocol` {
-    @inlinable@inline(__always)@_transparent
+    @inlinable
     static func convolve(x: UnsafePointer<Float64>, count xc: Int,
                          y: UnsafePointer<Float64>, count yc: Int,
                          z: UnsafeMutablePointer<Float64>,
                          with dft: some DFT.`Protocol`) {
         withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 4 * dft.count) {
-            $0.initialize(repeating: .zero)
+            $0.withMemoryRebound(to: Complex128.FloatLiteralType.self) {
+                vDSP.clear(&$0[0..<$0.count])
+            }
             let U = $0.baseAddress.unsafelyUnwrapped
             let V = U.advanced(by: dft.count)
             let S = V.advanced(by: dft.count)
@@ -49,7 +52,7 @@ extension Convolvers.DFT: Convolvers.`Protocol` {
             Self.convolve(x: x, count: xc,
                           y: y, count: yc,
                           z: z,
-                          with: DFT.DFS(count: 1 << (MemoryLayout<Int>.size * 8 - ( count - 1 ).leadingZeroBitCount)))
+                          with: DFT.DFS(count: 1 << (Int.bitWidth - ( count - 1 ).leadingZeroBitCount)))
         case.Just:
             Self.convolve(x: x, count: xc,
                           y: y, count: yc,

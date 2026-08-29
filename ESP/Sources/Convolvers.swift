@@ -4,9 +4,7 @@
 //
 //  Created by Kota on 8/6/26.
 //
-import Accelerate
-import Numerics
-import NSP
+import protocol Accelerate.AccelerateBuffer
 public enum Convolvers: Sendable {}
 extension Convolvers {
     public protocol `Protocol`: Sendable {
@@ -37,21 +35,21 @@ extension Convolvers.`Protocol` {
 }
 extension Convolvers {
     @inlinable
-    public static func Convolve(x: UnsafePointer<Float64>, count xc: Int,
+    public static func convolve(x: UnsafePointer<Float64>, count xc: Int,
                                 y: UnsafePointer<Float64>, count yc: Int,
                                 z: UnsafeMutablePointer<Float64>) {
         switch xc + yc - 1 {
-        case let count where xc * yc < count * ( MemoryLayout<Int>.size * 8 - count.leadingZeroBitCount ):
+        case let count where xc * yc < count * ( Int.bitWidth - count.leadingZeroBitCount ):
             Naïve.convolve(x: x, count: xc, y: y, count: yc, z: z)
         default:
             DFT.Fast.convolve(x: x, count: xc, y: y, count: yc, z: z)
         }
     }
     @inlinable
-    public static func Convolve(x: some AccelerateBuffer<Float64>,
+    public static func convolve(x: some AccelerateBuffer<Float64>,
                                 y: some AccelerateBuffer<Float64>) -> Array<Float64> {
         switch x.count + y.count - 1 {
-        case let count where x.count * y.count < count * ( MemoryLayout<Int>.size * 8 - count.leadingZeroBitCount ):
+        case let count where x.count * y.count < count * ( Int.bitWidth - count.leadingZeroBitCount ):
             Naïve.convolve(x: x, y: y)
         default:
             DFT.Fast.convolve(x: x, y: y)
