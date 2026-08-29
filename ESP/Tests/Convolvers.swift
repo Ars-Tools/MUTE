@@ -80,7 +80,7 @@ struct ConvolverTestCases {
             }
             $1 = $0.count
         }
-        let result = Convolvers.Convolve(x: x, y: y)
+        let result = Convolvers.convolve(x: x, y: y)
         #expect(expect.count == result.count)
         #expect(zip(expect, result).map(-).map(\.magnitude).allSatisfy { $0.isLess(than: .ulpOfOne.squareRoot()) })
     }
