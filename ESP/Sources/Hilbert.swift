@@ -21,7 +21,7 @@ extension Hilbert {
         @usableFromInline
         let rawValue: RawValue
         @inlinable
-        init(dft: RawValue) {
+        public init(dft: RawValue) {
             rawValue = dft
         }
     }
@@ -34,45 +34,55 @@ extension Hilbert.Transformer where RawValue == DFT.BFS {
 }
 extension Hilbert.Transformer {
     @inlinable
-    public func Analytic(signal: some AccelerateBuffer<Float64>) -> Array<Complex128> {
+    public func Analytic(signal: UnsafeBufferPointer<Float64>) -> Array<Complex128> {
         .init(unsafeUninitializedCapacity: signal.count) {
             $1 = $0.count
-            $0.withMemoryRebound(to: Float64.self) { zc in
-                signal.withUnsafeBufferPointer {
-                    Float64.Copy(x: $0.baseAddress.unsafelyUnwrapped, inc: 1,
-                                 y: zc.baseAddress.unsafelyUnwrapped, inc: 2,
-                                 length: $0.count)
-                }
-                Float64.Zero(x: zc.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2, length: signal.count)
+            $0.withMemoryRebound(to: Float64.self) {
+                assert($0.count == 2 * signal.count)
+                Float64.Copy(x: signal.baseAddress.unsafelyUnwrapped, inc: 1,
+                             y: $0.baseAddress.unsafelyUnwrapped, inc: 2,
+                             length: signal.count)
+                Float64.Zero(x: $0.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2,
+                             length: signal.count)
             }
             rawValue.hilbert(x: $0.baseAddress.unsafelyUnwrapped, inc: 1,
                              y: $0.baseAddress.unsafelyUnwrapped, inc: 1,
                              domain: .Time)
         }
     }
+    @_disfavoredOverload
+    @inlinable@inline(__always)@_transparent
+    public func Analytic(signal: some AccelerateBuffer<Float64>) -> Array<Complex128> {
+        signal.withUnsafeBufferPointer(Analytic(signal:))
+    }
 }
 extension Hilbert.Transformer {
     @inlinable
-    public func MinimumPhase(response: some AccelerateBuffer<Float64>) -> Array<Complex128> {
+    public func MinimumPhase(response: UnsafeBufferPointer<Float64>) -> Array<Complex128> {
         .init(unsafeUninitializedCapacity: response.count) {
             $1 = $0.count
-            $0.withMemoryRebound(to: Float64.self) { zc in
-                response.withUnsafeBufferPointer {
-                    Float64.Copy(x: $0.baseAddress.unsafelyUnwrapped, inc: 1,
-                                 y: zc.baseAddress.unsafelyUnwrapped, inc: 2,
-                                 length: $0.count)
-                }
-                Float64.Zero(x: zc.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2, length: response.count)
+            $0.withMemoryRebound(to: Float64.self) {
+                assert($0.count == 2 * response.count)
+                Float64.Copy(x: response.baseAddress.unsafelyUnwrapped, inc: 1,
+                             y: $0.baseAddress.unsafelyUnwrapped, inc: 2,
+                             length: response.count)
+                Float64.Zero(x: $0.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2,
+                             length: response.count)
             }
             Complex128.log($0.baseAddress.unsafelyUnwrapped, 1, $0.baseAddress.unsafelyUnwrapped, 1, $1)
             $0.withMemoryRebound(to: Float64.self) {
-                vDSP.invertedClip($0, to: 0...0, result: &$0[0..<$0.count])
+                Guard.removeAbnormal(of: $0)
             }
             rawValue.hilbert(x: $0.baseAddress.unsafelyUnwrapped, inc: 1,
                              y: $0.baseAddress.unsafelyUnwrapped, inc: 1,
                              domain: .Freq)
             Complex128.exp($0.baseAddress.unsafelyUnwrapped, 1, $0.baseAddress.unsafelyUnwrapped, 1, $1)
         }
+    }
+    @_disfavoredOverload
+    @inlinable@inline(__always)@_transparent
+    public func MinimumPhase(response: some AccelerateBuffer<Float64>) -> Array<Complex128> {
+        response.withUnsafeBufferPointer(MinimumPhase(response:))
     }
 }
 extension Hilbert {
