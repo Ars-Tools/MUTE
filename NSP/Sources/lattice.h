@@ -5,6 +5,13 @@
 //  Created by Kota on 8/14/R7.
 //
 #include<stdint.h>
+// Wiener
+__attribute__((always_inline, overloadable))
+intptr_t const wiener(double const * __nonnull const,
+                      double const * __nonnull const,
+                      double       * __nonnull const,
+                      double       * __nonnull const,
+                      intptr_t const);
 // Forward
 typedef struct {
 	double * __nonnull const w;

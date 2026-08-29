@@ -6,6 +6,17 @@
 //
 #include"module.h"
 #include"lattice.h"
+// MARK: wiener
+__attribute__((always_inline, overloadable))
+intptr_t const wiener(double const * __nonnull const A,
+                      double const * __nonnull const C,
+                      double       * __nonnull const F,
+                      double       * __nonnull const P,
+                      intptr_t const count) {
+    int e = 0;
+    vDSP_wienerD(count, A, C, F, P ? P : alloca(count * sizeof(double const)), 0, &e);
+    return e;
+}
 // MARK: process
 __attribute__((always_inline))
 lattice_filter_t * __nonnull const lattice_filter_create(intptr_t const order, intptr_t const count) {
