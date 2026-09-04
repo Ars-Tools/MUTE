@@ -14,6 +14,6 @@ extension Linear {
     typealias ZPK = (
         zero: (Array<Complex128>, Array<Float64>),
         pole: (Array<Complex128>, Array<Float64>),
-        gain: Float64
+        gain: Optional<Float64>
     )
 }
