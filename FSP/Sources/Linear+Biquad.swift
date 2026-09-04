@@ -26,7 +26,7 @@ import typealias simd.__double2
 import let Darwin.M_LN2
 import let Darwin.M_LN10
 extension Linear {
-    public struct Biquad {
+    public struct Biquad: Filter {
         public let b: SIMD3<Float64>
         public let a: SIMD3<Float64>
     }
@@ -35,6 +35,12 @@ extension Linear.Biquad {
     @inlinable
     package init(raw: (b: SIMD3<Float64>, a: SIMD3<Float64>)) {
         (b, a) = raw
+    }
+}
+extension Linear.Biquad {
+    @inlinable
+    public var ⁻¹: Self {
+        .init(raw: (a, b))
     }
 }
 extension Linear.Biquad {
@@ -50,7 +56,7 @@ extension Linear.Biquad {
         }
     }
     @inlinable@inline(__always)@_transparent
-    package static func `stationary-point`(P: SIMD3<Float64>, Q: SIMD3<Float64>) -> Array<Float64> {
+    package static func `stationary-points`(P: SIMD3<Float64>, Q: SIMD3<Float64>) -> Array<Float64> {
         let (α, β, γ) = switch cross(P, Q) {
         case let ε:
             (ε.x, ε.y, ε.z)
@@ -77,7 +83,7 @@ extension Linear.Biquad {
     package var G: SIMD2<Float64> {
         switch (Self.power(b), Self.power(a)) {
         case(let P, let Q):
-            Self.`stationary-point`(P: P, Q: Q).reduce(SIMD2<Float64>(.infinity, -.infinity)) {
+            Self.`stationary-points`(P: P, Q: Q).reduce(SIMD2<Float64>(.infinity, -.infinity)) {
                 switch fma($1, fma($1, P.z, P.y), P.x) / fma($1, fma($1, Q.z, Q.y), Q.x) {
                 case let g:
                         .init(min($0.x, g), max($0.y, g))
@@ -196,10 +202,10 @@ extension Linear.Biquad {
         // a₁ = - 2 * cos(ω₀) = 4 * sin²( 0.5 * ω₀ ) - 2
         // a₂ = 1 - α = 1 - 0.5 * sin ( 0.5 * ω₀ ) * cos( 0.5 * ω₀ ) / Q
         let z = __sincospi_stret(ω₀)
-        let cq = z.__cosval * Q⁻¹
-        let a₀ = fma( z.__sinval, cq, 1)
+        let q = z.__cosval * Q⁻¹
+        let a₀ = fma( z.__sinval, q, 1)
         let a₁ = fma( 4, z.__sinval * z.__sinval, -2)
-        let a₂ = fma(-z.__sinval, cq, 1)
+        let a₂ = fma(-z.__sinval, q, 1)
         return.init(raw: (
             .init(a₂, a₁, a₀),
             .init(a₀, a₁, a₂)
@@ -226,13 +232,13 @@ extension Linear.Biquad {
         // a₁ = - 2 * cos(ω₀) = 4 * sin²( 0.5 * ω₀ ) - 2
         // a₂ = 1 - α = 1 - 0.5 * sin ( 0.5 * ω₀ ) * cos( 0.5 * ω₀ ) / Q
         let z = __sincospi_stret(ω₀)
-        let cq = z.__cosval * Q⁻¹
+        let q = z.__cosval * Q⁻¹
         let a₁ = fma( 4, z.__sinval * z.__sinval, -2)
         return.init(raw: (
             .init(1, a₁, 1),
-            .init(fma( z.__sinval, cq, 1),
+            .init(fma( z.__sinval, q, 1),
                   a₁,
-                  fma(-z.__sinval, cq, 1))
+                  fma(-z.__sinval, q, 1))
         ))
     }
     @inlinable
