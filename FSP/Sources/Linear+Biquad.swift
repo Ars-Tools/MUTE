@@ -18,10 +18,12 @@ import func simd.expm1
 import func simd.__exp10
 import func simd.copysign
 import func simd.sqrt
+import func simd.__tg_sqrt
 import func simd.rsqrt
 import func simd.recip
 import func simd.sinh
 import func simd._simd_sinc
+import func simd.simd_abs
 import typealias simd.__double2
 import let Darwin.M_LN2
 import let Darwin.M_LN10
@@ -79,8 +81,34 @@ extension Linear.Biquad {
     }
 }
 extension Linear.Biquad {
+    @inlinable
+    public var 𝒢ₘ: Float64 {
+        // H(z) = (b₀ + b₁z⁻¹ + b₂z⁻²)
+        //      / (a₀ + a₁z⁻¹ + a₂z⁻²)
+        let p = Self.power(b)
+        let q = Self.power(a)
+
+        // sqrt(Q(±1)) = |A(±1)|
+        let s = simd_abs(.init(a.y, -a.y) + a.x + a.z)
+
+        let r = s.x * s.y
+        let d = r * sqrt(2 * (r + q.x - q.z))
+
+        // mₖ = mean(cos(ω)^k / |A(e^{jω})|²)
+        let t = s.sum()
+        let m₀ = t / d
+        let m₁ = -2 * q.y / t / d
+        let m₂ =
+            !q.z.isZero ? fma(-m₀, q.x, fma(-m₁, q.y, 1)) / q.z :
+            !q.y.isZero ? -m₁ * q.x / q.y :
+            !q.x.isZero ? 0.5 / q.x : .nan
+
+        return dot(p, .init(m₀, m₁, m₂))
+    }
+}
+extension Linear.Biquad {
     @inlinable@inline(__always)@_transparent // return minimum and maximum gain of stationary-point frequency
-    package var G: SIMD2<Float64> {
+    package var 𝒢: SIMD2<Float64> {
         switch (Self.power(b), Self.power(a)) {
         case(let P, let Q):
             Self.`stationary-points`(P: P, Q: Q).reduce(SIMD2<Float64>(.infinity, -.infinity)) {
@@ -92,12 +120,12 @@ extension Linear.Biquad {
         }
     }
     @inlinable
-    public var Gₛ: Float64 {
-        G.min()
+    public var 𝒢ₛ: Float64 {
+        𝒢.min()
     }
     @inlinable
-    public var Gₚ: Float64 {
-        G.max()
+    public var 𝒢ₚ: Float64 {
+        𝒢.max()
     }
 }
 // MARK: BPF
