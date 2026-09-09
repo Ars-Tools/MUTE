@@ -4,9 +4,8 @@
 //
 //  Created by Kota on 9/3/26.
 //
-import func simd.simd_reduce_min
-import func simd.simd_abs
 import func simd.log1p
+import func simd.simd_abs
 import typealias Numerics.Complex128
 import typealias Dense.MatBuf
 import typealias Optimise.Graph
@@ -79,7 +78,34 @@ extension Linear.Cascade {
 }
 extension Linear.Cascade {
     @inlinable
-    public init(decompose direct: Linear.Direct<Array<Float64>, Array<Float64>>) {
+    public init(decompose direct: Linear.Direct) {
         self.init(zpk: direct.zpk)
+    }
+}
+extension Linear.Cascade {
+    @inlinable
+    var zpk: Linear.ZPK {
+        reduce(into: ((Array<Complex128>(), Array<Float64>()), (Array<Complex128>(), Array<Float64>()), .none)) {
+            switch $1.zero {
+            case let root where root.0.imag.isZero:
+                assert(root.1.imag.isZero)
+                $0.0.1.append(root.0.real)
+                $0.0.1.append(root.1.real)
+            case let root:
+                assert(0 > root.0.imag)
+                assert(0 < root.1.imag)
+                $0.0.0.append(root.1)
+            }
+            switch $1.pole {
+            case let root where root.0.imag.isZero:
+                assert(root.1.imag.isZero)
+                $0.1.1.append(root.0.real)
+                $0.1.1.append(root.1.real)
+            case let root:
+                assert(0 > root.0.imag)
+                assert(0 < root.1.imag)
+                $0.1.0.append(root.1)
+            }
+        }
     }
 }
