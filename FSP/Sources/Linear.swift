@@ -10,7 +10,7 @@ public enum Linear {
     public protocol `Filter` {}
 }
 extension Linear {
-    @usableFromInline // contains positive-side imaginary roots, conjugated roots is required to be computed
+    @usableFromInline // contains only positive-side imaginary roots, conjugated roots will be required to compute
     typealias ZPK = (
         zero: (Array<Complex128>, Array<Float64>),
         pole: (Array<Complex128>, Array<Float64>),
