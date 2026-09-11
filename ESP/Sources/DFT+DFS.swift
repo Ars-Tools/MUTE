@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 8/24/26.
 //
+import typealias Synchronization.Mutex
 import typealias Numerics.Complex128
 import typealias NSP.ddft_t
 import func NSP.ddft_create
@@ -76,4 +77,30 @@ extension DFT.DFS: DFT.`Protocol` {
                         .init($0.baseAddress))
         }
     }
+}
+// MARK: Shared Instance
+extension Mutex where Value == Dictionary<Int, DFT.DFS> {
+    @inlinable
+    public subscript(_ count: Int) -> Value.Value {
+        withLock {
+            switch $0[count] {
+            case.some(let dft):
+                dft
+            case.none:
+                switch Value.Value(count: count) {
+                case let dft:
+                    $0.updateValue(dft, forKey: count) ?? dft
+                }
+            }
+        }
+    }
+    @inlinable
+    public func flush() {
+        withLock {
+            $0.removeAll()
+        }
+    }
+}
+extension DFT.DFS {
+    public static let shared: Mutex<Dictionary<Int, DFT.BFS>> = .init(.init())
 }
