@@ -313,20 +313,7 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
     intptr_t const n = object->order;
     __complex double * __nonnull const w = object->w;
     __complex double * __nonnull const h = object->h;
-    if ( !e ) for ( register __complex double const * __nonnull const _ = e + length ; e < _ ; ++ x, ++ y ) {
-        memmove(h + m,
-                h,
-                m * ( n - 1 ) * sizeof(__complex double const));
-        zcopy_(&m,
-               x, &ldx,
-               h, &one);
-        for ( register intptr_t k = 0 ; k < m ; ++ k )
-            rls(object->rls + k,
-                y[k*ldy],
-                h + k * 1, m,
-                w + k * n, 1);
-    }
-    else for ( register __complex double const * _Nonnull const _ = e + length ; e < _ ; ++ x, ++ y, ++ e ) {
+    if ( e ) for ( register __complex double const * _Nonnull const _ = e + length ; e < _ ; ++ x, ++ y, ++ e ) {
         memmove(h + m,
                 h,
                 m * ( n - 1 ) * sizeof(__complex double const));
@@ -338,6 +325,19 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
                            y[k*ldy],
                            h + k * 1, m,
                            w + k * n, 1);
+    }
+    else for ( register intptr_t t = 0, _ = length ; t < _ ; ++ x, ++ y, ++ t ) {
+        memmove(h + m,
+                h,
+                m * ( n - 1 ) * sizeof(__complex double const));
+        zcopy_(&m,
+               x, &ldx,
+               h, &one);
+        for ( register intptr_t k = 0 ; k < m ; ++ k )
+            rls(object->rls + k,
+                y[k*ldy],
+                h + k * 1, m,
+                w + k * n, 1);
     }
 }
 __attribute__((overloadable))
