@@ -341,8 +341,8 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
     }
 }
 __attribute__((overloadable))
-void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
-                      __complex double * __nonnull k, intptr_t const ldk) {
+void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const object,
+                             __complex double * __nonnull k, intptr_t const ldk) {
     for ( register __complex double * __nonnull s = object->w, * __nonnull d = k, * __nonnull const _ = s + object->count * object->order ; s < _ ; s += object->order, d += ldk )
         zcopy_(&object->order,
                s, &one,

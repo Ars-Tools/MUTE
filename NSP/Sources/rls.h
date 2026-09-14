@@ -106,11 +106,11 @@ void rls_filter_lambda(rls_complex_filterbank_t*__nonnull const, double const);
 __attribute__((overloadable))
 void rls_filter_reset(rls_complex_filterbank_t*__nonnull const);
 __attribute__((overloadable))
-void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const,
-                             __complex double * __nonnull, intptr_t const,
-                             __complex double * __nonnull, intptr_t const,
-                             __complex double * _Nullable, intptr_t const,
-                             intptr_t const);
-__attribute__((overloadable))
 void rls_filter_error(rls_complex_filterbank_t*__nonnull const,
-                      __complex double * __nonnull, intptr_t const);
+                      __complex double * __nonnull, intptr_t const,
+                      __complex double * __nonnull, intptr_t const,
+                      __complex double * _Nullable, intptr_t const,
+                      intptr_t const);
+__attribute__((overloadable))
+void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const,
+                             __complex double * __nonnull, intptr_t const);
