@@ -8,15 +8,15 @@
 #include<Security/Security.h>
 #include<simd/simd.h>
 #include"random_number_generator.h"
-__attribute__((visibility("hidden")))
-__attribute__((always_inline))
-static inline void uniform_f64_in_1_2(double * __nonnull const y, intptr_t const length) { // generate uniform [1, 2)
+__attribute__((visibility("hidden"), always_inline)) static inline
+void uniform_f64_in_1_2(double * __nonnull const y, intptr_t const length) { // generate uniform [1, 2)
 	assert(sizeof(double const) == sizeof(uint64_t const));
 	arc4random_buf(y, length * sizeof(double const));
 	for ( register uint64_t * __nonnull u = (uint64_t*__nonnull)y, * __nonnull const U = u + length ; u < U ; ++ u )
 		*u &= 0x000FFFFFFFFFFFFF, *u |= 0x3FF0000000000000;
 }
 // MARK: Uniform Distribution
+__attribute__((overloadable))
 void uniform_rng(double * __nonnull const r, intptr_t const ldr,
 				 double const * __nonnull a, intptr_t const lda,
 				 double const * __nonnull b, intptr_t const ldb,
