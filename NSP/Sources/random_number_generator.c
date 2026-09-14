@@ -7,13 +7,15 @@
 #include<Accelerate/Accelerate.h>
 #include<Security/Security.h>
 #include<simd/simd.h>
+#include<stdatomic.h>
 #include"random_number_generator.h"
 __attribute__((visibility("hidden"), always_inline)) static inline
 void uniform_f64_in_1_2(double * __nonnull const y, intptr_t const length) { // generate uniform [1, 2)
 	assert(sizeof(double const) == sizeof(uint64_t const));
 	arc4random_buf(y, length * sizeof(double const));
 	for ( register uint64_t * __nonnull u = (uint64_t*__nonnull)y, * __nonnull const U = u + length ; u < U ; ++ u )
-		*u &= 0x000FFFFFFFFFFFFF, *u |= 0x3FF0000000000000;
+		*u &= 0x000FFFFFFFFFFFFF,
+        *u |= 0x3FF0000000000000;
 }
 // MARK: Uniform Distribution
 __attribute__((overloadable))
@@ -28,6 +30,7 @@ void uniform_rng(double * __nonnull const r, intptr_t const ldr,
 	}
 }
 // MARK: Cauchy Distribution
+__attribute__((overloadable))
 void cauchy_rng(double * __nonnull const r, intptr_t const ldr,
 				double const * __nonnull x, intptr_t const ldx,
 				double const * __nonnull g, intptr_t const ldg,
@@ -91,4 +94,40 @@ void gauss_rng(double * __nonnull const r, intptr_t const ldr,
 		// scaling
 		vDSP_vsmsaD(y, 1, s, u, y, 1, length);
 	}
+}
+
+__attribute__((overloadable))
+void rng_gauss(double * __nonnull const r, intptr_t const ldr,
+               double const * __nonnull u, intptr_t const ldu,
+               double const * __nonnull s, intptr_t const lds,
+               intptr_t const number,
+               intptr_t const length) {
+    static atomic_flag trigonal = ATOMIC_FLAG_INIT;
+    // erfinv requires twice of lenghth
+//    register double * __nonnull const w = z ? z : alloca(2 * length * sizeof(double const));
+    int const polar = (int const)(length / 2); // radius/radian border for polar -> cartesian conversion
+    for ( register double * __nonnull y = r, * __nonnull const Y = y + number * ldr ; y < Y ; y += ldr, u += ldu, s += lds ) {
+        uniform_f64_in_1_2(y, length);
+        // erfinv, consumes extra memory
+//        vDSP_vsmsaD(y, 1, (double const[]){ 2.0}, (double const[]){-3.0}, y, 1, length);
+//        erfinv_approx(y, y, w, (int const)length);
+        
+        // for box-muller U[1, 2) -> U(0, 1]
+        vDSP_vsmsaD(y, 1, (double const[]){-1.0}, (double const[]){ 2.0}, y, 1, length);
+        // R
+        vvlog(y, y, &polar);
+        vDSP_vsmulD(y, 1, (double const[]){-2.0}, y, 1, polar);
+        vvsqrt(y, y, &polar);
+        // θ
+        vDSP_vsmulD(y + polar, 1, (double const[]) { 2.0*M_PI}, y + polar, 1, polar);
+        vDSP_vswapD(y + 1, 2, y + 2 * polar - 2, -2, polar / 2);
+        // cartesian
+        vDSP_rectD(y, 2, y, 2, polar);
+        
+        if (length&1) // odds
+            y[length-1] = sqrt(-2*log(y[length-1]))*
+            (atomic_flag_test_and_set_explicit(&trigonal, memory_order_relaxed)?__cospi:__sinpi)(arc4random()**(double*const)(intptr_t const[]){0x3DE0000000000000});
+        // scaling
+        vDSP_vsmsaD(y, 1, s, u, y, 1, length);
+    }
 }
