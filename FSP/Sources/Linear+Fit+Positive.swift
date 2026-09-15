@@ -72,8 +72,8 @@ extension Linear {
                     let p = Direct.ChebyshevPolynomial(Array(current.prefix(pCount)))
                     let q = Direct.ChebyshevPolynomial(Array(current.suffix(qCount)))
 
-                    let pMinimum = p.minimum()
-                    let qMinimum = q.minimum()
+                    let pMinimum = p.minimum
+                    let qMinimum = q.minimum
                     let pIsFeasible = minimum <= pMinimum.value
                     let qIsFeasible = minimum <= qMinimum.value
                     if pIsFeasible && qIsFeasible {

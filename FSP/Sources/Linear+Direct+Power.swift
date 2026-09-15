@@ -101,42 +101,6 @@ extension Linear.Direct.ChebyshevPolynomial {
         }
         return first + x * b1 - b2
     }
-
-    @inlinable
-    func derivative() -> Self {
-        .init(.init(unsafeUninitializedCapacity: rawValue.count + 1) {
-            $1 = $0.count
-            $0.dropFirst(rawValue.count - 1).update(repeating: 0)
-            for k in stride(from: rawValue.count - 2, through: 0, by: -1) {
-                $0[k] = $0[k + 2] + 2 * Float64(k + 1) * rawValue[k + 1]
-            }
-            $0[0] *= 0.5
-            let scale = max(1, rawValue.lazy.map(\.magnitude).max() ?? 1)
-            let tolerance = 64 * Float64.ulpOfOne * scale
-            while 1 < $1, $0[$1 - 1].magnitude <= tolerance {
-                $1 -= 1
-            }
-        })
-    }
-
-    @inlinable
-    func stationaryPoints(tolerance: Float64 = .ulpOfOne.squareRoot() * 256.0) -> Array<Float64> {
-        switch derivative().roots() {
-        case(let r, let i):
-            zip(r, i).compactMap {
-                (-1...1) ~= $0 && $1.magnitude <= tolerance * max(1, $0.magnitude) ? $0 : nil
-            }
-        }
-    }
-
-    @inlinable
-    func minimum(tolerance: Float64 = .ulpOfOne.squareRoot() * 256.0) -> (value: Float64, location: Float64) {
-        (.init(arrayLiteral: -1, 1) + stationaryPoints(tolerance: tolerance)).lazy.map {
-            (value: self($0), location: $0)
-        }.min {
-            $0.value < $1.value
-        }.unsafelyUnwrapped
-    }
 }
 extension Linear.Direct.ChebyshevPowerRational {
 //    @inlinable
@@ -151,59 +115,93 @@ extension Linear.Direct.ChebyshevPowerRational {
 }
 extension Linear.Direct.ChebyshevPolynomial {
     @inlinable
-    func roots() -> (r: ArraySlice<Float64>, i: ArraySlice<Float64>) {
+    var derivative: Self {
         let degree = rawValue.count - 1
-        let values = Array<Float64>(unsafeUninitializedCapacity: 2 * degree) {
-            let r = UnsafeMutableBufferPointer(rebasing: $0[0 * degree ..< 1 * degree])
-            let i = UnsafeMutableBufferPointer(rebasing: $0[1 * degree ..< 2 * degree])
-            guard !r.isEmpty, !i.isEmpty else {
-                $1 = 0
-                return
-            }
-            guard 1 < degree else {
-                r[0] = -rawValue[0] / rawValue[1]
-                i[0] = 0
-                $1 = $0.count
-                return
-            }
-            let workspaceCount = hseqr(.E, .N, degree,
-                                       1, degree,
-                                       .none, degree,
-                                       .none, .none,
-                                       .none, degree,
-                                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
-            assert(0 < workspaceCount)
-            withUnsafeTemporaryAllocation(of: Float64.self,
-                                          capacity: degree * degree + workspaceCount) {
-                vDSP.clear(&$0[0..<$0.count])
-                let matrix = UnsafeMutableBufferPointer(rebasing: $0.prefix(degree * degree))
-                let workspace = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(degree * degree).suffix(workspaceCount))
-                workspace[0] = 0.5.squareRoot()
-                vDSP.fill(&workspace[1..<degree], with: 0.5)
-                copy(degree - 1,
-                     workspace.baseAddress.unsafelyUnwrapped, 1,
-                     matrix.baseAddress.unsafelyUnwrapped.advanced(by: 1), degree + 1)
-                copy(degree - 1,
-                     workspace.baseAddress.unsafelyUnwrapped, 1,
-                     matrix.baseAddress.unsafelyUnwrapped.advanced(by: degree), degree + 1)
-                vDSP.divide(workspace[0..<degree], -rawValue[degree], result: &workspace[0..<degree])
-                vDSP.add(multiplication: (rawValue[0..<degree], workspace[0..<degree]),
-                         matrix[degree * degree - degree..<degree * degree],
-                         result: &matrix[degree * degree - degree..<degree * degree])
-                let info = hseqr(.E, .N, degree,
-                                 1, degree,
-                                 matrix.baseAddress, degree,
-                                 r.baseAddress, i.baseAddress,
-                                 .none, degree,
-                                 workspace.baseAddress, workspace.count)
-                precondition(info == 0, "Chebyshev root solve failed")
-            }
-            $1 = $0.count
+        guard 0 < degree else {
+            return.init([0])
         }
-        return (
-            values.prefix(degree),
-            values.suffix(degree)
-        )
+        return.init(.init(unsafeUninitializedCapacity: degree) {
+            $1 = $0.count
+            $0[degree - 1] = 2 * Float64(degree) * rawValue[degree]
+            if 1 < degree {
+                $0[degree - 2] = 2 * Float64(degree - 1) * rawValue[degree - 1]
+            }
+            for k in stride(from: degree - 3, through: 0, by: -1) {
+                $0[k] = $0[k + 2] + 2 * Float64(k + 1) * rawValue[k + 1]
+            }
+            $0[0] *= 0.5
+        })
+    }
+    @inlinable // compute roots of the chebyshev-polynomial and return positive-side-imaginary-only complex roots and real roots
+    var roots: (Array<Complex128>, Array<Float64>) {
+        var ℂ = Array<Complex128>()
+        var ℝ = Array<Float64>()
+        switch rawValue.count - 1 {
+        case ...0:
+            assertionFailure()
+        case 1:
+            ℝ.append(-rawValue[0] / rawValue[1])
+        case let n:
+            assert(1 < n)
+            let l = hseqr(.E, .N, n,
+                          1, n,
+                          .none, n,
+                          .none, .none,
+                          .none, n,
+                          .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+            assert(0 < l)
+            withUnsafeTemporaryAllocation(of: Float64.self, capacity: n * n + 2 * n + max(n, l)) { // eigenvalues from Colleague matrix
+                let z = UnsafeMutableBufferPointer(rebasing: $0.prefix(n * n))
+                let r = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(n * n).prefix(n))
+                let i = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(n * n + n).prefix(n))
+                let w = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(n * n + n + n).prefix(max(n, l)))
+                w[0] = 0.5.squareRoot()
+                vDSP.fill(&w[1..<n], with: 0.5)
+                vDSP.clear(&z[0..<n*n])
+                copy(n - 1,
+                     w.baseAddress.unsafelyUnwrapped, 1,
+                     z.baseAddress.unsafelyUnwrapped.advanced(by: 1), n + 1)
+                copy(n - 1,
+                     w.baseAddress.unsafelyUnwrapped, 1,
+                     z.baseAddress.unsafelyUnwrapped.advanced(by: n), n + 1)
+                vDSP.divide(w[0..<n], -rawValue[n], result: &w[0..<n])
+                vDSP.add(multiplication: (rawValue[0..<n], w[0..<n]),
+                         z[n * n - n..<n * n],
+                         result: &z[n * n - n..<n * n])
+                let s = hseqr(.E, .N, n,
+                              1, n,
+                              z.baseAddress, n,
+                              r.baseAddress, i.baseAddress,
+                              .none, n,
+                              w.baseAddress, w.count)
+                precondition(s == 0, "Chebyshev root solve failed")
+                ℂ.reserveCapacity(n)
+                ℝ.reserveCapacity(n)
+                var iter = zip(r, i).makeIterator()
+                while let (r, i) = iter.next() {
+                    if i.isZero {
+                        ℝ.append(r)
+                    } else if case.some((r, -i)) = iter.next() {
+                        ℂ.append(.init(real: r, imag: i.magnitude))
+                    } else {
+                        assertionFailure()
+                    }
+                }
+            }
+        }
+        return (ℂ, ℝ)
+    }
+    @inlinable
+    var`stationary-points`: Array<Float64> {
+        derivative.roots.1.filter((-1...1).contains)
+    }
+    @inlinable
+    var minimum: (value: Float64, location: Float64) {
+        (Array(arrayLiteral: -1, 1) + `stationary-points`).lazy.map {
+            (value: self($0), location: $0)
+        }.min {
+            $0.value < $1.value
+        }.unsafelyUnwrapped
     }
     @inlinable
     static func Outer(r: Float64, i: Float64) -> Complex128 {

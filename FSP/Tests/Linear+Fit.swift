@@ -30,20 +30,63 @@ struct LinearFitTestCases {
     }
     @Test
     func chebyshevPolynomialOperations() {
-        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [3]).derivative().rawValue == [0])
-        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2]).derivative().rawValue == [2])
-        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2, 3, 4]).derivative().rawValue == [14, 12, 24])
+        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [3]).derivative.rawValue == [0])
+        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2]).derivative.rawValue == [2])
+        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2, 3, 4]).derivative.rawValue == [14, 12, 24])
         let polynomial = Linear.Direct.ChebyshevPolynomial(rawValue: [1, 0.2, 0.1])
-        let derivative = polynomial.derivative()
+        let derivative = polynomial.derivative
         #expect(derivative.rawValue == [0.2, 0.4])
         #expect((polynomial(0.25) - 0.9625).magnitude < 1e-15)
         #expect((derivative(0.25) - 0.3).magnitude < 1e-15)
-        let stationaryPoints = polynomial.stationaryPoints()
+        let stationaryPoints = polynomial.`stationary-points`
         #expect(stationaryPoints.count == 1)
         #expect((stationaryPoints[0] + 0.5).magnitude < 1e-12)
-        let minimum = polynomial.minimum()
+        let minimum = polynomial.minimum
         #expect((minimum.location + 0.5).magnitude < 1e-12)
         #expect((minimum.value - 0.85).magnitude < 1e-12)
+    }
+    @Test
+    func constrainedLeastSquaresSubject() {
+        let solution = Linear.fit(
+            m: 2,
+            n: 2,
+            a: [1, 0,
+                0, 1],
+            lda: 2,
+            c: [2, 0],
+            initial: [0.5, 0.5],
+            subject: [([1, 1], 1)],
+            penalty: { _ in [] }
+        )
+
+        #expect((solution[0] - 1.5).magnitude < 1e-12)
+        #expect((solution[1] + 0.5).magnitude < 1e-12)
+        #expect((solution[0] + solution[1] - 1).magnitude < 1e-12)
+    }
+    @Test
+    func constrainedLeastSquaresPenalty() {
+        var evaluated = Array<Array<Float64>>()
+        let solution = Linear.fit(
+            m: 3,
+            n: 2,
+            a: [1, 0, 1,
+                0, 1, 1],
+            lda: 3,
+            c: [2, 0, 1],
+            initial: [0.5, 0.5],
+            subject: [([1, 1], 1)],
+            penalty: {
+                evaluated.append($0)
+                return $0[1] < 0.25 - 1e-12 ? [([0, 1], 0.25)] : []
+            }
+        )
+
+        #expect(evaluated.count == 2)
+        #expect(evaluated[0][1] < 0.25)
+        #expect((evaluated[1][1] - 0.25).magnitude < 1e-12)
+        #expect((solution[0] - 0.75).magnitude < 1e-12)
+        #expect((solution[1] - 0.25).magnitude < 1e-12)
+        #expect((solution[0] + solution[1] - 1).magnitude < 1e-12)
     }
     @Test
     func positivePowerConstantExactFit() {
@@ -178,7 +221,7 @@ struct LinearFitTestCases {
         #expect((stochastic.a[2] - a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
     }
     @Test(
-        arguments: [Uniform(count: 1024, padding: 1024)]
+        arguments: [Uniform(count: 2048, padding: 2048)]
     )
     func power(signal: Array<Float64>) {
         let filter = Linear.Biquad.PEQ(ω₀: 3.0/8.0, Q: 6.0.squareRoot(), dB: 12)

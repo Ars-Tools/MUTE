@@ -8,12 +8,17 @@ import typealias Numerics.Complex128
 import protocol Accelerate.AccelerateBuffer
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
+import func Accelerate.vDSP_mmovD
+import func BLAS.dot
 import func BLAS.ger
 import func BLAS.copy
+import func BLAS.gemv
 import func LAPACK.gels
 import func LAPACK.gesvd
+import func LAPACK.gglse
 import func MKL.vDSP_ctoz
 import func NSP.wiener
+import func Layout.concat
 // MARK: Complex Fit
 extension Linear {
     @inlinable // J = Σ w[l] / (|X[l]|² + |Y[l]|²) * |A[l]Y[l] - B[l]X[l]|²
@@ -210,6 +215,320 @@ extension Linear {
 }
 // MARK: Power Fit
 extension Linear {
+    @inlinable // LS with constrains
+    static func fit(m: Int, n: Int,
+                    a: some AccelerateBuffer<Float64>, lda: Int,
+                    c: some AccelerateBuffer<Float64>,
+                    iteration: Int,
+                    initial I: some AccelerateBuffer<Float64>,
+                    subject S: some Collection<(Array<Float64>, Float64)>,
+                    penalty P: (borrowing UnsafeBufferPointer<Float64>) -> some Collection<(Array<Float64>, Float64)>) -> Array<Float64> {
+        .init(unsafeUninitializedCapacity: n) { θ, count in
+            count = I.withUnsafeBufferPointer(θ.update(fromContentsOf:))
+            let p = n // maximum constrains
+            let l = SIMD3<Int>(
+                gglse(m, n, p,
+                      .none, m,
+                      .none, p,
+                      .none,
+                      .none,
+                      .none,
+                      .none as Optional<UnsafeMutablePointer<Float64>>, 0),
+                gels(n, n, 1,
+                     .none, n, .N,
+                     .none, n,
+                     .none as Optional<UnsafeMutablePointer<Float64>>, 0),
+                n
+            )
+            assert((0 .< l) == .init(repeating: true))
+            withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + p * n + m + p + n + l.max()) { // A + c + B (maximum) + d (maximum) + x + workspace
+                let A = UnsafeMutableBufferPointer(rebasing: $0.prefix(m * n))
+                let B = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(p * n))
+                let C = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n).prefix(m))
+                let D = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n + m).prefix(p))
+                let χ = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n + m + p).prefix(n))
+                let w = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n + m + p + n).prefix(l.max()))
+                var Q = (
+                    active: Array<(Array<Float64>, Float64)>(),
+                    pended: Array<(Array<Float64>, Float64)>(),
+                    forced: S,
+                )
+                Q.active.reserveCapacity(p)
+                Q.pended.reserveCapacity(p)
+                loop: for () in repeatElement((), count: iteration) {
+                    // MARK: GGLSE
+                    a.withUnsafeBufferPointer {
+                        vDSP_mmovD($0.baseAddress.unsafelyUnwrapped, A.baseAddress.unsafelyUnwrapped,
+                                   .init(m), .init(n), .init(lda), .init(m))
+                    }
+                    c.withUnsafeBufferPointer {
+                        copy(m,
+                             $0.baseAddress.unsafelyUnwrapped, 1,
+                             C.baseAddress.unsafelyUnwrapped, 1)
+                    }
+                    for (idx, (query, score)) in concat(Q.forced, Q.active).enumerated() {
+                        copy(n,
+                             query, 1,
+                             B.baseAddress.unsafelyUnwrapped.advanced(by: idx), p)
+                        D[idx] = score
+                    }
+                    switch gglse(m, n, Q.forced.count + Q.active.count,
+                                 A.baseAddress, m,
+                                 B.baseAddress, p,
+                                 C.baseAddress,
+                                 D.baseAddress,
+                                 χ.baseAddress,
+                                 w.baseAddress, w.count) {
+                    case let s:
+                        assert(s == 0)
+                    }
+                    // MARK: Line Search
+                    vDSP.subtract(χ, θ, result: &w[0..<n]) // direction = candidate - current
+                    // blocking
+                    let b = Q.pended.enumerated().compactMap {
+                        let χᵟ = dot(n, $1.0, 1, χ.baseAddress.unsafelyUnwrapped, 1)
+                        let wᵟ = dot(n, $1.0, 1, w.baseAddress.unsafelyUnwrapped, 1)
+                        let θᵟ = dot(n, $1.0, 1, θ.baseAddress.unsafelyUnwrapped, 1)
+                        return χᵟ < $1.1 ?
+                            .some(($0, min(0, $1.1 - θᵟ) / wᵟ)) :
+                            .none as Optional<(Int, Float64)>
+                    }.min {
+                        $0.1 < $1.1
+                    }
+                    if let b {
+                        Q.active.append(Q.pended.remove(at: b.0))
+                        vDSP.add(multiplication: (w[0..<n], b.1), θ, result: &θ[0..<n])
+                        continue loop
+                    }
+                    // update
+                    switch θ.update(fromContentsOf: χ) {
+                    case let eof:
+                        assert(eof == θ.endIndex)
+                    }
+                    // removal
+                    c.withUnsafeBufferPointer {
+                        copy(m,
+                             $0.baseAddress.unsafelyUnwrapped, 1,
+                             C.baseAddress.unsafelyUnwrapped, 1)
+                    }
+                    a.withUnsafeBufferPointer {
+                        gemv(m, n,
+                             1,
+                             $0.baseAddress.unsafelyUnwrapped, lda, .N,
+                             χ.baseAddress.unsafelyUnwrapped, 1,
+                             -1,
+                             C.baseAddress.unsafelyUnwrapped, 1)
+                        gemv(m, n,
+                             -1,
+                             $0.baseAddress.unsafelyUnwrapped, lda, .T,
+                             C.baseAddress.unsafelyUnwrapped, 1,
+                             0,
+                             D.baseAddress.unsafelyUnwrapped, 1
+                        )
+                    }
+                    // B = Kᵀ
+                    for (col, q) in concat(Q.active, Q.forced).enumerated() {
+                        copy(n,
+                             q.0, 1,
+                             B.baseAddress.unsafelyUnwrapped.advanced(by: col * n), 1)
+                    }
+                    // min ‖Kᵀλ + g‖
+                    switch gels(n, Q.active.count + Q.forced.count, 1,
+                                B.baseAddress, n, .N,
+                                D.baseAddress, n,
+                                w.baseAddress, w.count) {
+                    case let s:
+                        assert(s == 0)
+                    }
+                    let r = Q.active.indices.filter {
+                        0 < D[$0]
+                    }.max {
+                        D[$0] < D[$1]
+                    }
+                    if let r {
+                        Q.pended.append(Q.active.remove(at: r))
+                        switch θ.update(fromContentsOf: χ) {
+                        case let eof:
+                            assert(eof == θ.endIndex)
+                        }
+                        continue loop
+                    }
+                    // MARK: violations
+                    let v = P(.init(χ))
+                    if !v.isEmpty {
+                        Q.pended.append(contentsOf: Q.active)
+                        Q.active.removeAll(keepingCapacity: true)
+                        Q.pended.append(contentsOf: v)
+                        switch I.withUnsafeBufferPointer(θ.update(fromContentsOf:)) {
+                        case let eof:
+                            assert(eof == θ.endIndex)
+                        }
+                        continue loop
+                    }
+                    break loop
+                }
+            }
+        }
+    }
+    @inlinable // LS with constrains
+    static func fit(m: Int, n: Int,
+                    a: some AccelerateBuffer<Float64>, lda: Int,
+                    c: some AccelerateBuffer<Float64>,
+                    initial I: Array<Float64>,
+                    subject S: Array<(Array<Float64>, Float64)>,
+                    penalty P: (Array<Float64>) -> Array<(Array<Float64>, Float64)>) -> Array<Float64> {
+        assert(I.count == n)
+        let p = n // maximum constrains
+        var Q = (
+            active: Array<(Array<Float64>, Float64)>(),
+            pended: Array<(Array<Float64>, Float64)>(),
+            forced: S,
+        )
+        Q.active.reserveCapacity(p)
+        Q.pended.reserveCapacity(p)
+        let l = max(
+            gglse(m, n, p,
+                  .none, m,
+                  .none, p,
+                  .none,
+                  .none,
+                  .none,
+                  .none as Optional<UnsafeMutablePointer<Float64>>, 0),
+            gels(n, n, 1,
+                 .none, n, .N,
+                 .none, n,
+                 .none as Optional<UnsafeMutablePointer<Float64>>, 0),
+            n
+        )
+        assert(0 < l)
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + p * n + m + p + n + l) { // A + c + B (maximum) + d (maximum) + x + workspace
+            let A = UnsafeMutableBufferPointer(rebasing: $0.prefix(m * n))
+            let B = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(p * n))
+            let C = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n).prefix(m))
+            let D = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n + m).prefix(p))
+            let θ = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n + m + p).prefix(n))
+            let w = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + p * n + m + p + n).prefix(l))
+            switch θ.initialize(fromContentsOf: I) {
+            case let eof:
+                assert(eof == θ.endIndex)
+            }
+            for () in repeatElement((), count: m) {
+                a.withUnsafeBufferPointer {
+                    vDSP_mmovD($0.baseAddress.unsafelyUnwrapped, A.baseAddress.unsafelyUnwrapped,
+                               .init(m), .init(n), .init(lda), .init(m))
+                }
+                c.withUnsafeBufferPointer {
+                    copy(m,
+                         $0.baseAddress.unsafelyUnwrapped, 1,
+                         C.baseAddress.unsafelyUnwrapped, 1)
+                }
+                for (idx, (query, score)) in concat(Q.forced, Q.active).enumerated() {
+                    copy(query.count,
+                         query, 1,
+                         B.baseAddress.unsafelyUnwrapped.advanced(by: idx), p)
+                    D[idx] = score
+                }
+                let χ = Array<Float64>(unsafeUninitializedCapacity: n) {
+                    $1 = $0.count
+                    switch gglse(m, n, Q.forced.count + Q.active.count,
+                                 A.baseAddress, m,
+                                 B.baseAddress, p,
+                                 C.baseAddress,
+                                 D.baseAddress,
+                                 $0.baseAddress,
+                                 w.baseAddress, w.count) {
+                    case let s:
+                        assert(s == 0)
+                    }
+                }
+                // line search
+                vDSP.subtract(χ, θ, result: &w[0..<n]) // direction = candidate - current
+                let b = Q.pended.enumerated().compactMap {
+                    let χᵟ = dot(n, $1.0, 1, χ, 1)
+                    let wᵟ = dot(n, $1.0, 1, w.baseAddress.unsafelyUnwrapped, 1)
+                    let θᵟ = dot(n, $1.0, 1, θ.baseAddress.unsafelyUnwrapped, 1)
+                    return χᵟ < $1.1 ?
+                        .some(($0, min(0, $1.1 - θᵟ) / wᵟ)) :
+                        .none as Optional<(Int, Float64)>
+                }.min {
+                    $0.1 < $1.1
+                } // blocking
+                if let b {
+                    Q.active.append(Q.pended.remove(at: b.0))
+                    vDSP.add(multiplication: (w[0..<n], b.1), θ, result: &θ[0..<n])
+                } else {
+                    switch θ.update(fromContentsOf: χ) {
+                    case let eof:
+                        assert(eof == θ.endIndex)
+                    }
+                    // dualInfeasibleConstraint
+                    c.withUnsafeBufferPointer {
+                        copy(m,
+                             $0.baseAddress.unsafelyUnwrapped, 1,
+                             C.baseAddress.unsafelyUnwrapped, 1)
+                    }
+                    a.withUnsafeBufferPointer {
+                        gemv(m, n,
+                             1,
+                             $0.baseAddress.unsafelyUnwrapped, lda, .N,
+                             χ, 1,
+                             -1,
+                             C.baseAddress.unsafelyUnwrapped, 1)
+                        gemv(m, n,
+                             -1,
+                             $0.baseAddress.unsafelyUnwrapped, lda, .T,
+                             C.baseAddress.unsafelyUnwrapped, 1,
+                             0,
+                             D.baseAddress.unsafelyUnwrapped, 1
+                        )
+                    }
+                    // B = Kᵀ
+                    for (col, q) in concat(Q.active, Q.forced).enumerated() {
+                        copy(n,
+                             q.0, 1,
+                             B.baseAddress.unsafelyUnwrapped.advanced(by: col * n), 1)
+                    }
+                    // min ‖Kᵀλ + g‖
+                    switch gels(n, Q.active.count + Q.forced.count, 1,
+                                B.baseAddress, n, .N,
+                                D.baseAddress, n,
+                                w.baseAddress, w.count) {
+                    case let s:
+                        assert(s == 0)
+                    }
+                    let r = Q.active.indices.filter {
+                        0 < D[$0]
+                    }.max {
+                        D[$0] < D[$1]
+                    } // removal
+                    if let r {
+                        Q.pended.append(Q.active.remove(at: r))
+                        switch θ.update(fromContentsOf: χ) {
+                        case let eof:
+                            assert(eof == θ.endIndex)
+                        }
+                    } else {
+                        switch P(χ) {
+                        case let v where v.isEmpty:
+                            return χ
+                        case let v:
+                            Q.pended.append(contentsOf: Q.active)
+                            Q.active.removeAll(keepingCapacity: true)
+                            Q.pended.append(contentsOf: v)
+                            switch θ.update(fromContentsOf: I) {
+                            case let eof:
+                                assert(eof == θ.endIndex)
+                            }
+                        } // violations
+                    }
+                }
+            }
+            assertionFailure()
+            return I
+        }
+    }
+}
+extension Linear {
     @inlinable // Power LS (SVD)
     static func fit(X x: some AccelerateBuffer<Float64>, /* XX */
                     Y y: some AccelerateBuffer<Float64>, /* YY */
@@ -293,74 +612,117 @@ extension Linear {
                     frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
                     weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
                     minimum ε: Float64,
-                    duplicateTolerance: Float64 = 16384 * Float64.ulpOfOne,
-                    feasibilityTolerance: Float64 = 4096 * Float64.ulpOfOne,
-                    multiplierTolerance: Float64 = 4096 * Float64.ulpOfOne,
-                    count: (b: Int, a: Int)) -> Direct.ChebyshevPowerRational {
+                    count: (p: Int, q: Int)) -> Direct.ChebyshevPowerRational {
         let m = ω.count
         precondition(m == x.count)
         precondition(m == y.count)
         precondition(m == w.count)
-        precondition(0 <= count.b)
-        precondition(0 <= count.a)
+        precondition(0 <= count.p)
+        precondition(0 <= count.q)
         precondition(ε.isFinite && 0 < ε && ε < 1)
-        let pCount = count.b + 1
-        let qCount = count.a + 1
-        let n = pCount + qCount
+        let (p, q) = switch count {
+        case (let p, let q):
+            (p + 1, q + 1)
+        }
+        let n = p + q
         precondition(n <= m + 1)
         precondition(x.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
         precondition(y.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
         precondition(ω.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
         precondition(w.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
-        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + 2 * m) { memory in
-            memory.initialize(repeating: 0)
-            let design = UnsafeMutableBufferPointer(rebasing: memory[0 ..< m * n])
-            let abscissa = UnsafeMutableBufferPointer(rebasing: memory[m * n ..< m * (n + 1)])
-            let scale = UnsafeMutableBufferPointer(rebasing: memory[m * (n + 1) ..< m * (n + 2)])
-
-            // M[l,:] = sqrt(w[l]) [x[l]T_b, -y[l]T_a].
-            vDSP.multiply(2, ω, result: &abscissa[0..<m])
-            vForce.cosPi(abscissa, result: &abscissa[0..<m])
-            vForce.sqrt(w, result: &scale[0..<m])
-            vDSP.multiply(scale, x, result: &design[0..<m])
-            vDSP.multiply(scale, y, result: &design[pCount * m ..< (pCount + 1) * m])
-            vDSP.negative(design[pCount * m ..< (pCount + 1) * m],
-                          result: &design[pCount * m ..< (pCount + 1) * m])
-
-            if 1 < pCount {
-                vDSP.multiply(abscissa, design[0..<m], result: &design[m..<2 * m])
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + 2 * m) {
+            let M = UnsafeMutableBufferPointer(rebasing: $0.prefix(m * n))
+            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(max(m, n)))
+            // M[l,:] = sqrt(w[l]/(x^2 + y^2)) [x[l]T_b, -y[l]T_a].
+            vForce.sqrt(w, result: &z[0..<m])
+            vDSP.hypot(x, y, result: &M[p * m ..< p * m + m])
+            vDSP.divide(x, M[p * m ..< p * m + m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.multiply(z[0..<m], M[0 * m ..< 0 * m + m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.invertedClip(M[0 * m ..< 0 * m + m], to: 0...0, result: &M[0 * m ..< 0 * m + m])
+            vDSP.divide(y, M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            vDSP.multiply(z[0..<m], M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            vDSP.invertedClip(M[p * m ..< p * m + m], to: 0...0, result: &M[p * m ..< p * m + m])
+            vDSP.negative(M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            /*
+            vDSP.add(multiplication: (x, x),
+                     multiplication: (y, y),
+                     result: &z[0..<m])
+            vDSP.divide(w, z[0..<m], result: &z[0..<m])
+            vForce.sqrt(z[0..<m], result: &z[0..<m])
+            vDSP.multiply(x, z[0..<m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.multiply(y, z[0..<m], result: &M[p * m ..< p * m + m])
+            vDSP.negative(M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            */
+            for k in 1..<max(p, q) {
+                vDSP.multiply(.init(2 * k), ω, result: &z[0..<m])
+                vForce.cosPi(z[0..<m], result: &z[0..<m])
+                if k < p {
+                    let r = (0 + k) * m ..< (0 + k) * m + m
+                    vDSP.multiply(z[0..<m], M[0 * m ..< 0 * m + m], result: &M[r])
+                }
+                if k < q {
+                    let r = (p + k) * m ..< (p + k) * m + m
+                    vDSP.multiply(z[0..<m], M[p * m ..< p * m + m], result: &M[r])
+                }
             }
-            for column in 2..<pCount {
-                let result = column * m ..< (column + 1) * m
-                vDSP.multiply(abscissa, design[(column - 1) * m ..< column * m], result: &design[result])
-                vDSP.add(multiplication: (design[result], 2),
-                         multiplication: (design[(column - 2) * m ..< (column - 1) * m], -1),
-                         result: &design[result])
+            /* chebyshev procedure
+            vDSP.multiply(2, ω, result: &z[0..<m])
+            vForce.cosPi(z[0..<m], result: &z[0..<m])
+            if 1 < p {
+                vDSP.multiply(z[0..<m],
+                              M[0 * m ..< 0 * m + m],
+                              result: &M[0 * m + m ..< 0 * m + m + m])
             }
-            if 1 < qCount {
-                vDSP.multiply(abscissa,
-                              design[pCount * m ..< (pCount + 1) * m],
-                              result: &design[(pCount + 1) * m ..< (pCount + 2) * m])
+            for col in 2..<p {
+                let r = (0 + col) * m ..< (0 + col) * m + m
+                vDSP.multiply(z[0..<m], M[(0 + col - 1) * m ..< (0 + col) * m], result: &M[r])
+                vDSP.add(multiplication: (M[r], 2),
+                         multiplication: (M[(0 + col - 2) * m ..< (0 + col - 1) * m], -1),
+                         result: &M[r])
             }
-            for column in 2..<qCount {
-                let result = (pCount + column) * m ..< (pCount + column + 1) * m
-                vDSP.multiply(abscissa,
-                              design[(pCount + column - 1) * m ..< (pCount + column) * m],
-                              result: &design[result])
-                vDSP.add(multiplication: (design[result], 2),
-                         multiplication: (design[(pCount + column - 2) * m ..< (pCount + column - 1) * m], -1),
-                         result: &design[result])
+            if 1 < q {
+                vDSP.multiply(z[0..<m],
+                              M[p * m ..< p * m + m],
+                              result: &M[p * m + m ..< p * m + m + m])
             }
-
-            return fit(
-                design: .init(design),
-                rowCount: m,
-                minimum: ε,
-                duplicateTolerance: duplicateTolerance,
-                feasibilityTolerance: feasibilityTolerance,
-                multiplierTolerance: multiplierTolerance,
-                count: count
-            )
+            for col in 2..<q {
+                let r = (p + col) * m ..< (p + col) * m + m
+                vDSP.multiply(z[0..<m], M[(p + col - 1) * m ..< (p + col) * m], result: &M[r])
+                vDSP.add(multiplication: (M[r], 2),
+                         multiplication: (M[(p + col - 2) * m ..< (p + col - 1) * m], -1),
+                         result: &M[r])
+            }
+            */
+            let T = Array<Float64>(unsafeUninitializedCapacity: n) {
+                $1 = $0.count
+                vDSP.clear(&$0[0..<$1])
+                $0[0] = 1
+                $0[p] = 1
+            }
+            vDSP.clear(&z[0..<m])
+            let S = fit(m: m, n: n,
+                        a: M, lda: m,
+                        c: z,
+                        iteration: m,
+                        initial: T,
+                        subject: Array(arrayLiteral: (T, 2))) {
+                [
+                    (Direct.ChebyshevPolynomial(.init($0.prefix(p))).minimum, 0..<p),
+                    (Direct.ChebyshevPolynomial(.init($0.suffix(q))).minimum, p..<n)
+                ].compactMap { m, r in
+                    m.value < ε ?
+                        .some((.init(unsafeUninitializedCapacity: n) {
+                            $1 = $0.count
+                            vDSP.clear(&$0[0..<$1])
+                            let eof = $0[r].update(from: Linear.Direct.ChebyshevPolynomial.basis(at: m.location)).index
+                            assert(eof == $0[r].endIndex)
+                        }, ε)) : .none
+                }
+            }
+            return.init(raw: (
+                Array(S.prefix(p)),
+                Array(S.suffix(q))
+            ))
         }
     }
 }
