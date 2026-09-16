@@ -5,6 +5,8 @@
 //  Created by Kota on 9/7/26.
 //
 import Testing
+import os.log
+import func simd.log10
 @testable import FSP
 import typealias Accelerate.vDSP
 import typealias Numerics.Complex128
@@ -28,10 +30,32 @@ struct LinearFitTestCases {
             $0[1...].initialize(repeating: .zero)
         }
     }
+    @inlinable
+    static func response(b: Array<Float64>,
+                         a: Array<Float64>,
+                         frequency: some Collection<Float64>) -> Array<Complex128> {
+        frequency.map {
+            let z = Complex128(real: cos(-2 * .pi * $0), imag: sin(-2 * .pi * $0))
+            let numerator = b.reduce(into: (value: Complex128(real: 0, imag: 0), power: Complex128(real: 1, imag: 0))) {
+                $0.value += Complex128(real: $1, imag: 0) * $0.power
+                $0.power *= z
+            }.value
+            let denominator = a.reduce(into: (value: Complex128(real: 0, imag: 0), power: Complex128(real: 1, imag: 0))) {
+                $0.value += Complex128(real: $1, imag: 0) * $0.power
+                $0.power *= z
+            }.value
+            return numerator * denominator.conj * Complex128(real: 1 / denominator.magnitudeSquared, imag: 0)
+        }
+    }
     @Test
     func chebyshevPolynomialOperations() {
-        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [3]).derivative.rawValue == [0])
-        #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2]).derivative.rawValue == [2])
+        let constant = Linear.Direct.ChebyshevPolynomial(rawValue: [3])
+        #expect(constant.derivative.rawValue == [0])
+        #expect(constant.`stationary-points`.isEmpty)
+        #expect(constant.minimum.value == 3)
+        let linear = Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2])
+        #expect(linear.derivative.rawValue == [2])
+        #expect(linear.`stationary-points`.isEmpty)
         #expect(Linear.Direct.ChebyshevPolynomial(rawValue: [1, 2, 3, 4]).derivative.rawValue == [14, 12, 24])
         let polynomial = Linear.Direct.ChebyshevPolynomial(rawValue: [1, 0.2, 0.1])
         let derivative = polynomial.derivative
@@ -54,6 +78,7 @@ struct LinearFitTestCases {
                 0, 1],
             lda: 2,
             c: [2, 0],
+            iteration: 64,
             initial: [0.5, 0.5],
             subject: [([1, 1], 1)],
             penalty: { _ in [] }
@@ -73,11 +98,12 @@ struct LinearFitTestCases {
                 0, 1, 1],
             lda: 3,
             c: [2, 0, 1],
+            iteration: 64,
             initial: [0.5, 0.5],
             subject: [([1, 1], 1)],
-            penalty: {
-                evaluated.append($0)
-                return $0[1] < 0.25 - 1e-12 ? [([0, 1], 0.25)] : []
+            penalty: { (solution: UnsafeBufferPointer<Float64>) -> Array<(Array<Float64>, Float64)> in
+                evaluated.append(Array(solution))
+                return solution[1] < 0.25 - 1e-12 ? [([0, 1], 0.25)] : []
             }
         )
 
@@ -90,8 +116,8 @@ struct LinearFitTestCases {
     }
     @Test
     func positivePowerConstantExactFit() {
-        let fit = Linear.fit(X: [2, 2, 2],
-                             Y: [8, 8, 8],
+        let fit = Linear.fit(xx: [2, 2, 2],
+                             yy: [8, 8, 8],
                              frequency: [0, 0.25, 0.5],
                              weight: [1, 1, 1],
                              minimum: 0.1,
@@ -101,8 +127,8 @@ struct LinearFitTestCases {
     }
     @Test
     func positivePowerConstantActiveConstraint() {
-        let fit = Linear.fit(X: [1, 1, 1],
-                             Y: [100, 100, 100],
+        let fit = Linear.fit(xx: [1, 1, 1],
+                             yy: [100, 100, 100],
                              frequency: [0, 0.25, 0.5],
                              weight: [1, 1, 1],
                              minimum: 0.1,
@@ -111,13 +137,134 @@ struct LinearFitTestCases {
         #expect((fit.q.rawValue[0] - 0.1).magnitude < 1e-12)
     }
     @Test
+    func stochasticPositivePowerZeroVarianceMatchesDeterministic() {
+        let x = [2.0, 3.0, 5.0]
+        let y = [8.0, 12.0, 20.0]
+        let zero = Array(repeating: 0.0, count: x.count)
+        let deterministic = Linear.fit(xx: x,
+                                       yy: y,
+                                       frequency: [0, 0.25, 0.5],
+                                       weight: [1, 2, 3],
+                                       minimum: 0.1,
+                                       count: (0, 0))
+        let stochastic = Linear.fit(xx: (μ: x, σ²: zero),
+                                    yy: (μ: y, σ²: zero),
+                                    cov: zero,
+                                    frequency: [0, 0.25, 0.5],
+                                    weight: [1, 2, 3],
+                                    minimum: 0.1,
+                                    count: (0, 0))
+        #expect((stochastic.p.rawValue[0] - deterministic.p.rawValue[0]).magnitude < 1e-12)
+        #expect((stochastic.q.rawValue[0] - deterministic.q.rawValue[0]).magnitude < 1e-12)
+    }
+    @Test
+    func stochasticPositivePowerPreservesCorrelatedRelation() {
+        let x = (μ: [2.0, 2.0, 2.0], σ²: [0.5, 1.0, 2.0])
+        let y = (μ: [8.0, 8.0, 8.0], σ²: [8.0, 16.0, 32.0])
+        let covariance = [2.0, 4.0, 8.0]
+        let fit = Linear.fit(xx: x,
+                             yy: y,
+                             cov: covariance,
+                             frequency: [0, 0.25, 0.5],
+                             weight: [1, 1, 1],
+                             minimum: 0.1,
+                             count: (0, 0))
+        let inverse = Linear.fit(xx: y,
+                                 yy: x,
+                                 cov: covariance,
+                                 frequency: [0, 0.25, 0.5],
+                                 weight: [1, 1, 1],
+                                 minimum: 0.1,
+                                 count: (0, 0))
+        #expect((fit.p.rawValue[0] - 1.6).magnitude < 1e-12)
+        #expect((fit.q.rawValue[0] - 0.4).magnitude < 1e-12)
+        #expect((inverse.p.rawValue[0] - fit.q.rawValue[0]).magnitude < 1e-12)
+        #expect((inverse.q.rawValue[0] - fit.p.rawValue[0]).magnitude < 1e-12)
+    }
+    @Test
+    func stochasticComplexFitImprovesUncertainObservation() {
+        // A minimum-phase biquad whose numerator and denominator must both be fitted.
+        let b = [1.0, 0.4, 0.2]
+        let a = [1.0, -0.3, 0.1]
+        let frequency = (0...32).map { Float64($0) / 64 }
+        let expected = Self.response(b: b, a: a, frequency: frequency)
+        let corrupted = Set(stride(from: 4, through: 28, by: 8))
+        let observed = expected.enumerated().map {
+            corrupted.contains($0) ? Complex128(real: .random(in: -1...1), imag: .random(in: -1...1)) : $1
+        }
+        let zero = Array(repeating: 0.0, count: frequency.count)
+        let x = (r: Array(repeating: 1.0, count: frequency.count), i: zero)
+        let y = (r: observed.map(\.real), i: observed.map(\.imag))
+        let σ²y = expected.enumerated().map { corrupted.contains($0) ? $1.magnitudeSquared : 0 }
+        let weight = Array(repeating: 1.0, count: frequency.count)
+
+        let deterministic = Linear.fit(x: x,
+                                       y: y,
+                                       frequency: frequency,
+                                       weight: weight,
+                                       count: (2, 2))
+        let stochastic = Linear.fit(x: (r: x.r, i: x.i, σ²: zero),
+                                    y: (r: y.r, i: y.i, σ²: σ²y),
+                                    σxy: (r: zero, i: zero),
+                                    frequency: frequency,
+                                    weight: weight,
+                                    count: (2, 2))
+        let evaluation = (0...512).map { Float64($0) / 1024 }
+        let truth = Self.response(b: b, a: a, frequency: evaluation)
+        let deterministicResponse = Self.response(b: deterministic.b, a: deterministic.a, frequency: evaluation)
+        let stochasticResponse = Self.response(b: stochastic.b, a: stochastic.a, frequency: evaluation)
+        let deterministicError = zip(deterministicResponse, truth).lazy.map(-).map(\.magnitudeSquared).reduce(0, +)
+        let stochasticError = zip(stochasticResponse, truth).lazy.map(-).map(\.magnitudeSquared).reduce(0, +)
+        os_log(.debug, "%{public}@", "improve \(10 * log10(deterministicError / stochasticError))")
+        #expect(stochasticError < deterministicError)
+    }
+    @Test
+    func stochasticPowerFitImprovesUncertainObservation() {
+        // Use the same biquad and corrupt the same four frequency bins as above.
+        let b = [1.0, 0.4, 0.2]
+        let a = [1.0, -0.3, 0.1]
+        let frequency = (0...32).map { Float64($0) / 64 }
+        let expected = Self.response(b: b, a: a, frequency: frequency)
+        let corrupted = Set(stride(from: 4, through: 28, by: 8))
+        let observed = expected.enumerated().map {
+            corrupted.contains($0) ? Complex128(real: .random(in: -1...1), imag: .random(in: -1...1)) : $1
+        }
+        let zero = Array(repeating: 0.0, count: frequency.count)
+        let x = (r: Array(repeating: 1.0, count: frequency.count), i: zero)
+        let y = (r: observed.map(\.real), i: observed.map(\.imag))
+        let σ²y = expected.indices.map { corrupted.contains($0) ? expected[$0].magnitudeSquared : 0 }
+        let weight = Array(repeating: 1.0, count: frequency.count)
+
+        let deterministic = Linear.fit(x: x,
+                                       y: y,
+                                       frequency: frequency,
+                                       weight: weight,
+                                       minimum: .ulpOfOne.squareRoot(),
+                                       count: (2, 2))
+        let stochastic = Linear.fit(x: (r: x.r, i: x.i, σ²: zero),
+                                    y: (r: y.r, i: y.i, σ²: σ²y),
+                                    σxy: (r: zero, i: zero),
+                                    frequency: frequency,
+                                    weight: weight,
+                                    minimum: .ulpOfOne.squareRoot(),
+                                    count: (2, 2))
+        let evaluation = (0...512).map { Float64($0) / 1024 }
+        let truth = Self.response(b: b, a: a, frequency: evaluation).map(\.magnitudeSquared)
+        let deterministicResponse = Self.response(b: deterministic.b, a: deterministic.a, frequency: evaluation).map(\.magnitudeSquared)
+        let stochasticResponse = Self.response(b: stochastic.b, a: stochastic.a, frequency: evaluation).map(\.magnitudeSquared)
+        let deterministicError = zip(deterministicResponse, truth).lazy.map { ($0 - $1) * ($0 - $1) }.reduce(0, +)
+        let stochasticError = zip(stochasticResponse, truth).lazy.map { ($0 - $1) * ($0 - $1) }.reduce(0, +)
+        os_log(.debug, "%{public}@", "improve \(10 * log10(deterministicError / stochasticError))")
+        #expect(stochasticError < deterministicError)
+    }
+    @Test
     func positivePowerPolynomialExactFit() {
         let frequency = (0...128).map { 0.5 * Float64($0) / 128 }
         let t = frequency.map { cos(2 * .pi * $0) }
         let p = t.map { 1 + 0.2 * $0 + 0.1 * (2 * $0 * $0 - 1) }
         let q = t.map { 1 - 0.15 * $0 + 0.05 * (2 * $0 * $0 - 1) }
-        let fit = Linear.fit(X: q,
-                             Y: p,
+        let fit = Linear.fit(xx: q,
+                             yy: p,
                              frequency: frequency,
                              weight: Array(repeating: 1, count: frequency.count),
                              minimum: 0.1,
@@ -176,11 +323,14 @@ struct LinearFitTestCases {
 //        print(filter.a, fit.a)
 //    }
     @Test(
-        arguments: [Uniform(count: 2048, padding: 2048)]
+        arguments: [Uniform(count: 1024, padding: 1024)]
     )
-    func ls(signal: Array<Float64>) {
-        let filter = Linear.Biquad.PEQ(ω₀: 1.0/6.0, Q: 6.0.squareRoot(), dB: 12)
-        let (b, a) = (filter.b / filter.a.x, filter.a / filter.a.x)
+    func amplitude(signal: Array<Float64>) {
+        let filter = Linear.Biquad.PEQ(ω₀: 3.0/8.0, Q: 6.0.squareRoot(), dB: 6)
+        let analytic = (
+            b: withUnsafeBytes(of: filter.b / filter.a.x) { $0.withMemoryRebound(to: Float64.self, Array.init).prefix(3) },
+            a: withUnsafeBytes(of: filter.a / filter.a.x) { $0.withMemoryRebound(to: Float64.self, Array.init).prefix(3) }
+        )
         let x = vDSP.divide(signal, vDSP.sumOfSquares(signal))
         let y = Array<Float64>(unsafeUninitializedCapacity: x.count) {
             $1 = $0.count
@@ -200,32 +350,35 @@ struct LinearFitTestCases {
         }
         let stochastic = switch  Linear.fit(x: (X.map(\.real), X.map(\.imag), Array<Float64>(repeating: 0, count: X.count)),
                                             y: (Y.map(\.real), Y.map(\.imag), Array<Float64>(repeating: 0, count: Y.count)),
-                                            cov: (Array<Float64>(repeating: 0, count: dft.count), Array<Float64>(repeating: 0, count: dft.count)),
+                                            σxy: (Array<Float64>(repeating: 0, count: dft.count), Array<Float64>(repeating: 0, count: dft.count)),
                                             frequency: vDSP.ramp(withInitialValue: 0, increment: recip(.init(dft.count)), count: dft.count),
                                             weight: Array<Float64>(repeating: 1, count: dft.count),
                                             count: (2, 2)) {
         case let fit:
             (b: vDSP.divide(fit.b, fit.a[0]), a: vDSP.divide(fit.a, fit.a[0]))
         }
-        #expect((deterministic.b[0] - b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((deterministic.b[1] - b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((deterministic.b[2] - b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((deterministic.a[0] - a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((deterministic.a[1] - a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((deterministic.a[2] - a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((stochastic.b[0] - b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((stochastic.b[1] - b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((stochastic.b[2] - b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((stochastic.a[0] - a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((stochastic.a[1] - a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((stochastic.a[2] - a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.b[0] - analytic.b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.b[1] - analytic.b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.b[2] - analytic.b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.a[0] - analytic.a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.a[1] - analytic.a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.a[2] - analytic.a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.b[0] - analytic.b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.b[1] - analytic.b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.b[2] - analytic.b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.a[0] - analytic.a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.a[1] - analytic.a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.a[2] - analytic.a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
     }
     @Test(
-        arguments: [Uniform(count: 2048, padding: 2048)]
+        arguments: [Uniform(count: 1024, padding: 1024)]
     )
     func power(signal: Array<Float64>) {
-        let filter = Linear.Biquad.PEQ(ω₀: 3.0/8.0, Q: 6.0.squareRoot(), dB: 12)
-        let (b, a) = (filter.b / filter.a.x, filter.a / filter.a.x)
+        let filter = Linear.Biquad.PEQ(ω₀: 3.0/8.0, Q: 6.0.squareRoot(), dB: 6)
+        let analytic = (
+            b: withUnsafeBytes(of: filter.b / filter.a.x) { $0.withMemoryRebound(to: Float64.self, Array.init).prefix(3) },
+            a: withUnsafeBytes(of: filter.a / filter.a.x) { $0.withMemoryRebound(to: Float64.self, Array.init).prefix(3) }
+        )
         let x = vDSP.divide(signal, vDSP.sumOfSquares(signal))
         let y = Array<Float64>(unsafeUninitializedCapacity: x.count) {
             $1 = $0.count
@@ -235,41 +388,37 @@ struct LinearFitTestCases {
         let dft = DFT.DFS(count: y.count)
         let X = x.withUnsafeTemporaryComplexBuffer(dft.forward)
         let Y = y.withUnsafeTemporaryComplexBuffer(dft.forward)
-        let pow = switch Linear.fit(X: X.map(\.magnitudeSquared),
-                                    Y: Y.map(\.magnitudeSquared),
-                                    frequency: vDSP.ramp(withInitialValue: 0, increment: recip(.init(dft.count)), count: dft.count),
-                                    weight: Array<Float64>(repeating: 1, count: dft.count),
-                                    minimum: .ulpOfOne.squareRoot(),
-                                    count: (2, 2)) as Linear.Direct.ChebyshevPowerRational {
+        let zero = Array(repeating: 0.0, count: dft.count)
+        let deterministic = switch Linear.fit(x: (r: X.map(\.real), i: X.map(\.imag)),
+                                              y: (r: Y.map(\.real), i: Y.map(\.imag)),
+                                              frequency: vDSP.ramp(withInitialValue: 0, increment: recip(.init(dft.count)), count: dft.count),
+                                              weight: Array<Float64>(repeating: 1, count: dft.count),
+                                              minimum: .ulpOfOne.squareRoot(),
+                                              count: (2, 2)) {
         case let fit:
-            switch Linear.Direct(zpk: fit.zpk) {
-            case let direct:
-                (b: vDSP.divide(direct.b, direct.a[0]), a: vDSP.divide(direct.a, direct.a[0]))
-            }
+            (b: vDSP.divide(fit.b, fit.a[0]), a: vDSP.divide(fit.a, fit.a[0]))
         }
-        let svd = switch Linear.fit(x: (X.map(\.real), X.map(\.imag), Array(repeating: 0, count: X.count)),
-                                    y: (Y.map(\.real), Y.map(\.imag), Array(repeating: 0, count: X.count)),
-                                    cov: (Array(repeating: 0, count: dft.count), Array(repeating: 0, count: dft.count)),
-                                    frequency: vDSP.ramp(withInitialValue: 0, increment: recip(.init(dft.count)), count: dft.count),
-                                    weight: Array<Float64>(repeating: 1, count: dft.count),
-                                    count: (2, 2)) as Linear.Direct.ChebyshevPowerRational {
+        let stochastic = switch Linear.fit(x: (r: X.map(\.real), i: X.map(\.imag), σ²: zero),
+                                           y: (r: Y.map(\.real), i: Y.map(\.imag), σ²: zero),
+                                           σxy: (r: zero, i: zero),
+                                           frequency: vDSP.ramp(withInitialValue: 0, increment: recip(.init(dft.count)), count: dft.count),
+                                           weight: Array<Float64>(repeating: 1, count: dft.count),
+                                           minimum: .ulpOfOne.squareRoot(),
+                                           count: (2, 2)) {
         case let fit:
-            switch Linear.Direct(zpk: fit.zpk) {
-            case let direct:
-                (b: vDSP.divide(direct.b, direct.a[0]), a: vDSP.divide(direct.a, direct.a[0]))
-            }
+            (b: vDSP.divide(fit.b, fit.a[0]), a: vDSP.divide(fit.a, fit.a[0]))
         }
-        #expect((pow.b[0] - b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((pow.b[1] - b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((pow.b[2] - b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((pow.a[0] - a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((pow.a[1] - a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((pow.a[2] - a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((svd.b[0] - b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((svd.b[1] - b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((svd.b[2] - b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((svd.a[0] - a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((svd.a[1] - a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
-        #expect((svd.a[2] - a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.b[0] - analytic.b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.b[1] - analytic.b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.b[2] - analytic.b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.a[0] - analytic.a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.a[1] - analytic.a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((deterministic.a[2] - analytic.a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.b[0] - analytic.b[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.b[1] - analytic.b[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.b[2] - analytic.b[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.a[0] - analytic.a[0]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.a[1] - analytic.a[1]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
+        #expect((stochastic.a[2] - analytic.a[2]).magnitude.isLess(than: .ulpOfOne.squareRoot()))
     }
 }

@@ -23,6 +23,7 @@ import func MKL.vDSP_add
 import func MKL.vDSP_fill
 import func BLAS.copy
 import func LAPACK.hseqr
+import func Layout.concat
 extension Linear.Direct {
     @usableFromInline
     struct ChebyshevPolynomial {
@@ -32,30 +33,6 @@ extension Linear.Direct {
     struct ChebyshevPowerRational {
         @usableFromInline let p: ChebyshevPolynomial
         @usableFromInline let q: ChebyshevPolynomial
-    }
-}
-extension Linear.Direct.ChebyshevPolynomial {
-    @inlinable
-    package init(_ coefficients: Array<Float64>) {
-        rawValue = coefficients
-    }
-    @inlinable
-    package init(degree: Int, at x: Float64) {
-        assert(0 <= degree)
-        rawValue = .init(unsafeUninitializedCapacity: degree + 1) {
-            $1 = $0.count
-            Self.basis(degree: degree, at: x, result: $0)
-        }
-    }
-}
-extension Linear.Direct.ChebyshevPowerRational {
-    @inlinable
-    package init(raw: (p: Linear.Direct.ChebyshevPolynomial, q: Linear.Direct.ChebyshevPolynomial)) {
-        (p, q) = raw
-    }
-    @inlinable
-    package init(raw: (p: Array<Float64>, q: Array<Float64>)) {
-        self.init(raw: (.init(raw.p), .init(raw.q)))
     }
 }
 extension Linear.Direct.ChebyshevPolynomial {
@@ -69,68 +46,61 @@ extension Linear.Direct.ChebyshevPolynomial {
             return state.previous
         }
     }
-
+}
+extension Linear.Direct.ChebyshevPolynomial {
     @inlinable
-    static func basis(degree: Int, at x: Float64) -> Array<Float64> {
-        assert(0 <= degree)
-        return .init(basis(at: x).prefix(degree + 1))
+    package init(_ coefficients: Array<Float64>) {
+        rawValue = coefficients
     }
-
-    /// Writes `T₀(x), …, T_degree(x)` directly into caller-owned storage.
     @inlinable
-    static func basis(degree: Int,
-                      at x: Float64,
-                      result: UnsafeMutableBufferPointer<Float64>) {
+    package init(degree: Int, at x: Float64) {
         assert(0 <= degree)
-        assert(result.count == degree + 1)
-        let eof = result.update(from: basis(at: x)).index
-        assert(eof == result.endIndex)
-    }
-
-    @inlinable
-    func callAsFunction(_ x: Float64) -> Float64 {
-        assert(!rawValue.isEmpty)
-        let first = rawValue[0]
-        guard 1 < rawValue.count else { return first }
-        var b1 = 0.0
-        var b2 = 0.0
-        for coefficient in rawValue.dropFirst().reversed() {
-            let b0 = coefficient + 2 * x * b1 - b2
-            b2 = b1
-            b1 = b0
-        }
-        return first + x * b1 - b2
+        rawValue = .init(Self.basis(at: x).prefix(degree + 1))
     }
 }
 extension Linear.Direct.ChebyshevPowerRational {
-//    @inlinable
-//    func callAsFunction(ω: Float64) -> Float64 {
-//        let x = repeatElement(__cospi(2.0 * ω), count: max(p.count, q.count)).enumerated().map {
-//            pow($1, .init($0))
-//        }
-//        let B = zip(p, x).reduce(0) { fma($1.0, $1.1, $0) }
-//        let A = zip(q, x).reduce(0) { fma($1.0, $1.1, $0) }
-//        return B / A
-//    }
+    @inlinable
+    package init(raw: (p: Linear.Direct.ChebyshevPolynomial, q: Linear.Direct.ChebyshevPolynomial)) {
+        (p, q) = raw
+    }
+    @inlinable
+    package init(raw: (p: Array<Float64>, q: Array<Float64>)) {
+        self.init(raw: (.init(raw.p), .init(raw.q)))
+    }
+}
+extension Linear.Direct.ChebyshevPolynomial {
+    @inlinable
+    func callAsFunction(_ x: Float64) -> Float64 {
+        assert(!rawValue.isEmpty)
+        let x₂ = 2 * x
+        let (b₁, b₂) = rawValue.reversed().reduce((0.0, 0.0)) {(
+            fma(x₂, $0.0, $1 - $0.1),
+            $0.0
+        )}
+        return fma(-x, b₂, b₁)
+    }
 }
 extension Linear.Direct.ChebyshevPolynomial {
     @inlinable
     var derivative: Self {
-        let degree = rawValue.count - 1
-        guard 0 < degree else {
-            return.init([0])
+        guard rawValue.count > 1 else {
+            return.init(.init(arrayLiteral: 0))
         }
-        return.init(.init(unsafeUninitializedCapacity: degree) {
-            $1 = $0.count
-            $0[degree - 1] = 2 * Float64(degree) * rawValue[degree]
-            if 1 < degree {
-                $0[degree - 2] = 2 * Float64(degree - 1) * rawValue[degree - 1]
+        var coefficients = rawValue
+            .dropFirst()
+            .reversed()
+            .enumerated()
+            .reduce(
+                into: Array<Float64>(repeating: 0.0, count: rawValue.count + 1)
+            ) {
+                $0[rawValue.count - $1.0 - 2] = fma(
+                    2 * Float64(rawValue.count - $1.0 - 1),
+                    $1.1,
+                    $0[rawValue.count - $1.0 - 0]
+                )
             }
-            for k in stride(from: degree - 3, through: 0, by: -1) {
-                $0[k] = $0[k + 2] + 2 * Float64(k + 1) * rawValue[k + 1]
-            }
-            $0[0] *= 0.5
-        })
+        coefficients[0] *= 0.5
+        return.init(coefficients.dropLast(2))
     }
     @inlinable // compute roots of the chebyshev-polynomial and return positive-side-imaginary-only complex roots and real roots
     var roots: (Array<Complex128>, Array<Float64>) {
@@ -138,7 +108,7 @@ extension Linear.Direct.ChebyshevPolynomial {
         var ℝ = Array<Float64>()
         switch rawValue.count - 1 {
         case ...0:
-            assertionFailure()
+            break
         case 1:
             ℝ.append(-rawValue[0] / rawValue[1])
         case let n:
@@ -197,21 +167,11 @@ extension Linear.Direct.ChebyshevPolynomial {
     }
     @inlinable
     var minimum: (value: Float64, location: Float64) {
-        (Array(arrayLiteral: -1, 1) + `stationary-points`).lazy.map {
+        concat(Array(arrayLiteral: -1.0, 1.0), `stationary-points`).lazy.map {
             (value: self($0), location: $0)
         }.min {
             $0.value < $1.value
         }.unsafelyUnwrapped
-    }
-    @inlinable
-    static func Outer(r: Float64, i: Float64) -> Complex128 {
-        let x = Complex128.RawValue(.init(r: r, i: i.magnitude))
-        let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
-        let lhs = add(x, s)
-        let rhs = sub(x, s)
-        let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
-        assert(length_squared(z.vector).isLess(than: 1))
-        return.init(rawValue: z)
     }
 }
 extension Linear.Direct.ChebyshevPowerRational {
@@ -312,7 +272,7 @@ extension Linear.Direct.ChebyshevPowerRational {
     }
     */
     @inlinable
-    var zpk: Linear.ZPK {
+    var zpkMinimumPhase: Linear.ZPK {
         let p = p.rawValue
         let q = q.rawValue
         assert(!p.isEmpty)
@@ -351,7 +311,7 @@ extension Linear.Direct.ChebyshevPowerRational {
             let w = $0.extracting(1 * m * m + 2 * m ..< 1 * m * m + 2 * m + l)
             if 1 < p.count {
                 w[0] = 0.5.squareRoot()
-                w[1...].initialize(repeating: 0.5)
+                w.dropFirst().initialize(repeating: 0.5)
                 vDSP.clear(&h[0..<h.count])
                 copy(n.x - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: 1), m + 1)
                 copy(n.x - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: m), m + 1)
@@ -375,8 +335,7 @@ extension Linear.Direct.ChebyshevPowerRational {
                         let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
                         assert(length_squared(z.vector).isLess(than: 1))
                         zr.append(z.r)
-                    } else if let c = iter.next() { // sweep conj
-                        assert(c == (r, -i))
+                    } else if case.some((r, -i)) = iter.next() { // sweep conj
                         let x = Complex128.RawValue(.init(r: r, i: i.magnitude))
                         let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
                         let lhs = add(x, s)
@@ -384,12 +343,14 @@ extension Linear.Direct.ChebyshevPowerRational {
                         let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
                         assert(length_squared(z.vector).isLess(than: 1))
                         zc.append(.init(real: z.r, imag: z.i.magnitude))
+                    } else {
+                        assertionFailure()
                     }
                 }
             }
             if 1 < q.count {
                 w[0] = 0.5.squareRoot()
-                w[1...].initialize(repeating: 0.5)
+                w.dropFirst().initialize(repeating: 0.5)
                 vDSP.clear(&h[0..<h.count])
                 copy(n.y - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: 1), m + 1)
                 copy(n.y - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: m), m + 1)
@@ -413,8 +374,7 @@ extension Linear.Direct.ChebyshevPowerRational {
                         let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
                         assert(length_squared(z.vector).isLess(than: 1))
                         pr.append(z.r)
-                    } else if let c = iter.next() { // sweep conj
-                        assert(c == (r, -i))
+                    } else if case.some((r, -i)) = iter.next() { // sweep conj
                         let x = Complex128.RawValue(.init(r: r, i: i.magnitude))
                         let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
                         let lhs = add(x, s)
@@ -422,6 +382,8 @@ extension Linear.Direct.ChebyshevPowerRational {
                         let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
                         assert(length_squared(z.vector).isLess(than: 1))
                         pc.append(.init(real: z.r, imag: z.i.magnitude))
+                    } else {
+                        assertionFailure()
                     }
                 }
             }
