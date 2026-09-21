@@ -17,25 +17,25 @@ public protocol Frequency: Sendable {
 	@inlinable func increment(for time: CMTime) -> Float64
 }
 extension Frequency {
-	@inlinable @inline(__always)
+	@inlinable@inline(__always)@_transparent
 	public func increment(for time: CMTime) -> Float64 {
 		CMTimeGetSeconds(multiply(time: time))
 	}
 }
 extension Int32: Frequency {
-	@inlinable @inline(__always)
+    @inlinable@inline(__always)@_transparent
 	public func multiply(time: CMTime) -> CMTime {
 		CMTimeMultiply(time, multiplier: self)
 	}
 }
 extension Rational64: Frequency {
-	@inlinable @inline(__always)
+    @inlinable@inline(__always)@_transparent
 	public func multiply(time: CMTime) -> CMTime {
 		CMTimeMultiplyByRatio(time, multiplier: numerator, divisor: denominator)
 	}
 }
 extension Float64: Frequency {
-	@inlinable @inline(__always)
+    @inlinable@inline(__always)@_transparent
 	public func multiply(time: CMTime) -> CMTime {
 		CMTimeMultiplyByFloat64(time, multiplier: self)
 	}
@@ -43,21 +43,30 @@ extension Float64: Frequency {
 // Independed from Sampling Frequency
 public struct AngularFrequency: RawRepresentable & Sendable & BitwiseCopyable & Equatable & Hashable & AtomicRepresentable {
 	public let rawValue: Rational128
+    @inlinable
 	public init(rawValue value: RawValue) {
 		rawValue = value
 	}
 }
+extension AngularFrequency {
+    @inlinable
+    public init(numerator: some BinaryInteger, denominator: some BinaryInteger) {
+        rawValue = .init(numerator: .init(numerator), denominator: .init(denominator))
+    }
+}
 extension AngularFrequency: AdditiveArithmetic {
+    @inlinable@inline(__always)@_transparent
 	public static func+(lhs: Self, rhs: Self) -> Self {
 		.init(rawValue: lhs.rawValue + rhs.rawValue)
 	}
+    @inlinable@inline(__always)@_transparent
 	public static func-(lhs: Self, rhs: Self) -> Self {
 		.init(rawValue: lhs.rawValue - rhs.rawValue)
 	}
 	public static let zero: AngularFrequency = .init(rawValue: .zero)
 }
 extension AngularFrequency: Frequency {
-	@inlinable
+    @inlinable@inline(__always)@_transparent
 	public func multiply(time: CMTime) -> CMTime {
 		.init(value: .init(rawValue.numerator), timescale: .init(rawValue.denominator))
 	}
@@ -90,8 +99,8 @@ extension θHz.Ne: Stream {
 		let factor = factor * interval.seconds
 		return {
 			kernel($0, $1, $2, $3)
-			for var target in fold(start: $2, count: $1, stream: stream, period: $3) {
-				vDSP.multiply(factor, target, result: &target)
+			for target in fold(start: $2, count: $1, stream: stream, period: $3) {
+                vDSP.multiply(factor, target, result: &target[0..<$1])
 			}
 		}
 	}
@@ -108,8 +117,8 @@ extension Hzθ.Ne: Stream {
 		let factor = factor * interval.seconds
 		return {
 			kernel($0, $1, $2, $3)
-			for var target in fold(start: $2, count: $1, stream: stream, period: $3) {
-				vDSP.divide(target, factor, result: &target)
+			for target in fold(start: $2, count: $1, stream: stream, period: $3) {
+                vDSP.divide(target, factor, result: &target[0..<$1])
 			}
 		}
 	}
