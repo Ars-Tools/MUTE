@@ -120,7 +120,7 @@ extension Buffer {
 // Direct Storing
 extension Buffer {
     @inlinable@inline(__always)@_transparent
-	public func copy(cursor: Int, length: Int, source: (UnsafeMutablePointer<Float64>, Int) -> Void) {
+	public func copy(cursor: Int, length: Int, source: (borrowing UnsafeMutablePointer<Float64>, Int) -> Void) {
         assertionFailure("deprecated")
 		assert([(0, cursor), (length, period)].allSatisfy(<=))
         withUnsafeTemporaryAllocation(of: Float64.self, capacity: stream * length) {
@@ -139,7 +139,7 @@ extension Buffer {
         }
 	}
     @inlinable@inline(__always)@_transparent
-    public func copy(cursor: Int, length: Int, source: (Int, Int, UnsafeMutablePointer<Float64>, Int) -> Void) {
+    public func copy(cursor: Int, length: Int, source: (Int, Int, borrowing UnsafeMutablePointer<Float64>, Int) -> Void) {
         assert([(0, cursor), (length, period)].allSatisfy(<=))
         let bank = start
         let base = cursor % period
