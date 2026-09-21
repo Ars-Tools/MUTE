@@ -162,10 +162,12 @@ extension Universal {
 }
 extension Universal {
 	public override var internalRenderBlock: AUInternalRenderBlock {
-		let ts = Atomic<UInt64>(.min)
+        let ts = Atomic<UInt64>(.min)
 		return { [unowned self] in
 			if $0.pointee.isEmpty {
-				if case (let old, let new) = ts.max($1.pointee.mHostTime, ordering: .acquiringAndReleasing), old < new {
+                if case(true, .init($1.pointee.mSampleTime)) = ts.compareExchange(expected: .init($1.pointee.mSampleTime),
+                                                                                  desired: .init($1.pointee.mSampleTime) + .init($2),
+                                                                                  ordering: .acquiringAndReleasing) {
 					if let musicalContextBlock {
 						var timeSignature = (0.0, 0)
 						var beat = (0.0, 0.0)
