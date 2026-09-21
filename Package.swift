@@ -41,17 +41,23 @@ let package = Package(
 	],
     targets: [
         .executableTarget(
-            name: "ASPStage",
+            name: "HSP",
             dependencies: [
-                "ASP",
-                "PSP",
-                "NSP",
+                "DSP"
             ],
-            path: "ASP/Stage",
+            path: "HSP/Sources",
             cSettings: [
                 .define("ACCELERATE_NEW_LAPACK"),
-                .define("ACCELERATE_LAPACK_ILP64"),
-            ]
+                .define("ACCELERATE_LAPACK_ILP64")
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "\(Context.packageDirectory)/HSP/Info.plist",
+                ], .when(platforms: [.macOS])),
+            ],
         ),
 		.target(
 			name: "ASP",
