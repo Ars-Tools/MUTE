@@ -12,7 +12,7 @@ func en(code: String) -> FourCharCode {
 @inlinable
 func de(code: FourCharCode) -> String {
 	withUnsafeBytes(of: code.bigEndian) {
-		String(bytes: $0, encoding: .ascii) ?? ""
+		String(bytes: $0, encoding: .ascii) ?? "????"
 	}
 }
 extension String {
