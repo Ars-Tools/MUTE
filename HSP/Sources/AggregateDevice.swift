@@ -9,6 +9,7 @@ import CoreAudio
 final class AggregateDevice: AudioDeviceProtocol {
     @usableFromInline
     let rawValue: AudioObjectID
+
     @inlinable
     init(rawValue: AudioObjectID) {
         self.rawValue = rawValue
@@ -24,7 +25,7 @@ final class AggregateDevice: AudioDeviceProtocol {
     }
 }
 extension AggregateDevice {
-    @inlinable
+    @usableFromInline
     convenience init(description: Dictionary<String, Any>) throws (Error) {
         var handle = kAudioObjectUnknown as AudioObjectID
         switch AudioHardwareCreateAggregateDevice(
@@ -37,33 +38,39 @@ extension AggregateDevice {
             throw Error(status: status)
         }
     }
+
+    @inlinable
+    var deviceID: AudioDeviceID {
+        rawValue
+    }
 }
+
 @usableFromInline
 struct AggregateStream {
     @usableFromInline
     let device: AggregateDevice
     @usableFromInline
-    let taps: Array<Tap>
+    let taps: [Tap]
     @usableFromInline
-    let inputStreams: Array<AudioStream>
+    let inputStreams: [AudioStream]
     @usableFromInline
-    let outputStreams: Array<AudioStream>
+    let outputStreams: [AudioStream]
 }
+
 extension AggregateStream {
     @usableFromInline
-    init(description: Dictionary<String, Any>, taps: Array<Tap> = .init()) throws {
-        let device = try AggregateDevice(description: description)
-        let input = try device.streams(scope: kAudioObjectPropertyScopeInput)
-        let output = try device.streams(scope: kAudioObjectPropertyScopeOutput)
-        self.init(device: device,
-                  taps: taps,
-                  inputStreams: input,
-                  outputStreams: output)
-    }
-    @inlinable
-    var deviceID: AudioDeviceID {
-        _read {
-            yield device.rawValue
+    init(
+        description: [String: Any],
+        taps: Array<Tap> = .init()
+    ) throws {
+        switch try AggregateDevice(description: description) {
+        case let device:
+            try self.init(
+                device: device,
+                taps: taps,
+                inputStreams: device.streams(scope: kAudioObjectPropertyScopeInput),
+                outputStreams: device.streams(scope: kAudioObjectPropertyScopeOutput)
+            )
         }
     }
 }

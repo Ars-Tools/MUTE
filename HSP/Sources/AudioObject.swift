@@ -45,7 +45,9 @@ extension AudioObjectProtocol {
         }
     }
     @inlinable
-    static func bytes<Qualifier: BitwiseCopyable>(object: AudioObjectID, address: AudioObjectPropertyAddress, qualifier: Qualifier) throws -> Int {
+    static func bytes<Qualifier: BitwiseCopyable>(object: AudioObjectID,
+                                                  address: AudioObjectPropertyAddress,
+                                                  qualifier: Qualifier) throws -> Int {
         try withUnsafeBytes(of: qualifier) {
             try bytes(object: object, address: address, qualifier: $0)
         }
@@ -220,7 +222,7 @@ extension AudioDeviceProtocol {
                 mSelector: kAudioDevicePropertyDeviceIsRunning,
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain
-            )) != UInt32.zero
+            )) != .zero as UInt32
         }
     }
     @inlinable
@@ -240,21 +242,21 @@ extension AudioDeviceProtocol {
         }
     }
     @inlinable
-    var maximumIOFrameCount: UInt32 {
+    var maximumIOFrameCount: Int {
         get throws {
-            try has(address: .init(mSelector: kAudioDevicePropertyUsesVariableBufferFrameSizes,
+            try.init(has(address: .init(mSelector: kAudioDevicePropertyUsesVariableBufferFrameSizes,
                                    mScope: kAudioObjectPropertyScopeGlobal,
                                    mElement: kAudioObjectPropertyElementMain)) ?
-            usesVariableBufferFrameSizes : bufferFrameSize
+            usesVariableBufferFrameSizes : bufferFrameSize)
         }
     }
     @inlinable
-    func streams(scope: AudioObjectPropertyScope) throws -> [AudioStream] {
+    func streams(scope: AudioObjectPropertyScope) throws -> Array<AudioStream> {
         try(get(address: .init(
             mSelector: kAudioDevicePropertyStreams,
             mScope: scope,
             mElement: kAudioObjectPropertyElementMain
-        )) as [AudioObjectID]).map(AudioStream.init(rawValue:))
+        )) as Array<AudioObjectID>).map(AudioStream.init(rawValue:))
     }
 }
 
@@ -293,7 +295,7 @@ extension AudioStream {
 struct SystemObject {
     @usableFromInline
     let rawValue: AudioObjectID
-    fileprivate init(rawValue: AudioObjectID) {
+    private init(rawValue: AudioObjectID) {
         self.rawValue = rawValue
     }
     @usableFromInline
