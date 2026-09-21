@@ -6,7 +6,7 @@
 //
 import CoreAudio
 @usableFromInline
-final class Tap: RawRepresentable, AudioObjectProtocol {
+final class Tap: RawRepresentable, AudioObjectProtocol, Sendable {
     @usableFromInline
     let rawValue: AudioObjectID
     @inlinable

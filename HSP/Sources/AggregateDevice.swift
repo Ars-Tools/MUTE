@@ -6,10 +6,9 @@
 //
 import CoreAudio
 @usableFromInline
-final class AggregateDevice: AudioDeviceProtocol {
+final class AggregateDevice: AudioDeviceProtocol, RawRepresentable, Sendable {
     @usableFromInline
     let rawValue: AudioObjectID
-
     @inlinable
     init(rawValue: AudioObjectID) {
         self.rawValue = rawValue
@@ -25,7 +24,7 @@ final class AggregateDevice: AudioDeviceProtocol {
     }
 }
 extension AggregateDevice {
-    @usableFromInline
+    @inlinable
     convenience init(description: Dictionary<String, Any>) throws (Error) {
         var handle = kAudioObjectUnknown as AudioObjectID
         switch AudioHardwareCreateAggregateDevice(
@@ -38,15 +37,10 @@ extension AggregateDevice {
             throw Error(status: status)
         }
     }
-
-    @inlinable
-    var deviceID: AudioDeviceID {
-        rawValue
-    }
 }
 
 @usableFromInline
-struct AggregateStream {
+struct AggregateStream: Copyable, Sendable {
     @usableFromInline
     let device: AggregateDevice
     @usableFromInline
@@ -56,13 +50,9 @@ struct AggregateStream {
     @usableFromInline
     let outputStreams: [AudioStream]
 }
-
 extension AggregateStream {
     @usableFromInline
-    init(
-        description: [String: Any],
-        taps: Array<Tap> = .init()
-    ) throws {
+    init(description: Dictionary<String, Any>, taps: Array<Tap> = .init()) throws {
         switch try AggregateDevice(description: description) {
         case let device:
             try self.init(
@@ -72,5 +62,9 @@ extension AggregateStream {
                 outputStreams: device.streams(scope: kAudioObjectPropertyScopeOutput)
             )
         }
+    }
+    @inlinable
+    var deviceID: AudioDeviceID {
+        _read { yield device.rawValue }
     }
 }

@@ -5,7 +5,7 @@
 
 import AudioToolbox
 import AVFoundation
-
+import func Accelerate.cblas_scopy
 @usableFromInline
 final class IOCycle: @unchecked Sendable {
     @usableFromInline
@@ -57,28 +57,36 @@ final class InputAudioUnit: AUAudioUnit, @unchecked Sendable {
                 return kAudioUnitErr_NoConnection
             }
 
-            let source = UnsafeMutableAudioBufferListPointer(
+            let sourceBuffer = UnsafeMutableAudioBufferListPointer(
                 UnsafeMutablePointer(mutating: input)
             )[outputBus]
             let hardwareFormat = hardwareFormats[outputBus]
             let channels = Int(hardwareFormat.mChannelsPerFrame)
-            let byteCount = Int(frameCount) * Int(hardwareFormat.mBytesPerFrame)
-            guard source.mNumberChannels == channels,
-                  source.mDataByteSize >= byteCount,
-                  let sourceData = source.mData?.assumingMemoryBound(to: Float.self)
+            let frames = Int(frameCount)
+            guard sourceBuffer.mNumberChannels == channels else {
+                return kAudioUnitErr_FormatNotSupported
+            }
+            let source = UnsafeMutableBufferPointer<Float32>(sourceBuffer)
+            guard source.count >= frames * channels,
+                  let sourceData = source.baseAddress
             else {
                 return kAudioUnitErr_FormatNotSupported
             }
             for (channel, target) in UnsafeMutableAudioBufferListPointer(outputData).enumerated() {
-                guard target.mNumberChannels == 1,
-                      target.mDataByteSize >= Int(frameCount) * MemoryLayout<Float>.stride,
-                      let targetData = target.mData?.assumingMemoryBound(to: Float.self)
+                guard target.mNumberChannels == 1 else {
+                    return kAudioUnitErr_FormatNotSupported
+                }
+                let target = UnsafeMutableBufferPointer<Float32>(target)
+                guard target.count >= frames,
+                      let targetData = target.baseAddress
                 else {
                     return kAudioUnitErr_FormatNotSupported
                 }
-                for frame in 0..<Int(frameCount) {
-                    targetData[frame] = sourceData[frame * channels + channel]
-                }
+                cblas_scopy(
+                    .init(frameCount),
+                    sourceData.advanced(by: channel), .init(channels),
+                    targetData, 1
+                )
             }
             return noErr
         }
@@ -133,7 +141,7 @@ final class OutputAudioUnit: AUAudioUnit, @unchecked Sendable {
         let context = context
         return { [unowned self] actionFlags, timestamp, frameCount, outputBus, outputData, _, pullInput in
             guard outputBus == 0,
-                  let output = context?.output,
+                  let output = context.flatMap(\.output),
                   output.pointee.mNumberBuffers >= inputs.count,
                   self.buffers.count == inputs.count,
                   let pullInput
@@ -159,26 +167,43 @@ final class OutputAudioUnit: AUAudioUnit, @unchecked Sendable {
 
                 let hardwareFormat = hardwareFormats[inputBus]
                 let channels = Int(hardwareFormat.mChannelsPerFrame)
-                let byteCount = Int(frameCount) * Int(hardwareFormat.mBytesPerFrame)
-                let target = UnsafeMutableAudioBufferListPointer(output)[inputBus]
-                guard target.mNumberChannels == channels,
-                      target.mDataByteSize >= byteCount,
-                      let targetData = target.mData?.assumingMemoryBound(to: Float.self),
-                      let sourceData = buffer.floatChannelData
+                let frames = Int(frameCount)
+                let targetBuffer = UnsafeMutableAudioBufferListPointer(output)[inputBus]
+                guard targetBuffer.mNumberChannels == channels else {
+                    return kAudioUnitErr_FormatNotSupported
+                }
+                let target = UnsafeMutableBufferPointer<Float32>(targetBuffer)
+                guard target.count >= frames * channels,
+                      let targetData = target.baseAddress
                 else {
                     return kAudioUnitErr_FormatNotSupported
                 }
-                for channel in 0..<channels {
-                    let source = sourceData[channel]
-                    for frame in 0..<Int(frameCount) {
-                        targetData[frame * channels + channel] = source[frame]
+                let source = UnsafeMutableAudioBufferListPointer(
+                    buffer.mutableAudioBufferList
+                )
+                guard source.count == channels else {
+                    return kAudioUnitErr_FormatNotSupported
+                }
+                for (channel, sourceBuffer) in source.enumerated() {
+                    guard sourceBuffer.mNumberChannels == 1 else {
+                        return kAudioUnitErr_FormatNotSupported
                     }
+                    let source = UnsafeMutableBufferPointer<Float32>(sourceBuffer)
+                    guard source.count >= frames,
+                          let sourceData = source.baseAddress
+                    else {
+                        return kAudioUnitErr_FormatNotSupported
+                    }
+                    cblas_scopy(
+                        .init(frameCount),
+                        sourceData, 1,
+                        targetData.advanced(by: channel), .init(channels)
+                    )
                 }
             }
 
             for var buffer in UnsafeMutableAudioBufferListPointer(outputData) {
-                guard let data = buffer.mData else { continue }
-                data.initializeMemory(as: UInt8.self, repeating: 0, count: Int(buffer.mDataByteSize))
+                UnsafeMutableBufferPointer<UInt8>(buffer).initialize(repeating: .zero)
                 buffer.mDataByteSize = UInt32(Int(frameCount) * Int(outputs[0].format.streamDescription.pointee.mBytesPerFrame))
             }
             actionFlags.pointee.insert(.unitRenderAction_OutputIsSilence)

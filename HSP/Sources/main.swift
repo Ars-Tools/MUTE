@@ -13,13 +13,24 @@ import AVFoundation
 import CoreAudio
 import Foundation
 
+import ASP
+import BSP
+import DSP
+import FSP
+let efxDescription = AudioComponentDescription(componentType: kAudioUnitType_Effect,
+                                    componentSubType: .init(four: "$hsp"),
+                                    componentManufacturer: .init(four: "@ars"),
+                                    componentFlags: 0,
+                                    componentFlagsMask: 0)
+AUAudioUnit.registerSubclass(Universal.self, as: efxDescription, name: "Effector", version: 0)
+
 let outputDevice = try SystemObject.outputDevice
 let outputUID = try outputDevice.uuid
 let physicalOutputStreams = try outputDevice.streams(
     scope: kAudioObjectPropertyScopeOutput
 )
 
-let tapDescriptions = physicalOutputStreams.indices.map { stream in
+let tapDescription = physicalOutputStreams.indices.map { stream in
     let description = CATapDescription(
         excludingProcesses: [SystemObject.currentProcess],
         deviceUID: outputUID,
@@ -30,7 +41,7 @@ let tapDescriptions = physicalOutputStreams.indices.map { stream in
     description.muteBehavior = .mutedWhenTapped
     return description
 }
-let taps = try tapDescriptions.map(Tap.init(description:))
+let taps = try tapDescription.map(Tap.init(description:))
 
 let aggregate = try AggregateStream(
     description: [
@@ -42,7 +53,7 @@ let aggregate = try AggregateStream(
             kAudioSubDeviceUIDKey: outputUID,
             kAudioSubDeviceInputChannelsKey: 0,
         ]],
-        kAudioAggregateDeviceTapListKey: tapDescriptions.map { description in
+        kAudioAggregateDeviceTapListKey: tapDescription.map { description in
             [kAudioSubTapUIDKey: description.uuid.uuidString]
         },
     ],
@@ -56,7 +67,6 @@ guard aggregate.inputStreams.count == aggregate.outputStreams.count else {
         status: kAudioUnitErr_FormatNotSupported
     )
 }
-
 let engine = AVAudioEngine()
 engine.attach(input: nodes.input, output: nodes.output)
 for bus in aggregate.inputStreams.indices {
@@ -70,13 +80,27 @@ for bus in aggregate.inputStreams.indices {
             status: kAudioUnitErr_FormatNotSupported
         )
     }
-    engine.connect(
-        nodes.input,
-        to: nodes.output,
-        fromBus: AVAudioNodeBus(bus),
-        toBus: AVAudioNodeBus(bus),
-        format: inputFormat
-    )
+    let sampleRate = inputFormat.sampleRate
+    let efx = try await AVAudioUnit.instantiate(with: efxDescription, options: .loadInProcess)
+    engine.attach(efx)
+    switch efx.auAudioUnit {
+    case let unit as Universal:
+        let i = try Input.Direct(sampleRate: sampleRate, target: 2)
+        let x = i
+        let y = pitchshift(x, rate: 1.2)
+//        let z = buffer(filter(residual(target: x, rls: 21, λ: 0.9998), ldf: 220, chebyshev1: 4000, ε: Utils.ripple(dB: 3)), capacity: 3)[t-0.1]
+        let t = filter(x[0..<1], lpf: 12000, bessel: 12)
+        let w = kernel(target: t, rls: 12, λ: 0.9997)
+        let u = uniform(in: -0.01 ... 0.01, -0.01 ... 0.01)
+        let s = residual(target: x, var: 28, λ: 0.9996)
+        let o = try Output.Direct(sampleRate: sampleRate, source: 0.5 * clip(x + 0.5 * buffer(y)[t-0.2], range: -1...1))
+        unit.append(i)
+        unit.append(o)
+    default:
+        throw Error(operation: "efx binding", status: kAudioUnitErr_FormatNotSupported)
+    }
+    engine.connect(nodes.input, to: efx, fromBus: .init(bus), toBus: .init(bus), format: .some(inputFormat))
+    engine.connect(efx, to: nodes.output, fromBus: .init(bus), toBus: .init(bus), format: .some(outputFormat))
 }
 
 signal(SIGINT, SIG_IGN)

@@ -80,7 +80,7 @@ extension AggregateStream {
             context: cycle
         )
 
-        let maximumFrameCount = AUAudioFrameCount(try device.maximumIOFrameCount)
+        let maximumFrameCount = try AUAudioFrameCount(device.maximumIOFrameCount)
         inputUnit.maximumFramesToRender = maximumFrameCount
         outputUnit.maximumFramesToRender = maximumFrameCount
         return (input, output)
@@ -88,7 +88,7 @@ extension AggregateStream {
 }
 
 extension AVAudioEngine {
-    @usableFromInline
+    @inlinable
     func attach(input: AVAudioUnit, output: AVAudioUnit) {
         attach(input)
         attach(output)
@@ -101,7 +101,7 @@ extension AVAudioEngine {
         )
     }
 
-    @usableFromInline
+    @inlinable
     func withIO<Result>(
         on stream: AggregateStream,
         input: AVAudioUnit,
@@ -133,10 +133,7 @@ extension AVAudioEngine {
                 maximumFrameCount: maximumFrameCount
             )
         } catch let error as NSError {
-            throw Error(
-                operation: "enable AVAudioEngine realtime manual rendering",
-                status: OSStatus(error.code)
-            )
+            throw Error(status: .init(error.code))
         }
 
         do {
@@ -200,12 +197,7 @@ extension AVAudioEngine {
 @usableFromInline
 func clear(_ buffers: UnsafeMutablePointer<AudioBufferList>) {
     for buffer in UnsafeMutableAudioBufferListPointer(buffers) {
-        guard let data = buffer.mData else { continue }
-        data.initializeMemory(
-            as: UInt8.self,
-            repeating: 0,
-            count: Int(buffer.mDataByteSize)
-        )
+        UnsafeMutableBufferPointer<UInt8>(buffer).initialize(repeating: .zero)
     }
 }
 

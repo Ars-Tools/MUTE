@@ -43,7 +43,10 @@ let package = Package(
         .executableTarget(
             name: "HSP",
             dependencies: [
-                "DSP"
+                "ASP",
+                "BSP",
+                "DSP",
+                "FSP"
             ],
             path: "HSP/Sources",
             cSettings: [
