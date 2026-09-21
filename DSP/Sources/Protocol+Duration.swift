@@ -5,6 +5,7 @@
 //  Created by Kota on 7/10/R7.
 //
 import protocol Synchronization.AtomicRepresentable
+import typealias Numerics.Rational64
 import func CLK.times
 public protocol Duration: Sendable {
 	@inlinable func divide(by time: CMTime) -> (quotient: Int, remainder: CMTime)
