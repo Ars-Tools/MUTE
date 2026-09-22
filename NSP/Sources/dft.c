@@ -1234,7 +1234,7 @@ __attribute__((overloadable))
 bdft_t const * __nonnull const bdft_create(intptr_t const * __nonnull const count) {
     intptr_t depth = 0;
     while ( 1 < count[++depth] );
-    bdft_t * __nonnull const object = __malloc__(sizeof(intptr_t const) + depth * sizeof(sparse_matrix_double_complex const));
+    bdft_t * __nonnull const object = __malloc__(sizeof(bdft_t const) + depth * sizeof(sparse_matrix_double_complex const));
     *(intptr_t*__nonnull const)&object->count = depth;
     sparse_index * __nonnull const O = __malloc__(*count*(3 * sizeof(sparse_index const) + MAX(sizeof(sparse_index const), sizeof(__complex double const))));
     sparse_index * __nonnull const P = O + 1 ** count;

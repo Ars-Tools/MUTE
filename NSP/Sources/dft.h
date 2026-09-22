@@ -142,7 +142,7 @@ void dft_inverse(ddft_t const * __nonnull const, dft_scale_t const, intptr_t con
 // MARK: BFS - better performance for deep composite, note: slow setup, faster operation
 typedef __attribute__((__swift_attr__("BitwiseCopyable"), __swift_attr__("Sendable"))) struct {
     intptr_t const count;
-    sparse_matrix_double_complex __nonnull const prime[1];
+    sparse_matrix_double_complex __nonnull const prime[];
 } bdft_t;
 __attribute__((always_inline, overloadable))
 bdft_t const * __nonnull const bdft_create(intptr_t const count);
