@@ -36,6 +36,27 @@ void biquad_filter_convolve_static(register simd_double3 const b,
                                    register simd_double3 const a,
                                    register double const * __nonnull x,
                                    register double       * __nonnull y,
+                                   simd_double2 * __nonnull const h,
+                                   intptr_t const length) {
+    register simd_double2x2 const S = {
+        (simd_double2 const) { b.y,  b.z},
+        (simd_double2 const) {-a.y, -a.z}
+    };
+    register simd_double2 s = *h;
+    for ( register intptr_t k = 0 ; k < length ; ++ k ) {
+        register double const _ = *x++;
+        s = simd_mul(S, (simd_double2 const) {
+                       _,
+            *y++ = fma(_, b.x, s.x) / a.x,
+        }) + (simd_double2 const) {s.y, 0};
+    }
+    *h = s;
+}
+__attribute__((overloadable, always_inline)) static inline
+void biquad_filter_convolve_static(register simd_double3 const b,
+                                   register simd_double3 const a,
+                                   register double const * __nonnull x,
+                                   register double       * __nonnull y,
                                    simd_double4 * __nonnull const h,
                                    intptr_t const length) {
     register simd_double4 const c = {b.y, b.z, -a.y, -a.z};
@@ -67,34 +88,56 @@ void biquad_filter_convolve_static(register simd_double3 const * __nonnull const
                                       h + k,
                                       length);
 }
-__attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole*/
+__attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole, Paired Real Root*/
+void biquad_filter_convolve_static(register simd_double2 const * __nonnull const z,
+                                   register simd_double2 const * __nonnull const p,
+                                   register double const * __nonnull x,
+                                   register double       * __nonnull y,
+                                   simd_double2 * __nonnull const h, intptr_t const c,
+                                   intptr_t const length) {
+    for ( register intptr_t n = 0, N = c ; n < N ; ++ n ) {
+        register simd_double2 const zero = z[n];
+        register simd_double2 const pole = p[n];
+        register simd_double2x2 const S = {
+            (simd_double2 const) {-simd_reduce_add(zero),  zero.x * zero.y},
+            (simd_double2 const) { simd_reduce_add(pole), -pole.x * pole.y},
+        };
+        register double const * __nonnull const q = n ? y : x;
+        register simd_double2 s = h[n];
+        for ( register intptr_t k = 0 ; k < length ; ++ k ) {
+            register double const _ = q[k];
+            s = simd_mul(S, (simd_double2 const) {
+                       _,
+                y[k] = _ + s.x
+            }) + (simd_double2 const) {s.y, 0};
+        }
+        h[n] = s;
+    }
+}
+__attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole, Paired Complex Root*/
 void biquad_filter_convolve_static(register __complex double const * __nonnull const z,
                                    register __complex double const * __nonnull const p,
                                    register double const * __nonnull x,
                                    register double       * __nonnull y,
-                                   simd_double4 * __nonnull const h, intptr_t const c,
+                                   simd_double2 * __nonnull const h, intptr_t const c,
                                    intptr_t const length) {
     for ( register intptr_t n = 0, N = c ; n < N ; ++ n ) {
         register __complex double const zero = z[n];
         register __complex double const pole = p[n];
-        register simd_double4 const c = {
-            -2*__real(zero),
-             simd_length_squared(__builtin_bit_cast(simd_double2 const, zero)),
-             2*__real(pole),
-            -simd_length_squared(__builtin_bit_cast(simd_double2 const, pole))
+        register simd_double2x2 const S = {
+            (simd_double2 const) {-2*__real(zero),  simd_length_squared(__builtin_bit_cast(simd_double2 const, zero))},
+            (simd_double2 const) { 2*__real(pole), -simd_length_squared(__builtin_bit_cast(simd_double2 const, pole))},
         };
-        register simd_double4 z = h[n];
-        register double const * __nonnull const s = n ? y : x;
-        for ( register intptr_t k = 0, K = length ; k < K ; ++ k ) {
-            register double const _ = s[k];
-            z = (simd_double4 const) {
-                _,
-                z.x,
-                y[k] = simd_dot(z, c) + _,
-                z.z
-            };
+        register double const * __nonnull const q = n ? y : x;
+        register simd_double2 s = h[n];
+        for ( register intptr_t k = 0 ; k < length ; ++ k ) {
+            register double const _ = q[k];
+            s = simd_mul(S, (simd_double2 const) {
+                       _,
+                y[k] = _ + s.x
+            }) + (simd_double2 const) {s.y, 0};
         }
-        h[n] = z;
+        h[n] = s;
     }
 }
 __attribute__((overloadable, always_inline)) static inline
@@ -185,7 +228,36 @@ void biquad_filter_convolve_active(register double const * __nonnull b0, intptr_
                                       h + k,
                                       length);
 }
-__attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole*/
+__attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole, Paired Real Root*/
+void biquad_filter_convolve_active(register simd_double2 const * __nonnull const z, register intptr_t const ldz, // [section][time<=ld], row-major
+                                   register simd_double2 const * __nonnull const p, register intptr_t const ldp, // [section][time<=ld], row-major
+                                   register double const * __nonnull x,
+                                   register double       * __nonnull y,
+                                   simd_double4 * __nonnull const h, intptr_t const c,
+                                   intptr_t const length) {
+    for ( register intptr_t n = 0, N = c ; n < N ; ++ n ) {
+        register simd_double2 const * __nonnull zn = z + n * ldz;
+        register simd_double2 const * __nonnull pn = p + n * ldp;
+        simd_double4 s = h[n];
+        register double const * __nonnull const t = n ? y : x;
+        for ( register intptr_t k = 0, K = length ; k < K ; ++ k ) {
+            register simd_double2 const zero = zn[k];
+            register simd_double2 const pole = pn[k];
+            register double const _ = t[k];
+            s = (simd_double4 const) {
+                _,
+                s.x,
+                y[k] = simd_dot(s, (simd_double4 const) {
+                    -simd_reduce_add(zero),  zero.x * zero.y,
+                     simd_reduce_add(pole), -pole.x * pole.y,
+                }) + _,
+                s.z
+            };
+        }
+        h[n] = s;
+    }
+}
+__attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole, Paired Complex Root*/
 void biquad_filter_convolve_active(register __complex double const * __nonnull const z, register intptr_t const ldz, // [section][time<=ld], row-major
                                    register __complex double const * __nonnull const p, register intptr_t const ldp, // [section][time<=ld], row-major
                                    register double const * __nonnull x,
