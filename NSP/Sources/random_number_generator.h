@@ -12,7 +12,7 @@ void uniform_rng(double * __nonnull const r, intptr_t const ldr,
 				 intptr_t const number,
 				 intptr_t const length);
 __attribute__((overloadable)) static inline
-void uniform_rng(double * __nonnull const r, intptr_t const ldr,
+void rng_uniform(double * __nonnull const r, intptr_t const ldr,
                  double const a,
                  double const b,
                  intptr_t const number,
