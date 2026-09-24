@@ -4,11 +4,11 @@
 //
 //  Created by Kota on 9/23/26.
 //
-#include"transversal_filter.h"
 #include"module.h"
+#include"transversal_filter.h"
 __attribute__((visibility("hidden"))) static
 intptr_t const _[] = {0, 1, 2};
-// MARK: Filter (Single)
+// MARK: Common
 __attribute__((overloadable, always_inline)) // TDF-II
 void transversal_filter_static(double const * __nonnull const b, intptr_t const m,
                                double const * __nonnull const a, intptr_t const n,
@@ -31,6 +31,28 @@ void transversal_filter_static(double const * __nonnull const b, intptr_t const 
         y[k] = -o;
     }
 }
+__attribute__((overloadable, always_inline)) static inline // DF-I (mirrored ring buffer)
+void transversal_filter_static(double const * __nonnull const b, intptr_t const m,
+                               double const * __nonnull const a, intptr_t const n,
+                               double       * __nonnull const x, intptr_t xc,
+                               double       * __nonnull const y, intptr_t yc,
+                               double const * __nonnull i,
+                               double       * __nonnull o,
+                               register intptr_t const length) {
+    intptr_t const k = n - 1;
+    for ( register intptr_t t = 0 ; t < length ; ++ t ) {
+        x[xc+m] = x[xc] = *i++;
+        y[yc+n] = y[yc] = *o++ = (ddot_(&m, x+xc-0, &1[_],
+                                        b+0, &1[_]) -
+                                  ddot_(&k, y+yc+1, &1[_],
+                                        a+1, &1[_])) / *a;
+        if ( -- xc < 0 )
+            xc += m;
+        if ( -- yc < 0 )
+            yc += n;
+    }
+}
+// MARK: Filter (Single)
 __attribute__((overloadable))
 transversal_filter_t * __nonnull const transversal_filter_create(intptr_t const b, intptr_t const a) {
     transversal_filter_t * __nonnull const object = __malloc__(sizeof(transversal_filter_t const) + 2 * (b + a) * sizeof(double));
@@ -129,6 +151,28 @@ void transversal_filter_reset(transversal_filterbank_t * __nonnull const object)
 }
 __attribute__((overloadable))
 void transversal_filter_static(transversal_filterbank_t * __nonnull const object,
+                               double const * __nonnull const b, intptr_t const ldb, // [channel][coefficients]
+                               double const * __nonnull const a, intptr_t const lda, // [channel][coefficients]
+                               double const * __nonnull const x, intptr_t const ldx,
+                               double       * __nonnull const y, intptr_t const ldy,
+                               intptr_t const length) {
+    register intptr_t const m = object->b, ldX = 2 * m, xc = object->x;
+    register intptr_t const n = object->a, ldY = 2 * n, yc = object->y;
+    register double * __nonnull const X = object->z + 0 * m * object->c;
+    register double * __nonnull const Y = object->z + 2 * m * object->c;
+    for ( register intptr_t k = 0, K = object->c ; k < K ; ++ k )
+        transversal_filter_static(b + k * ldb, m,
+                                  a + k * lda, n,
+                                  X + ldX, xc,
+                                  Y + ldY, yc,
+                                  x + k * ldx,
+                                  y + k * ldy,
+                                  length);
+    object->x = ( ( object->x - length ) % m + m ) % m;
+    object->y = ( ( object->y - length ) % n + n ) % n;
+}
+__attribute__((overloadable)) // shared kernel (B, A) for all channels
+void transversal_filter_static(transversal_filterbank_t * __nonnull const object,
                                double const * __nonnull const b,
                                double const * __nonnull const a,
                                double const * __nonnull const x, intptr_t const ldx,
@@ -145,18 +189,17 @@ void transversal_filter_static(transversal_filterbank_t * __nonnull const object
         dcopy_(&c, x + t, &ldx, X + xc, &ldX);
         dcopy_(&c, x + t, &ldx, X + xc + m, &ldX);
         dgemv_("T", &m, &c,
-               w + 1,
+               (double const[]){ simd_recip(*a)},
                X + xc + 0, &ldX,
                b + 0, &1[_],
                w + 0,
                y + t, &ldy);
         dgemv_("T", &k, &c,
-               w + 2,
+               (double const[]){-simd_recip(*a)},
                Y + yc + 1, &ldY,
                a + 1, &1[_],
                w + 1,
                y + t, &ldy);
-        __vsdiv__(y + t, ldy, *a, y + t, ldy, c);
         dcopy_(&c, y + t, &ldy, Y + yc, &ldY);
         dcopy_(&c, y + t, &ldy, Y + yc + n, &ldY);
         if ( -- xc < 0 )
@@ -167,7 +210,7 @@ void transversal_filter_static(transversal_filterbank_t * __nonnull const object
     object->x = xc;
     object->y = yc;
 }
-__attribute__((overloadable))
+__attribute__((overloadable)) // shared kernel (B, A) for all channels
 void transversal_filter_active(transversal_filterbank_t * __nonnull const object,
                                double const * __nonnull b, intptr_t const ldb,
                                double const * __nonnull a, intptr_t const lda,

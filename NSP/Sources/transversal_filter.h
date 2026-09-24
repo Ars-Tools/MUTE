@@ -50,6 +50,12 @@ typedef struct {
 __attribute__((overloadable)) transversal_filterbank_t * __nonnull const transversal_filter_create(intptr_t const, intptr_t const, intptr_t const);
 __attribute__((overloadable)) void transversal_filter_destroy(transversal_filterbank_t * __nonnull const);
 __attribute__((overloadable)) void transversal_filter_reset(transversal_filterbank_t * __nonnull const);
+__attribute__((overloadable)) void transversal_filter_static(transversal_filterbank_t * __nonnull const object,
+                                                             double const * __nonnull const, intptr_t const, // [channel][coefficients]
+                                                             double const * __nonnull const, intptr_t const, // [channel][coefficients]
+                                                             double const * __nonnull const, intptr_t const,
+                                                             double       * __nonnull const, intptr_t const,
+                                                             intptr_t const);
 __attribute__((overloadable)) void transversal_filter_static(transversal_filterbank_t * __nonnull const,
                                                              double const * __nonnull const,
                                                              double const * __nonnull const,
