@@ -6,24 +6,23 @@
 //
 @preconcurrency import protocol Combine.Publisher
 import struct Synchronization.Mutex
-import func Layout.broadcast
 import typealias Accelerate.vDSP
 import typealias Accelerate.DSPDoubleSplitComplex
+import func Accelerate.vDSP_vclrD
+import func Accelerate.vDSP_convD
 import func Accelerate.vDSP_create_fftsetupD
 import func Accelerate.vDSP_destroy_fftsetupD
-import func Accelerate.vDSP_vclrD
 import func Accelerate.vDSP_fftm_zoptD
-import func Accelerate.vDSP_zvmulD
 import func Accelerate.vDSP_fftm_ziptD
 import func Accelerate.vDSP_fft_ziptD
-import func Accelerate.vDSP_convD
+import func Accelerate.vDSP_zvmulD
 import let Accelerate.kFFTRadix2
 import let Accelerate.kFFTDirection_Forward
 import let Accelerate.kFFTDirection_Inverse
-import typealias Auxiliary.Autorelease
 import func NSP.transversal_filter_create
 import func NSP.transversal_filter_destroy
 import func NSP.transversal_filter_active
+import typealias Auxiliary.Autorelease
 extension Filter {
     public enum FIR {
         public enum Domain: Sendable {
