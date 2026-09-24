@@ -10,6 +10,7 @@ module NSP {
 	header "biquad_filter.h"
 	header "median_filter.h"
 	header "universal_filter.h"
+    header "transversal_filter.h"
 	header "state_variable_filter.h"
 	header "periodic_lookup.h"
 	header "lattice.h"
@@ -25,8 +26,18 @@ module NSP {
 	header "dft.h"
     header "mix.h"
     header "var.h"
+    header "ctf.h"
 	export *
 }
+module Acoustica {
+    header "bem.h"
+    export *
+}
+//module ComplexSolvers {
+//    header "lu_solver.h"
+//    header "gl_quadrature.h"
+//    export *
+//}
 module AUExtension {
 	header "AUParameterNode+.h"
 	export *
