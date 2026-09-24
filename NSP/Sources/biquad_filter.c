@@ -110,7 +110,7 @@ void biquad_filter_active(biquad_filterbank_t * __nonnull const object,
                                       object->state + c * object->order, object->order,
                                       length);
 }
-__attribute__((overloadable))
+__attribute__((overloadable)) // shared filter parameter for all channels
 void biquad_filter_active(biquad_filterbank_t * __nonnull const object,
                           double const * __nonnull B0, intptr_t const ldB0/*[section][time]*/,
                           double const * __nonnull B1, intptr_t const ldB1/*[section][time]*/,

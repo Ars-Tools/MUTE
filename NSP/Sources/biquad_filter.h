@@ -79,7 +79,6 @@ void biquad_filter_convolve_static(register simd_double3 const * __nonnull const
                                    register double       * __nonnull y,
                                    simd_double4 * __nonnull const h, intptr_t const c,
                                    intptr_t const length) {
-    assert(0 < c);
     for ( register intptr_t k = 0, K = c ; k < K ; ++ k )
         biquad_filter_convolve_static(b[k],
                                       a[k],
@@ -215,7 +214,6 @@ void biquad_filter_convolve_active(register double const * __nonnull b0, intptr_
                                    register double       * __nonnull y,
                                    simd_double4 * __nonnull const h, intptr_t const c,
                                    intptr_t const length) {
-    assert(0 < c);
     for ( register intptr_t k = 0, K = c ; k < K ; ++ k )
         biquad_filter_convolve_active(b0 + k * ldb0,
                                       b1 + k * ldb1,
@@ -338,12 +336,12 @@ __attribute__((overloadable)) void biquad_filter_active(biquad_filterbank_t * __
                                                         double       * __nonnull Y, intptr_t const ldY,
                                                         intptr_t const length);
 __attribute__((overloadable)) void biquad_filter_active(biquad_filterbank_t * __nonnull const object,
-                                                        double const * __nonnull B0, simd_long2 const ldB0/*[channel][section][time]*/,
-                                                        double const * __nonnull B1, simd_long2 const ldB1/*[channel][section][time]*/,
-                                                        double const * __nonnull B2, simd_long2 const ldB2/*[channel][section][time]*/,
-                                                        double const * __nonnull A0, simd_long2 const ldA0/*[channel][section][time]*/,
-                                                        double const * __nonnull A1, simd_long2 const ldA1/*[channel][section][time]*/,
-                                                        double const * __nonnull A2, simd_long2 const ldA2/*[channel][section][time]*/,
+                                                        double const * __nonnull B0, intptr_t const ldB0/*[section][time]*/,
+                                                        double const * __nonnull B1, intptr_t const ldB1/*[section][time]*/,
+                                                        double const * __nonnull B2, intptr_t const ldB2/*[section][time]*/,
+                                                        double const * __nonnull A0, intptr_t const ldA0/*[section][time]*/,
+                                                        double const * __nonnull A1, intptr_t const ldA1/*[section][time]*/,
+                                                        double const * __nonnull A2, intptr_t const ldA2/*[section][time]*/,
                                                         double const * __nonnull X, intptr_t const ldX,
                                                         double       * __nonnull Y, intptr_t const ldY,
                                                         intptr_t const length);
