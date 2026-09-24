@@ -13,7 +13,7 @@ import func NSP.dft_count
 import func NSP.dft_forward
 import func NSP.dft_inverse
 extension DFT {
-    public final class DFS: @unchecked Sendable {
+    public final class DFS: `Protocol`, @unchecked Sendable {
         @usableFromInline
         let setup: UnsafePointer<ddft_t>
         @inlinable
@@ -30,7 +30,7 @@ extension DFT {
         }
     }
 }
-extension DFT.DFS: DFT.`Protocol` {
+extension DFT.DFS {
     @inlinable@_transparent
     public var count: Int {
         dft_count(setup)
@@ -78,29 +78,4 @@ extension DFT.DFS: DFT.`Protocol` {
         }
     }
 }
-// MARK: Shared Instance
-extension Mutex where Value == Dictionary<Int, DFT.DFS> {
-    @inlinable
-    public subscript(_ count: Int) -> Value.Value {
-        withLock {
-            switch $0[count] {
-            case.some(let dft):
-                dft
-            case.none:
-                switch Value.Value(count: count) {
-                case let dft:
-                    $0.updateValue(dft, forKey: count) ?? dft
-                }
-            }
-        }
-    }
-    @inlinable
-    public func flush() {
-        withLock {
-            $0.removeAll()
-        }
-    }
-}
-extension DFT.DFS {
-    public static let shared: Mutex<Dictionary<Int, DFT.BFS>> = .init(.init())
-}
+
