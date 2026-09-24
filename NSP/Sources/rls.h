@@ -5,6 +5,7 @@
 //  Created by Kota on 8/19/R7.
 //
 #include<stdint.h>
+#include<complex+typedef.h>
 // optimiser
 // MARK: Real
 typedef struct {
@@ -53,6 +54,12 @@ __complex double const rls(rls_complex_t * __nonnull const object,
                            __complex double const y,
                            __complex double const * __nonnull const x, intptr_t const ldx,
                            __complex double       * __nonnull const w, intptr_t const ldw);
+// Swift does not import functions whose signatures contain Clang's built-in
+// complex type. This representation-compatible entry point is Swift-visible.
+complex128_t const rls_complex(rls_complex_t * __nonnull const object,
+                               complex128_t const y,
+                               complex128_t const * __nonnull const x, intptr_t const ldx,
+                               complex128_t       * __nonnull const w, intptr_t const ldw);
 
 // MARK: RLS Filter
 typedef struct {
@@ -94,7 +101,7 @@ typedef struct {
     intptr_t const count; // channel
     intptr_t const order; // filter length
     __complex double * __nonnull const w; // [count, order], channel-major, conj(kernel)
-    __complex double * __nonnull const h; // [order, count], channel-minor, 0-started buffer for history
+    __complex double * __nonnull const h; // [count, order], channel-major, 0-started buffer for history
     rls_complex_t rls[];
 } rls_complex_filterbank_t;
 __attribute__((overloadable))
@@ -107,9 +114,9 @@ __attribute__((overloadable))
 void rls_filter_reset(rls_complex_filterbank_t*__nonnull const);
 __attribute__((overloadable))
 void rls_filter_error(rls_complex_filterbank_t*__nonnull const,
-                      __complex double * __nonnull, intptr_t const,
-                      __complex double * __nonnull, intptr_t const,
-                      __complex double * _Nullable, intptr_t const,
+                      __complex double const * __nonnull, intptr_t const,
+                      __complex double const * __nonnull, intptr_t const,
+                      __complex double       * _Nullable, intptr_t const,
                       intptr_t const);
 __attribute__((overloadable))
 void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const,

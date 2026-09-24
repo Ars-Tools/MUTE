@@ -192,6 +192,17 @@ __complex double const rls(rls_complex_t * __nonnull const object,
     zaxpy_(&N, (__complex double const[]) { r * conj(q = y - q) }, k, &inc, w, &ldw);
     return q;
 }
+complex128_t const rls_complex(rls_complex_t * __nonnull const object,
+                               complex128_t const y,
+                               complex128_t const * __nonnull const x, intptr_t const ldx,
+                               complex128_t       * __nonnull const w, intptr_t const ldw) {
+    return (complex128_t) {
+        .scalar = rls(object,
+                      y.scalar,
+                      (__complex double const * __nonnull const)x, ldx,
+                      (__complex double       * __nonnull const)w, ldw)
+    };
+}
 // MARK: filter
 rls_filter_t * __nonnull const rls_filter_create(intptr_t const order) {
 	void*__nonnull const p = __malloc__(sizeof(rls_filter_t const) + 3 * (order + 1) * sizeof(double const));
@@ -305,40 +316,40 @@ void rls_filter_lambda(rls_complex_filterbank_t*__nonnull const object, double c
 }
 __attribute__((overloadable))
 void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
-                      __complex double * __nonnull x, intptr_t const ldx,
-                      __complex double * __nonnull y, intptr_t const ldy,
-                      __complex double * _Nullable e, intptr_t const lde,
+                      __complex double const * __nonnull x, intptr_t const ldx,
+                      __complex double const * __nonnull y, intptr_t const ldy,
+                      __complex double       * _Nullable e, intptr_t const lde,
                       intptr_t const length) {
     intptr_t const m = object->count;
     intptr_t const n = object->order;
-    __complex double * __nonnull const w = object->w;
-    __complex double * __nonnull const h = object->h;
-    if ( e ) for ( register __complex double const * _Nonnull const _ = e + length ; e < _ ; ++ x, ++ y, ++ e ) {
-        memmove(h + m,
-                h,
-                m * ( n - 1 ) * sizeof(__complex double const));
-        zcopy_(&m,
-               x, &ldx,
-               h, &one);
-        for ( register intptr_t k = 0 ; k < m ; ++ k )
-            e[k*lde] = rls(object->rls + k,
-                           y[k*ldy],
-                           h + k * 1, m,
-                           w + k * n, 1);
-    }
-    else for ( register intptr_t t = 0, _ = length ; t < _ ; ++ x, ++ y, ++ t ) {
-        memmove(h + m,
-                h,
-                m * ( n - 1 ) * sizeof(__complex double const));
-        zcopy_(&m,
-               x, &ldx,
-               h, &one);
-        for ( register intptr_t k = 0 ; k < m ; ++ k )
-            rls(object->rls + k,
-                y[k*ldy],
-                h + k * 1, m,
-                w + k * n, 1);
-    }
+    if ( e )
+        for ( register intptr_t k = 0 ; k < m ; ++ k ) {
+            __complex double       * __nonnull const w = object->w + k * n;
+            __complex double       * __nonnull const h = object->h + k * n;
+            __complex double const * __nonnull X = x + k * ldx;
+            __complex double const * __nonnull Y = y + k * ldy;
+            __complex double       * __nonnull E = e + k * lde;
+            rls_complex_t * __nonnull const core = object->rls + k;
+            assert(core->n == n);
+            for ( register intptr_t t = 0 ; t < length ; ++ t ) {
+                memmove(h + 1, h, ( n - 1 ) * sizeof(__complex double const));
+                *h = *X++;
+                *E++ = rls(core, *Y++, h, 1, w, 1);
+            }
+        }
+    else
+        for ( register intptr_t k = 0 ; k < m ; ++ k ) {
+            __complex double       * __nonnull const w = object->w + k * n;
+            __complex double       * __nonnull const h = object->h + k * n;
+            __complex double const * __nonnull X = x + k * ldx;
+            __complex double const * __nonnull Y = y + k * ldy;
+            rls_complex_t * __nonnull const core = object->rls + k;
+            for ( register intptr_t t = 0 ; t < length ; ++ t ) {
+                memmove(h + 1, h, ( n - 1 ) * sizeof(__complex double const));
+                *h = *X++;
+                rls(core, *Y++, h, 1, w, 1);
+            }
+        }
 }
 __attribute__((overloadable))
 void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const object,
