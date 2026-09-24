@@ -19,7 +19,6 @@ import func Accelerate.vecLib.vDSP_biquadmD
 import func Accelerate.vecLib.vDSP_biquad_CreateSetupD
 import func Accelerate.vecLib.vDSP_biquad_DestroySetupD
 import func Accelerate.vecLib.vDSP_biquadD
-import Accelerate
 import func NSP.biquad_filter_create
 import func NSP.biquad_filter_destroy
 import func NSP.biquad_filter_active
@@ -29,11 +28,17 @@ import func simd.log2
 import typealias Auxiliary.Autorelease
 import typealias ESP.BiquadFilter
 extension SIMD3: @retroactive RandomAccessCollection {
+    @inlinable
     public var startIndex: Int { 0 }
-    public var endIndex: Int { scalarCount }
+    @inlinable
+    public var endIndex: Int { count }
 }
 extension SIMD3: @retroactive AccelerateBuffer {
-    
+    public func withUnsafeBufferPointer<R>(_ body: (UnsafeBufferPointer<Self.Element>) throws -> R) rethrows -> R {
+        try Swift.withUnsafeBytes(of: self) {
+            try $0.withMemoryRebound(to: Element.self, body)
+        }
+    }
 }
 extension Filter {
     public protocol Biquad<Element>: TransferFunction where B == SIMD3<Element>, A == SIMD3<Element>, Element: SIMDScalar {
