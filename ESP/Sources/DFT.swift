@@ -4,11 +4,14 @@
 //
 //  Created by Kota on 11/4/25.
 //
+import typealias Synchronization.Mutex
 import protocol Accelerate.AccelerateBuffer
 import typealias Numerics.Complex128
 public enum DFT: Sendable {}
 extension DFT {
     public protocol `Protocol`: Sendable {
+        @inlinable
+        init(count: Int)
         @inlinable
         var count: Int { get }
         @inlinable
