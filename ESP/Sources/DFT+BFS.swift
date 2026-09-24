@@ -13,7 +13,7 @@ import func NSP.dft_count
 import func NSP.dft_forward
 import func NSP.dft_inverse
 extension DFT {
-    public final class BFS: @unchecked Sendable {
+    public final class BFS: DFT.`Protocol`, @unchecked Sendable {
         @usableFromInline
         let setup: UnsafePointer<bdft_t>
         @inlinable
@@ -26,7 +26,7 @@ extension DFT {
         }
     }
 }
-extension DFT.BFS: DFT.`Protocol` {
+extension DFT.BFS {
     @inlinable@_transparent
     public var count: Int {
         dft_count(setup)
@@ -74,29 +74,47 @@ extension DFT.BFS: DFT.`Protocol` {
         }
     }
 }
-// MARK: Shared Instance
-extension Mutex where Value == Dictionary<Int, DFT.BFS> {
-    @inlinable
-    public subscript(_ count: Int) -> Value.Value {
-        withLock {
-            switch $0[count] {
-            case.some(let dft):
-                dft
-            case.none:
-                switch Value.Value(count: count) {
-                case let dft:
-                    $0.updateValue(dft, forKey: count) ?? dft
-                }
-            }
-        }
-    }
-    @inlinable
-    public func flush() {
-        withLock {
-            $0.removeAll()
-        }
-    }
-}
 extension DFT.BFS {
-    public static let shared: Mutex<Dictionary<Int, DFT.BFS>> = .init(.init())
+    @inlinable
+    public func forward(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, inc incx: Int = 1,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, inc incy: Int = 1) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count) {
+            dft_forward(setup, .DFT_SCALE_ONE,
+                        xr, xi, incx,
+                        yr, yi, incy,
+                        .init($0.baseAddress))
+        }
+    }
+    @inlinable
+    public func inverse(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, inc incx: Int = 1,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, inc incy: Int = 1) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count) {
+            dft_inverse(setup, .DFT_SCALE_ONE_OVER_N,
+                        xr, xi, incx,
+                        yr, yi, incy,
+                        .init($0.baseAddress))
+        }
+    }
+    @inlinable
+    public func forward(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, ld ldx: Int,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, ld ldy: Int,
+                        nrhs: Int) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count * nrhs) {
+            dft_forward(setup, .DFT_SCALE_ONE, nrhs,
+                        xr, xi, ldx,
+                        yr, yi, ldy,
+                        .init($0.baseAddress))
+        }
+    }
+    @inlinable
+    public func inverse(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, ld ldx: Int,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, ld ldy: Int,
+                        nrhs: Int) {
+        withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count * nrhs) {
+            dft_inverse(setup, .DFT_SCALE_ONE_OVER_N, nrhs,
+                        xr, xi, ldx,
+                        yr, yi, ldy,
+                        .init($0.baseAddress))
+        }
+    }
 }
