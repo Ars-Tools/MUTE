@@ -186,6 +186,36 @@ void dft_inverse(bdft_t const * __nonnull const, dft_scale_t const, intptr_t con
                  __complex double const * __nonnull const x, intptr_t const ldx,
                  __complex double       * __nonnull const y, intptr_t const ldy,
                  __complex double       * __nullable const workspace);
+__attribute__((always_inline, overloadable))
+void dft_forward(bdft_t const * __nonnull const, dft_scale_t const,
+                 double const * __nonnull const xr, double const * __nonnull const xi,
+                 double       * __nonnull const yr, double       * __nonnull const yi,
+                 __complex double * __nullable const workspace);
+__attribute__((always_inline, overloadable))
+void dft_inverse(bdft_t const * __nonnull const, dft_scale_t const,
+                 double const * __nonnull const xr, double const * __nonnull const xi,
+                 double       * __nonnull const yr, double       * __nonnull const yi,
+                 __complex double * __nullable const workspace);
+__attribute__((always_inline, overloadable))
+void dft_forward(bdft_t const * __nonnull const, dft_scale_t const,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const incx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const incy,
+                 __complex double       * __nullable const workspace);
+__attribute__((always_inline, overloadable))
+void dft_inverse(bdft_t const * __nonnull const, dft_scale_t const,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const incx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const incy,
+                 __complex double       * __nullable const workspace);
+__attribute__((always_inline, overloadable))
+void dft_forward(bdft_t const * __nonnull const, dft_scale_t const, intptr_t const n,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const ldx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const ldy,
+                 __complex double       * __nullable const workspace);
+__attribute__((always_inline, overloadable))
+void dft_inverse(bdft_t const * __nonnull const, dft_scale_t const, intptr_t const n,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const ldx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const ldy,
+                 __complex double       * __nullable const workspace);
 // MARK: PWT
 typedef __attribute__((__swift_attr__("BitwiseCopyable"), __swift_attr__("Sendable"))) struct {
     FFTSetupD __nonnull setup;

@@ -1336,6 +1336,7 @@ void dft_destroy(bdft_t const * __nonnull const object) {
         sparse_matrix_destroy(object->prime[k]);
     __free__(object);
 }
+// MARK: Interleaves
 __attribute__((always_inline, overloadable))
 void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double const * __nonnull const x,
@@ -1466,8 +1467,154 @@ void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
 //                                                   memset(z[(~k)&1], 0, count * n * sizeof(__complex double const)), count);
 //    __mcopy__(z[object->count&1], count, y, ldy, n, count);
 }
-
-
+// MARK: BDFT-Split
+__attribute__((always_inline, overloadable))
+void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr,
+                 double const * __nonnull const xi,
+                 double       * __nonnull const yr,
+                 double       * __nonnull const yi,
+                 __complex double * __nullable const workspace) {
+    dft_forward(object, scale, xr, xi, 1, yr, yi, 1, workspace);
+}
+__attribute__((always_inline, overloadable))
+void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr,
+                 double const * __nonnull const xi,
+                 double       * __nonnull const yr,
+                 double       * __nonnull const yi,
+                 __complex double * __nullable const workspace) {
+    dft_inverse(object, scale, xr, xi, 1, yr, yi, 1, workspace);
+}
+__attribute__((always_inline, overloadable))
+void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const incx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const incy,
+                 __complex double       * __nullable w) {
+    intptr_t const count = dft_count(object);
+    if ( !w )
+        w = alloca(count * 2 * sizeof(__complex double const));
+    assert(w);
+    __complex double * __nonnull const z[] = {w, w + count};
+    __copy__(xr, incx, &__real(*z[object->count&1]), 2, count);
+    __copy__(xi, incx, &__imag(*z[object->count&1]), 2, count);
+    for ( register intptr_t k = object->count ; 0 < k -- ; )
+        sparse_matrix_vector_product_dense_double_complex(CblasNoTrans, 1, object->prime[k],
+                                                          z[(~k)&1], 1,
+                                                          memset(z[k&1], 0, count * sizeof(__complex double const)), 1);
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
+            break;
+        case DFT_SCALE_ONE_OVER_N:
+            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
+            break;
+        case DFT_SCALE_ONE_OVER_SQRT_N:
+            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
+            break;
+    }
+    __copy__(&__real(*z[0]), 2, yr, incy, count);
+    __copy__(&__imag(*z[0]), 2, yi, incy, count);
+}
+__attribute__((always_inline, overloadable))
+void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const incx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const incy,
+                 __complex double       * __nullable w) {
+    intptr_t const count = dft_count(object);
+    if ( !w )
+        w = alloca(count * 2 * sizeof(__complex double const));
+    assert(w);
+    __complex double * __nonnull const z[] = {w, w + count};
+    __copy__(xr, incx, &__real(*z[0]), 2, count);
+    __copy__(xi, incx, &__imag(*z[0]), 2, count);
+    for ( register intptr_t k = 0 ; k < object->count ; ++ k )
+        sparse_matrix_vector_product_dense_double_complex(CblasConjTrans, 1, object->prime[k],
+                                                          z[k&1], 1,
+                                                          memset(z[(~k)&1], 0, count * sizeof(__complex double const)), 1);
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
+            break;
+        case DFT_SCALE_ONE_OVER_N:
+            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_recip((double const)count)}, z[object->count&1], _ + 1);
+            break;
+        case DFT_SCALE_ONE_OVER_SQRT_N:
+            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_rsqrt((double const)count)}, z[object->count&1], _ + 1);
+            break;
+    }
+    __copy__(&__real(*z[object->count&1]), 2, yr, incy, count);
+    __copy__(&__imag(*z[object->count&1]), 2, yi, incy, count);
+}
+__attribute__((always_inline, overloadable))
+void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale, intptr_t const n,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const ldx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const ldy,
+                 __complex double       * __nullable w) {
+    intptr_t const count = dft_count(object);
+    if ( !w )
+        w = alloca(count * n * 2 * sizeof(__complex double const));
+    assert(w);
+    __complex double * __nonnull const z[] = {w, w + count * n};
+    for ( register intptr_t k = 0 ; k < n ; ++ k )
+        __copy__(xr + k * ldx, 1, &__real(*z[object->count&1]) + 2 * k * count, 2, count),
+        __copy__(xi + k * ldx, 1, &__imag(*z[object->count&1]) + 2 * k * count, 2, count);
+    for ( register intptr_t k = object->count ; 0 < k -- ; )
+        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasNoTrans, n, 1, object->prime[k],
+                                                   z[(~k)&1], count,
+                                                   memset(z[k&1], 0, count * n * sizeof(__complex double const)), count);
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
+            break;
+        case DFT_SCALE_ONE_OVER_N:
+            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
+            break;
+        case DFT_SCALE_ONE_OVER_SQRT_N:
+            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
+            break;
+    }
+    for ( register intptr_t k = 0 ; k < n ; ++ k )
+        __copy__(&__real(*z[0]) + 2 * k * count, 2, yr + k * ldy, 1, count),
+        __copy__(&__imag(*z[0]) + 2 * k * count, 2, yi + k * ldy, 1, count);
+}
+__attribute__((always_inline, overloadable))
+void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale, intptr_t const n,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const ldx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const ldy,
+                 __complex double       * __nullable w) {
+    intptr_t const count = dft_count(object);
+    if ( !w )
+        w = alloca(count * n * 2 * sizeof(__complex double const));
+    __complex double * __nonnull const z[] = {w, w + count * n};
+    for ( register intptr_t k = 0 ; k < n ; ++ k )
+        vDSP_zvconjD(&(DSPDoubleSplitComplex const) {
+            .realp = xr + k * ldx,
+            .imagp = xi + k * ldx
+        }, 1, &(DSPDoubleSplitComplex const) {
+            .realp = &__real(*z[object->count&1]) + 2 * k * count,
+            .imagp = &__imag(*z[object->count&1]) + 2 * k * count,
+        }, 2, count);
+    for ( register intptr_t k = object->count ; 0 < k -- ; )
+        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasNoTrans, n, 1, object->prime[k],
+                                                   z[(~k)&1], count,
+                                                   memset(z[k&1], 0, count * n * sizeof(__complex double const)), count);
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
+            break;
+        case DFT_SCALE_ONE_OVER_N:
+            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
+            break;
+        case DFT_SCALE_ONE_OVER_SQRT_N:
+            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
+            break;
+    }
+    for ( register intptr_t k = 0 ; k < n ; ++ k )
+        vDSP_zvconjD(&(DSPDoubleSplitComplex const) {
+            .realp = &__real(*z[0]) + 2 * k * count,
+            .imagp = &__imag(*z[0]) + 2 * k * count
+        }, 2, &(DSPDoubleSplitComplex const) {
+            .realp = yr + k * ldy,
+            .imagp = yi + k * ldy
+        }, 1, count);
+}
 // MARK: XDFT
 //__attribute__((overloadable))
 //xdft_t * __nonnull const xdft_create(intptr_t const count) {
