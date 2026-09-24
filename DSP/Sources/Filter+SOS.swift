@@ -1,5 +1,5 @@
 //
-//  Filter+Biquad.swift
+//  Filter+SOS.swift
 //  MUTE
 //
 //  Created by Kota on 7/11/R7.
