@@ -58,12 +58,12 @@ extension Filter.FIR.Kr: Stream {
             let cancel = z.sink {
                 switch $0 {
                 case 0..<xc:
-                    let kernel = $1.coefficients(for: interval).prefix(b)
+                    let kernel = $1.coefficient(for: interval).prefix(b).reversed()
                     let base = xc * xs + $0 * b
                     let head = base..<base+kernel.count
                     let tail = head.upperBound..<base+b
                     buffer.withLock {
-                        $0.replaceSubrange(head, with: kernel.reversed())
+                        $0.replaceSubrange(head, with: kernel)
                         $0.replaceSubrange(tail, with: repeatElement(.zero, count: tail.count))
                     }
                 default:
@@ -105,7 +105,7 @@ extension Filter.FIR.Kr: Stream {
             let cancel = z.sink { index, value in
                 switch index {
                 case 0..<xc:
-                    let kernel = value.coefficients(for: interval).prefix(b)
+                    let kernel = value.coefficient(for: interval).prefix(b)
                     buffer.withLock {
                         $0.withUnsafeMutablePointer {
                             var w = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * 0),
