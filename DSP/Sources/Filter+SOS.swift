@@ -27,22 +27,56 @@ import func simd.cos
 import func simd.log2
 import typealias Auxiliary.Autorelease
 import typealias ESP.BiquadFilter
-extension SIMD3: @retroactive RandomAccessCollection {
+extension SIMD2: @retroactive RandomAccessCollection<Scalar> {
     @inlinable
     public var startIndex: Int { 0 }
     @inlinable
     public var endIndex: Int { count }
 }
-extension SIMD3: @retroactive AccelerateBuffer {
-    public func withUnsafeBufferPointer<R>(_ body: (UnsafeBufferPointer<Self.Element>) throws -> R) rethrows -> R {
+extension SIMD3: @retroactive RandomAccessCollection<Scalar> {
+    @inlinable
+    public var startIndex: Int { 0 }
+    @inlinable
+    public var endIndex: Int { count }
+}
+extension SIMD2: @retroactive AccelerateBuffer<Scalar> {
+    public func withUnsafeBufferPointer<R>(_ body: (UnsafeBufferPointer<Scalar>) throws -> R) rethrows -> R {
         try Swift.withUnsafeBytes(of: self) {
-            try $0.withMemoryRebound(to: Element.self, body)
+            try $0.withMemoryRebound(to: Scalar.self, body)
         }
     }
 }
+extension SIMD3: @retroactive AccelerateBuffer<Scalar> {
+    public func withUnsafeBufferPointer<R>(_ body: (UnsafeBufferPointer<Scalar>) throws -> R) rethrows -> R {
+        try Swift.withUnsafeBytes(of: self) {
+            try $0.withMemoryRebound(to: Scalar.self, body)
+        }
+    }
+}
+extension CollectionOfOne: Filter.TransferFunction & Filter.BiquadSeries & Filter.Biquad where Element: Filter.Biquad {
+    public typealias Series = CollectionOfOne<(b: Element.B, a: Element.A)>
+    @inlinable
+    public func coefficients(for Tₛ: CMTime) -> Series.Element {
+        self[startIndex].coefficients(for: Tₛ)
+    }
+    @inlinable
+    public func coefficients(for Tₛ: CMTime) -> Series {
+        .init(coefficients(for: Tₛ))
+    }
+    @inlinable
+    public var counts: SIMD2<Int> {
+        self[startIndex].counts
+    }
+}
 extension Filter {
-    public protocol Biquad<Element>: TransferFunction where B == SIMD3<Element>, A == SIMD3<Element>, Element: SIMDScalar {
-        @inlinable func coefficients(for Tₛ: CMTime) -> (b: B, a: A)
+    public protocol Biquad<Scalar>: TransferFunction where B == SIMD3<Scalar>, A == SIMD3<Scalar>, Scalar: SIMDScalar {
+        @inlinable
+        func coefficients(for Tₛ: CMTime) -> (b: B, a: A)
+    }
+    public protocol BiquadSeries<Scalar>: TransferFunction, RandomAccessCollection where Element: Biquad, Element.Scalar == Scalar {
+        associatedtype Series: Sequence<(b: Element.B, a: Element.A)>
+        @inlinable
+        func coefficients(for Tₛ: CMTime) -> Series
     }
 }
 extension Filter.Biquad {
@@ -51,24 +85,130 @@ extension Filter.Biquad {
         .init(3, 3)
     }
     @inlinable
-    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Element> where Element == Float64 {
+    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Scalar> where Scalar == Float64 {
         let (b, a) = coefficients(for: Tₛ)
         return.init(unsafeUninitializedCapacity: 5) {
             $1 = $0.startIndex.distance(to: $0[$0.initialize(fromContentsOf: b / a.x)...].initialize(fromContentsOf: (a / a.x).dropFirst()))
         }
     }
     @inlinable
-    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Element> where Element == Float32 {
+    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Scalar> where Scalar == Float32 {
         let (b, a) = coefficients(for: Tₛ)
         return.init(unsafeUninitializedCapacity: 5) {
             $1 = $0.startIndex.distance(to: $0[$0.initialize(fromContentsOf: b / a.x)...].initialize(fromContentsOf: (a / a.x).dropFirst()))
         }
     }
     @inlinable
-    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Element> where Element == Float16 {
+    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Scalar> where Scalar == Float16 {
         let (b, a) = coefficients(for: Tₛ)
         return.init(unsafeUninitializedCapacity: 5) {
             $1 = $0.startIndex.distance(to: $0[$0.initialize(fromContentsOf: b / a.x)...].initialize(fromContentsOf: (a / a.x).dropFirst()))
+        }
+    }
+}
+extension Filter.BiquadSeries {
+    @inlinable
+    func serialized(for Tₛ: CMTime) -> Array<Scalar> {
+        .init(unsafeUninitializedCapacity: 6 * count) {
+            $1 = $0.startIndex
+            for (b, a) in coefficients(for: Tₛ).prefix(count) {
+                $1 = $0.dropFirst($1).initialize(fromContentsOf: b)
+                $1 = $0.dropFirst($1).initialize(fromContentsOf: a)
+                assert($1.isMultiple(of: 6))
+            }
+            while $1 < $0.endIndex {
+                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
+                assert($1.isMultiple(of: 6))
+            }
+            assert($1 == $0.endIndex)
+        }
+    }
+    @inlinable
+    public var counts: SIMD2<Int> {
+        .init(1 + 2 * count, 1 + 2 * count)
+    }
+}
+extension Filter.BiquadSeries where Scalar == Float64 {
+    @inlinable
+    func normalized(for Tₛ: CMTime) -> Array<Scalar> {
+        .init(unsafeUninitializedCapacity: 5 * count) {
+            $1 = $0.startIndex
+            for (b, a) in coefficients(for: Tₛ).prefix(count) {
+                $1 = $0.dropFirst($1).initialize(fromContentsOf: (b / a.x))
+                $1 = $0.dropFirst($1).initialize(fromContentsOf: (a / a.x).dropFirst())
+                assert($1.isMultiple(of: 5))
+            }
+            while $1 < $0.endIndex {
+                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: SIMD2<Scalar>(0, 0))
+                assert($1.isMultiple(of: 5))
+            }
+            assert($1 == $0.endIndex)
+        }
+    }
+    @inlinable func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
+        coefficients(for: Tₛ).reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
+            switch ($0, $1) {
+            case ((let B, let A), (let b, let a)):
+                (
+                    .init(unsafeUninitializedCapacity: B.count + b.count - 1) {
+                        $1 = $0.count
+                        vDSP.clear(&$0)
+                        for (τ, k) in b.enumerated() {
+                            vDSP.add(multiplication: (B, k), $0[τ..<B.count+τ], result: &$0[τ..<B.count+τ])
+                        }
+                    },
+                    .init(unsafeUninitializedCapacity: A.count + a.count - 1) {
+                        $1 = $0.count
+                        vDSP.clear(&$0)
+                        for (τ, k) in a.enumerated() {
+                            vDSP.add(multiplication: (A, k), $0[τ..<A.count+τ], result: &$0[τ..<A.count+τ])
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+extension Filter.BiquadSeries where Scalar == Float32 {
+    @inlinable
+    func normalized(for Tₛ: CMTime) -> Array<Scalar> {
+        .init(unsafeUninitializedCapacity: 5 * count) {
+            $1 = $0.startIndex
+            for (b, a) in coefficients(for: Tₛ).prefix(count) {
+                $1 = $0.dropFirst($1).initialize(fromContentsOf: (b / a.x))
+                $1 = $0.dropFirst($1).initialize(fromContentsOf: (a / a.x).dropFirst())
+                assert($1.isMultiple(of: 5))
+            }
+            while $1 < $0.endIndex {
+                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: SIMD2<Scalar>(0, 0))
+                assert($1.isMultiple(of: 5))
+            }
+            assert($1 == $0.endIndex)
+        }
+    }
+    @inlinable func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
+        coefficients(for: Tₛ).reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
+            let (B, A) = $0
+            let (b, a) = $1
+            return (
+                .init(unsafeUninitializedCapacity: B.count + 2) {
+                    $1 = $0.count
+                    vDSP.clear(&$0)
+                    for (τ, k) in b.enumerated() {
+                        vDSP.add(multiplication: (B, k), $0[τ..<B.count+τ], result: &$0[τ..<B.count+τ])
+                    }
+                },
+                .init(unsafeUninitializedCapacity: A.count + 2) {
+                    $1 = $0.count
+                    vDSP.clear(&$0)
+                    for (τ, k) in a.enumerated() {
+                        vDSP.add(multiplication: (A, k), $0[τ..<A.count+τ], result: &$0[τ..<A.count+τ])
+                    }
+                }
+            )
         }
     }
 }
@@ -82,9 +222,9 @@ extension Filter {
             @usableFromInline let stages: Int
         }
         @usableFromInline // audio-rate filtering, shared filter coefficients for all channels
-        struct Ar<Batch: Sequence<Stream> & Sendable> {
+        struct Ar<Design: Sequence<Stream> & Sendable> {
             @usableFromInline let source: Stream
-            @usableFromInline let design: Batch // serialized section (b a)
+            @usableFromInline let design: Design // serialized section (b a)
         }
     }
 }
@@ -97,11 +237,36 @@ extension Filter.SOS.Kr: DSP.Stream {
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
         switch source.count {
-//        case 1:
+        case 1:
+            let object = switch vDSP_biquad_CreateSetupD(repeatElement(Array<Float64>(arrayLiteral: 1, 0, 0, 0, 0), count: stages).flatMap(\.self), .init(stages)) {
+            case.some(let opaque):
+                Autorelease.Opaque(pointer: opaque) {
+                    vDSP_biquad_DestroySetupD($0)
+                }
+            case.none:
+                throw Error.failedToAllocate(OpaquePointer.self)
+            }
+            let cancel = design.sink {
+                switch ($0, $1.0) {
+                case (0, 0..<stages):
+                    vDSP_biquadm_SetCoefficientsDoubleD(object.pointer,
+                                                        $1.1.normalizedCoefficients(for: interval),
+                                                        .init($1.0), .init($0),
+                                                        1, 1)
+                default:
+                    assertionFailure("out of range")
+                }
+            }
+            return { [cancel, object] in
+                kernel($0, $1, $2, $3)
+                
+            }
         case let stream:
             let object = switch vDSP_biquadm_CreateSetupD(repeatElement(Array(arrayLiteral: 1, 0, 0, 0, 0), count: stream * stages).flatMap(\.self), .init(stages), .init(stream)) {
             case.some(let opaque):
-                Autorelease.Opaque(pointer: opaque, release: vDSP_biquadm_DestroySetupD)
+                Autorelease.Opaque(pointer: opaque) {
+                    vDSP_biquadm_DestroySetupD($0)
+                }
             case.none:
                 throw Error.failedToAllocate(OpaquePointer.self)
             }
