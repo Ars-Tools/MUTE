@@ -19,6 +19,7 @@ import func Accelerate.vecLib.vDSP_biquadmD
 import func Accelerate.vecLib.vDSP_biquad_CreateSetupD
 import func Accelerate.vecLib.vDSP_biquad_DestroySetupD
 import func Accelerate.vecLib.vDSP_biquadD
+import Accelerate
 import func NSP.biquad_filter_create
 import func NSP.biquad_filter_destroy
 import func NSP.biquad_filter_active
@@ -32,12 +33,16 @@ extension SIMD2: @retroactive RandomAccessCollection<Scalar> {
     public var startIndex: Int { 0 }
     @inlinable
     public var endIndex: Int { count }
+    @inlinable
+    public var count: Int { scalarCount }
 }
 extension SIMD3: @retroactive RandomAccessCollection<Scalar> {
     @inlinable
     public var startIndex: Int { 0 }
     @inlinable
     public var endIndex: Int { count }
+    @inlinable
+    public var count: Int { scalarCount }
 }
 extension SIMD2: @retroactive AccelerateBuffer<Scalar> {
     public func withUnsafeBufferPointer<R>(_ body: (UnsafeBufferPointer<Scalar>) throws -> R) rethrows -> R {
@@ -56,12 +61,12 @@ extension SIMD3: @retroactive AccelerateBuffer<Scalar> {
 extension CollectionOfOne: Filter.TransferFunction & Filter.BiquadSeries & Filter.Biquad where Element: Filter.Biquad {
     public typealias Series = CollectionOfOne<(b: Element.B, a: Element.A)>
     @inlinable
-    public func coefficients(for Tₛ: CMTime) -> Series.Element {
-        self[startIndex].coefficients(for: Tₛ)
-    }
-    @inlinable
     public func coefficients(for Tₛ: CMTime) -> Series {
         .init(coefficients(for: Tₛ))
+    }
+    @inlinable
+    public func coefficients(for Tₛ: CMTime) -> Series.Element {
+        self[startIndex].coefficients(for: Tₛ)
     }
     @inlinable
     public var counts: SIMD2<Int> {
@@ -147,7 +152,8 @@ extension Filter.BiquadSeries where Scalar == Float64 {
             assert($1 == $0.endIndex)
         }
     }
-    @inlinable func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
+    @inlinable
+    func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
         coefficients(for: Tₛ).reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
             switch ($0, $1) {
             case ((let B, let A), (let b, let a)):
@@ -189,7 +195,8 @@ extension Filter.BiquadSeries where Scalar == Float32 {
             assert($1 == $0.endIndex)
         }
     }
-    @inlinable func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
+    @inlinable
+    func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
         coefficients(for: Tₛ).reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
             let (B, A) = $0
             let (b, a) = $1
@@ -216,7 +223,7 @@ extension Filter {
     @usableFromInline
     enum SOS {
         @usableFromInline
-        struct Kr<Signal: Publisher<(Int, (Int, Design)), Never> & Sendable, Design: Filter.Biquad<Float64>> {
+        struct Kr<Signal: Publisher<(Int, Series), Never> & Sendable, Series: Filter.BiquadSeries<Float64>> {
             @usableFromInline let source: Stream
             @usableFromInline let design: Signal
             @usableFromInline let stages: Int
@@ -237,30 +244,31 @@ extension Filter.SOS.Kr: DSP.Stream {
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
         switch source.count {
-        case 1:
-            let object = switch vDSP_biquad_CreateSetupD(repeatElement(Array<Float64>(arrayLiteral: 1, 0, 0, 0, 0), count: stages).flatMap(\.self), .init(stages)) {
-            case.some(let opaque):
-                Autorelease.Opaque(pointer: opaque) {
-                    vDSP_biquad_DestroySetupD($0)
-                }
-            case.none:
-                throw Error.failedToAllocate(OpaquePointer.self)
-            }
-            let cancel = design.sink {
-                switch ($0, $1.0) {
-                case (0, 0..<stages):
-                    vDSP_biquadm_SetCoefficientsDoubleD(object.pointer,
-                                                        $1.1.normalizedCoefficients(for: interval),
-                                                        .init($1.0), .init($0),
-                                                        1, 1)
-                default:
-                    assertionFailure("out of range")
-                }
-            }
-            return { [cancel, object] in
-                kernel($0, $1, $2, $3)
-                
-            }
+//        case 1:
+//            let object = switch vDSP_biquad_CreateSetupD(repeatElement(Array<Float64>(arrayLiteral: 1, 0, 0, 0, 0), count: stages).flatMap(\.self), .init(stages)) {
+//            case.some(let opaque):
+//                Autorelease.Opaque(pointer: opaque) {
+//                    vDSP_biquad_DestroySetupD($0)
+//                }
+//            case.none:
+//                throw Error.failedToAllocate(OpaquePointer.self)
+//            }
+//            let cancel = design.sink {
+//                switch $0 {
+//                case 0:
+//                    assert($1.count == stages)
+//                    vDSP_biquadm_SetCoefficientsDoubleD(object.pointer,
+//                                                        $1.normalized(for: interval),
+//                                                        0, .init($0),
+//                                                        .init($1.count), 1)
+//                default:
+//                    assertionFailure("out of range")
+//                }
+//            }
+//            return { [cancel, object] in
+//                kernel($0, $1, $2, $3)
+//                
+//            }
         case let stream:
             let object = switch vDSP_biquadm_CreateSetupD(repeatElement(Array(arrayLiteral: 1, 0, 0, 0, 0), count: stream * stages).flatMap(\.self), .init(stages), .init(stream)) {
             case.some(let opaque):
@@ -270,13 +278,13 @@ extension Filter.SOS.Kr: DSP.Stream {
             case.none:
                 throw Error.failedToAllocate(OpaquePointer.self)
             }
-            let cancel = design.sink {
-                switch ($0, $1.0) {
-                case (0..<stream, 0..<stages):
+            let cancel = design.sink { [stages] in
+                switch $0 {
+                case 0..<stream:
                     vDSP_biquadm_SetCoefficientsDoubleD(object.pointer,
-                                                        $1.1.normalizedCoefficients(for: interval),
-                                                        .init($1.0), .init($0),
-                                                        1, 1)
+                                                        $1.normalized(for: interval),
+                                                        0, .init($0),
+                                                        .init($1.count), 1)
                 default:
                     assertionFailure("out of range")
                 }
@@ -353,28 +361,20 @@ extension Filter.SOS.Ar: DSP.Stream {
 }
 // MARK: filter functions
 @_disfavoredOverload
-public func filter(_ source: Stream, sos design: some Publisher<(Int, (Int, some Filter.Biquad<Float64>)), Never> & Sendable, count: Int) -> some Stream {
+public func filter(_ source: Stream, sos design: some Publisher<(Int, some Filter.BiquadSeries<Float64>), Never> & Sendable, count: Int) -> some Stream {
     Filter.SOS.Kr(source: source, design: design, stages: count)
 }
 @inlinable
-public func filter(_ source: Stream, sos design: some Publisher<(Int, some Filter.Biquad<Float64>), Never>, count: Int) -> some Stream {
+public func filter(_ source: Stream, sos design: some Publisher<some Filter.BiquadSeries<Float64>, Never>, count: Int) -> some Stream {
     filter(source, sos: design.repeat(count: source.count), count: count)
 }
 @inlinable
-public func filter(_ source: Stream, sos design: some Publisher<(Int, some Collection<some Filter.Biquad<Float64>>), Never>, count: Int) -> some Stream {
-    filter(source, sos: design.flatMap { (key, value) in value.enumerated().publisher.map { (key, $0) } }, count: count)
+public func filter(_ source: Stream, sos design: some Sequence<some Filter.BiquadSeries<Float64>>, count: Int) -> some Stream {
+    filter(source, sos: design.prefix(count: source.count), count: count)
 }
 @inlinable
-public func filter(_ source: Stream, sos design: some Publisher<some Collection<some Filter.Biquad<Float64>>, Never>, count: Int) -> some Stream {
-    filter(source, sos: design.repeat(count: source.count), count: count)
-}
-@inlinable
-public func filter(_ source: Stream, sos design: some Collection<some Filter.Biquad<Float64>>) -> some Stream {
-    filter(source, sos: `repeat`(design, count: source.count), count: design.count)
-}
-@inlinable
-public func filter<Design: Filter.Biquad<Float64>>(_ source: Stream, sos design: Design...) -> some Stream {
-    filter(source, sos: design)
+public func filter(_ source: Stream, sos design: some Filter.BiquadSeries<Float64>, count: Int) -> some Stream {
+    filter(source, sos: `repeat`(design, count: source.count), count: count)
 }
 @_disfavoredOverload
 public func filter(_ source: Stream, sos design: some Sequence<Stream> & Sendable) -> some Stream { // 1 batch = [section][b0, b1, b2, a0, a1, a2] layout
