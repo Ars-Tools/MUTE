@@ -163,8 +163,8 @@ void transversal_filter_static(transversal_filterbank_t * __nonnull const object
     for ( register intptr_t k = 0, K = object->c ; k < K ; ++ k )
         transversal_filter_static(b + k * ldb, m,
                                   a + k * lda, n,
-                                  X + ldX, xc,
-                                  Y + ldY, yc,
+                                  X + k * ldX, xc,
+                                  Y + k * ldY, yc,
                                   x + k * ldx,
                                   y + k * ldy,
                                   length);
