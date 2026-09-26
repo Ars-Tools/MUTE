@@ -58,30 +58,17 @@ extension SIMD3: @retroactive AccelerateBuffer<Scalar> {
         }
     }
 }
-extension CollectionOfOne: Filter.TransferFunction & Filter.BiquadSeries & Filter.Biquad where Element: Filter.Biquad {
-    public typealias Series = CollectionOfOne<(b: Element.B, a: Element.A)>
-    @inlinable
-    public func coefficients(for Tₛ: CMTime) -> Series {
-        .init(coefficients(for: Tₛ))
-    }
-    @inlinable
-    public func coefficients(for Tₛ: CMTime) -> Series.Element {
-        self[startIndex].coefficients(for: Tₛ)
-    }
-    @inlinable
-    public var counts: SIMD2<Int> {
-        self[startIndex].counts
-    }
-}
 extension Filter {
     public protocol Biquad<Scalar>: TransferFunction where B == SIMD3<Scalar>, A == SIMD3<Scalar>, Scalar: SIMDScalar {
         @inlinable
         func coefficients(for Tₛ: CMTime) -> (b: B, a: A)
     }
-    public protocol BiquadSeries<Scalar>: TransferFunction, RandomAccessCollection where Element: Biquad, Element.Scalar == Scalar {
-        associatedtype Series: Sequence<(b: Element.B, a: Element.A)>
+    public protocol BiquadSeries<Scalar>: TransferFunction where Scalar: SIMDScalar {
+        associatedtype Series: Sequence<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
         @inlinable
         func coefficients(for Tₛ: CMTime) -> Series
+        @inlinable
+        var count: Int { get } // number of stages
     }
 }
 extension Filter.Biquad {
@@ -122,8 +109,8 @@ extension Filter.BiquadSeries {
                 assert($1.isMultiple(of: 6))
             }
             while $1 < $0.endIndex {
-                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
-                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: Array<Scalar>(arrayLiteral: 1, 0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: Array<Scalar>(arrayLiteral: 1, 0, 0))
                 assert($1.isMultiple(of: 6))
             }
             assert($1 == $0.endIndex)
@@ -136,24 +123,24 @@ extension Filter.BiquadSeries {
 }
 extension Filter.BiquadSeries where Scalar == Float64 {
     @inlinable
-    func normalized(for Tₛ: CMTime) -> Array<Scalar> {
-        .init(unsafeUninitializedCapacity: 5 * count) {
+    func normalized(for Tₛ: CMTime, sections: Optional<Int> = .none) -> Array<Scalar> {
+        .init(unsafeUninitializedCapacity: 5 * (sections.map { max(count, $0) } ?? count)) {
             $1 = $0.startIndex
             for (b, a) in coefficients(for: Tₛ).prefix(count) {
-                $1 = $0.dropFirst($1).initialize(fromContentsOf: (b / a.x))
-                $1 = $0.dropFirst($1).initialize(fromContentsOf: (a / a.x).dropFirst())
+                $1 = $0[$1...].initialize(fromContentsOf: (b / a.x))
+                $1 = $0[$1...].initialize(fromContentsOf: (a / a.x).dropFirst())
                 assert($1.isMultiple(of: 5))
             }
             while $1 < $0.endIndex {
-                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
-                $1 = $0[$1...].initialize(fromContentsOf: SIMD2<Scalar>(0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: CollectionOfOne(1))
+                $1 = $0[$1...].initialize(fromContentsOf: repeatElement(0, count: 4))
                 assert($1.isMultiple(of: 5))
             }
             assert($1 == $0.endIndex)
         }
     }
     @inlinable
-    func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
+    public func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
         coefficients(for: Tₛ).reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
             switch ($0, $1) {
             case ((let B, let A), (let b, let a)):
@@ -179,24 +166,24 @@ extension Filter.BiquadSeries where Scalar == Float64 {
 }
 extension Filter.BiquadSeries where Scalar == Float32 {
     @inlinable
-    func normalized(for Tₛ: CMTime) -> Array<Scalar> {
-        .init(unsafeUninitializedCapacity: 5 * count) {
+    func normalized(for Tₛ: CMTime, sections: Optional<Int> = .none) -> Array<Scalar> {
+        .init(unsafeUninitializedCapacity: 5 * (sections.map { max(count, $0) } ?? count)) {
             $1 = $0.startIndex
             for (b, a) in coefficients(for: Tₛ).prefix(count) {
-                $1 = $0.dropFirst($1).initialize(fromContentsOf: (b / a.x))
-                $1 = $0.dropFirst($1).initialize(fromContentsOf: (a / a.x).dropFirst())
+                $1 = $0[$1...].initialize(fromContentsOf: (b / a.x))
+                $1 = $0[$1...].initialize(fromContentsOf: (a / a.x).dropFirst())
                 assert($1.isMultiple(of: 5))
             }
             while $1 < $0.endIndex {
-                $1 = $0[$1...].initialize(fromContentsOf: SIMD3<Scalar>(1, 0, 0))
-                $1 = $0[$1...].initialize(fromContentsOf: SIMD2<Scalar>(0, 0))
+                $1 = $0[$1...].initialize(fromContentsOf: CollectionOfOne(1))
+                $1 = $0[$1...].initialize(fromContentsOf: repeatElement(0, count: 4))
                 assert($1.isMultiple(of: 5))
             }
             assert($1 == $0.endIndex)
         }
     }
     @inlinable
-    func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
+    public func coefficients(for Tₛ: CMTime) -> (b: Array<Scalar>, a: Array<Scalar>) {
         coefficients(for: Tₛ).reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
             let (B, A) = $0
             let (b, a) = $1
@@ -281,15 +268,18 @@ extension Filter.SOS.Kr: DSP.Stream {
             let cancel = design.sink { [stages] in
                 switch $0 {
                 case 0..<stream:
+                    let coefficients = $1.normalized(for: interval)
+                    let (sections, remain) = coefficients.count.quotientAndRemainder(dividingBy: 5)
+                    assert(remain == .zero)
                     vDSP_biquadm_SetCoefficientsDoubleD(object.pointer,
-                                                        $1.normalized(for: interval),
+                                                        $1.normalized(for: interval, sections: stages),
                                                         0, .init($0),
-                                                        .init($1.count), 1)
+                                                        .init(sections), 1)
                 default:
                     assertionFailure("out of range")
                 }
             }
-            return { [cancel, object] in
+            return { [cancel] in
                 kernel($0, $1, $2, $3)
                 var x = stride(from: 0, to: stream * $3, by: $3).map(UnsafePointer($2).advanced(by:))
                 var y = stride(from: 0, to: stream * $3, by: $3).map($2.advanced(by:))
