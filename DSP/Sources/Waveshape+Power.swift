@@ -173,7 +173,7 @@ extension Pow.Xe: Stream {
 		if 1 < count {
 			let xₖ = try significand(interval: interval, capacity: capacity, instance: &instance)
 			return {
-				let w = fold(start: $2, count: $1, stream: count, period: $3)
+				let w = fold(start: $2, count: $1, stream: count, period: $3) as Array
 				vDSP.fill(&w[0][0..<$1], with: 1)
 				xₖ($0, $1, $2.advanced(by: $3), $3)
 				let x = w[1]
