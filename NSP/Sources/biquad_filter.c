@@ -112,14 +112,14 @@ void biquad_filter_active(biquad_filterbank_t * __nonnull const object,
 }
 __attribute__((overloadable)) // shared filter parameter for all channels
 void biquad_filter_active(biquad_filterbank_t * __nonnull const object,
-                          double const * __nonnull B0, intptr_t const ldB0/*[section][time]*/,
-                          double const * __nonnull B1, intptr_t const ldB1/*[section][time]*/,
-                          double const * __nonnull B2, intptr_t const ldB2/*[section][time]*/,
-                          double const * __nonnull A0, intptr_t const ldA0/*[section][time]*/,
-                          double const * __nonnull A1, intptr_t const ldA1/*[section][time]*/,
-                          double const * __nonnull A2, intptr_t const ldA2/*[section][time]*/,
-                          double const * __nonnull X, intptr_t const ldX,
-                          double       * __nonnull Y, intptr_t const ldY,
+                          double const * __nonnull const B0, intptr_t const ldB0/*[section][time]*/,
+                          double const * __nonnull const B1, intptr_t const ldB1/*[section][time]*/,
+                          double const * __nonnull const B2, intptr_t const ldB2/*[section][time]*/,
+                          double const * __nonnull const A0, intptr_t const ldA0/*[section][time]*/,
+                          double const * __nonnull const A1, intptr_t const ldA1/*[section][time]*/,
+                          double const * __nonnull const A2, intptr_t const ldA2/*[section][time]*/,
+                          double const * __nonnull const X, intptr_t const ldX,
+                          double       * __nonnull const Y, intptr_t const ldY,
                           intptr_t const length) {
     for ( register intptr_t c = object->count ; 0 < c -- ; )
         biquad_filter_convolve_active(B0, ldB0,
