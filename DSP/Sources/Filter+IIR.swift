@@ -26,8 +26,9 @@ extension Filter {
         @usableFromInline
         struct Ar {
             @usableFromInline let x: Stream
-            @usableFromInline let b: Stream
-            @usableFromInline let a: Stream
+            @usableFromInline let z: Stream
+            @usableFromInline let b: Int
+            @usableFromInline let a: Int
         }
     }
 }
@@ -111,26 +112,21 @@ extension Filter.IIR.Ar: Stream {
 	}
 	@inlinable @inline(__always)
 	func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
-		let bc = b.count
-		let ac = a.count
-		let bk = try b(interval: interval, capacity: capacity, instance: &instance)
-		let ak = try a(interval: interval, capacity: capacity, instance: &instance)
         let xk = try x(interval: interval, capacity: capacity, instance: &instance)
+        let zk = try z(interval: interval, capacity: capacity, instance: &instance)
         switch x.count {
         case 1:
-            let object = Autorelease.Object(object: transversal_filter_create(bc, ac)) {
+            let object = Autorelease.Object(object: transversal_filter_create(b, a)) {
                 transversal_filter_destroy($0)
             }
-            return { [object] moment, length, target, stride in
-                withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( bc + ac ) * length) {
-                    let b = UnsafeMutableBufferPointer(rebasing: $0.prefix(bc * length))
-                    let a = UnsafeMutableBufferPointer(rebasing: $0.suffix(ac * length))
+            return { [object, b, a] moment, length, target, stride in
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( b + a ) * length) {
+                    guard case.some(let w) = $0.baseAddress else { return }
                     xk(moment, length, target, stride)
-                    bk(moment, length, b.baseAddress.unsafelyUnwrapped, length)
-                    ak(moment, length, a.baseAddress.unsafelyUnwrapped, length)
+                    zk(moment, length, w, length)
                     transversal_filter_active(object.reference,
-                                              b.baseAddress.unsafelyUnwrapped, length,
-                                              a.baseAddress.unsafelyUnwrapped, length,
+                                              w, length,
+                                              w.advanced(by: b * length), length,
                                               target,
                                               target,
                                               length)
@@ -138,19 +134,17 @@ extension Filter.IIR.Ar: Stream {
             }
         case let xc:
             assert(1 < xc)
-            let object = Autorelease.Object(object: transversal_filter_create(bc, ac, xc)) {
+            let object = Autorelease.Object(object: transversal_filter_create(b, a, xc)) {
                 transversal_filter_destroy($0)
             }
-            return { [object] moment, length, target, stride in
-                withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( bc + ac ) * length) {
-                    guard let b = $0.baseAddress else { return }
-                    let a = b.advanced(by: bc * length)
+            return { [object, b, a] moment, length, target, stride in
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( b + a ) * length) {
+                    guard case.some(let w) = $0.baseAddress else { return }
                     xk(moment, length, target, stride)
-                    bk(moment, length, b, length)
-                    ak(moment, length, a, length)
+                    zk(moment, length, w, length)
                     transversal_filter_active(object.reference,
-                                              b, length,
-                                              a, length,
+                                              w, length,
+                                              w.advanced(by: b * length), length,
                                               target, stride,
                                               target, stride,
                                               length)
@@ -176,6 +170,10 @@ public func filter(_ source: Stream, iir design: some Filter.TransferFunction<Fl
     filter(source, iir: `repeat`(design, count: source.count), counts: design.counts)
 }
 @_disfavoredOverload
-public func filter(_ source: Stream, iir kernel: (Stream, Stream)) -> some Stream {
-    Filter.IIR.Ar(x: source, b: kernel.0, a: kernel.1)
+public func filter(_ source: Stream, iir design: Stream, counts: SIMD2<Int>) -> some Stream {
+    Filter.IIR.Ar(x: source, z: design, b: counts.x, a: counts.y)
+}
+@inlinable
+public func filter(_ source: Stream, iir design: (b: Stream, a: Stream)) -> some Stream {
+    filter(source, iir: stack(design.b, design.a), counts: .init(design.b.count, design.a.count))
 }
