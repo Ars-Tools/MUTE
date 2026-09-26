@@ -187,7 +187,7 @@ void biquad_filter_convolve_active(register double const * __nonnull b0,
                                    simd_double4 * __nonnull const h,
                                    intptr_t const length) {
     register simd_double4 z = *h;
-    for ( register intptr_t k = 0, K = length ; k < K ; ++ k ) {
+    for ( register intptr_t k = 0 ; k < length ; ++ k ) {
         register double const _ = *x++;
         z = (simd_double4 const) {
             _,
@@ -204,17 +204,17 @@ void biquad_filter_convolve_active(register double const * __nonnull b0,
     *h = z;
 }
 __attribute__((overloadable, always_inline)) static inline /*SOS*/
-void biquad_filter_convolve_active(register double const * __nonnull b0, intptr_t const ldb0,
-                                   register double const * __nonnull b1, intptr_t const ldb1,
-                                   register double const * __nonnull b2, intptr_t const ldb2,
-                                   register double const * __nonnull a0, intptr_t const lda0,
-                                   register double const * __nonnull a1, intptr_t const lda1,
-                                   register double const * __nonnull a2, intptr_t const lda2,
-                                   register double const * __nonnull x,
-                                   register double       * __nonnull y,
+void biquad_filter_convolve_active(register double const * __nonnull const b0, intptr_t const ldb0,
+                                   register double const * __nonnull const b1, intptr_t const ldb1,
+                                   register double const * __nonnull const b2, intptr_t const ldb2,
+                                   register double const * __nonnull const a0, intptr_t const lda0,
+                                   register double const * __nonnull const a1, intptr_t const lda1,
+                                   register double const * __nonnull const a2, intptr_t const lda2,
+                                   register double const * __nonnull const x,
+                                   register double       * __nonnull const y,
                                    simd_double4 * __nonnull const h, intptr_t const c,
                                    intptr_t const length) {
-    for ( register intptr_t k = 0, K = c ; k < K ; ++ k )
+    for ( register intptr_t k = 0 ; k < c ; ++ k )
         biquad_filter_convolve_active(b0 + k * ldb0,
                                       b1 + k * ldb1,
                                       b2 + k * ldb2,
