@@ -19,18 +19,11 @@ extension Instance {
         values.compactMap { $0 as?Commit.Element }
     }
 }
-//extension Collection where Self: Sendable, Element == Prefix.Element, Index: Strideable, Index.Stride: BinaryInteger {
-//	public func callAsFunction(moment: CMTime, length: Int) {
-//		DispatchQueue.concurrentPerform(iterations: count) {
-//			self[startIndex.advanced(by: .init($0))](moment, length)
-//		}
-//	}
-//}
-extension Collection where Self: Sendable, Element == Commit.Element, Index: Strideable, Index.Stride: BinaryInteger {
+extension Collection where Self: Sendable, Element == Commit.Element, Index == Int {
     @inlinable
     public func callAsFunction(moment: CMTime, length: Int) {
-        DispatchQueue.concurrentPerform(iterations: count) {
-            self[startIndex.advanced(by: .init($0))](moment, length)
+        each(element: self) {
+            $0(moment, length)
         }
     }
 }
