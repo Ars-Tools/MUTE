@@ -5,17 +5,24 @@
 //  Created by Kota on 8/20/R7.
 //
 // transversal filter operator based optimiser for continuous time series IO
+// stabilized FTF (Slock & Kailath 1991), gamma held as reciprocal gi = 1/γ:
+//   gi₊  = fma(η, c, gi)     (c = η/(λF), shared with the gain head)
+//   gi(n) = fma(-ψ₃, κ, gi₊) (gi = 1 + u·k̃ >= 1, one-sided rescue monitor)
+// psi computed twice (fast/direct), difference injected with K = (1.5, 2.5, 1)
 typedef struct {
 	intptr_t const n;
-	intptr_t padding;
-	double * __nonnull const G; // = G^{p}
-	double * __nonnull const K; // = G^{p+1}
-	double * __nonnull const A; // forward prediction alpha
-	double * __nonnull const B; // backward prediction beta
+	intptr_t rescue; // rescue count (roundoff divergence detected via gi < 1)
+	double * __nonnull const G; // gain, order n+1
+	double * __nonnull const K; // gain, order n
+	double * __nonnull const A; // forward prediction (= w_f)
+	double * __nonnull const B; // backward prediction (= w_b)
 	double lambda; // forget factor
-	double theta;  // likelihood
-	double zeta;   // previous dot(x, A)
-	double eta;    // previous capture x[N]
+	double gamma;  // conversion factor (likelihood) = 1/gi, in (0, 1]
+	double gi;     // 1/gamma = 1 + u·k̃, >= 1, fma-additive propagation
+	double F;      // forward prediction error energy
+	double Be;     // backward prediction error energy
+	double zeta;   // previous dot(A, x)
+	double eta;    // previous capture x[N-1]
 } tfo_t;
 tfo_t * __nonnull const tfo_create(intptr_t const order);
 void tfo_destroy(tfo_t * __nonnull const object);

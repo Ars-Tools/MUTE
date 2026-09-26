@@ -21,7 +21,11 @@ void tfo_destroy(tfo_t * __nonnull const object) {
 	__free__(object);
 }
 void tfo_reset(tfo_t * __nonnull const object) {
-	object->theta = FLT_EPSILON;
+	object->rescue = 0;
+	object->gamma = 1;
+	object->gi = 1;
+	object->F = FLT_EPSILON; // = δ, exact init would take Be = δλ^{-n} but λ is not yet known; δ~0 makes the transient negligible
+	object->Be = FLT_EPSILON;
 	object->zeta = 0;
 	object->eta = 0;
 	__clr__(object->B, 1, object->n);
@@ -36,99 +40,61 @@ double const tfo(tfo_t * __nonnull const object,
 	static intptr_t const inc = 1;
 	intptr_t const N = object->n;
 	register double const lambda = object->lambda;
-	// F
+	// F: forward prediction, gamma held as reciprocal (gi = 1/γ)
 	double const
-		fr = *x - object->zeta,
-		fp = fr * object->theta,
-		F = fma(fr, fp, lambda);
+		fr = *x - object->zeta,                                    // a priori error, zeta caches dot(A, x) of previous step
+		fp = fr * object->gamma,                                   // a posteriori error
+		c  = fr * simd_precise_recip(lambda * object->F),          // division 1, shared with the gain head
+		g1 = fma(fr, c, object->gi);                               // = 1/γ_{N+1}
+	// G (order N+1 gain) = [c ; K - cA], uses A before its update
+	*object->G = c;
+	__vsma__(object->A, 1, -c, object->K, 1, object->G + 1, 1, N);
+	object->F = fma(fr, fp, lambda * object->F);
 	// A
-	 daxpy_(&N, &fp, object->K, &inc, object->A, &inc);
-//	__vsmsma__(object->K, 1, fp, object->A, 1, lambda, object->A, 1, N); // with forgetting factor to forget previous numerical error
-	// G
-	__vsma__(object->A, 1, *object->G = fr / F, object->K, 1, object->G + 1, 1, N);
-	// U
+	daxpy_(&N, &fp, object->K, &inc, object->A, &inc);
+	// U: backward a priori error, redundant computation (SFTF error feedback)
 	double const
-		rr = object->eta - ddot_(&N, object->B, &inc, x, &ldx),
-		rp = rr * (object->theta = lambda / fma(rr, rr, F / object->theta)),
-		R = fma(fr, fp, lambda);
-	// K
-	__vsma__(object->B, 1, -object->G[N], object->G, 1, object->K, 1, N);
+		kappa = object->G[N],
+		psf = lambda * object->Be * kappa,                         // fast path
+		pss = object->eta - ddot_(&N, object->B, &inc, x, &ldx),   // direct path
+		dps = pss - psf,                                           // roundoff observation, 0 in exact arithmetic
+		ps1 = fma(1.5, dps, psf),
+		ps2 = fma(2.5, dps, psf),
+		gi = fma(-pss, kappa, g1);                                 // = 1/γ(n) = 1 + u·k̃, K₃ = 1
+	if ( __builtin_expect(!(1 - 0x1p-32 <= gi), 0) ) {
+		// rescue: keep w, reinitialize prediction part with energy-scaled regularization
+		++ object->rescue;
+		double const d0 = fmax(FLT_EPSILON, ( 1 - lambda ) * ddot_(&N, x, &ldx, x, &ldx) / (double const)N);
+		__clr__(object->A, 1, N);
+		__clr__(object->B, 1, N);
+		__clr__(object->K, 1, N);
+		object->gamma = 1;
+		object->gi = 1;
+		object->F = d0;
+		object->Be = d0 * pow(lambda, -(double const)N);
+		object->zeta = 0;
+		object->eta = x[( N - 1 ) * ldx];
+		return y - ddot_(&N, w, &ldw, x, &ldx);
+	}
+	double const gamma = simd_precise_recip(gi);                   // division 2
+	object->gi = gi;
+	object->gamma = gamma;
+	object->Be = fma(gamma * ps2, ps2, lambda * object->Be);
+	// K (order N gain) = G[:N] + κB
+	__vsma__(object->B, 1, kappa, object->G, 1, object->K, 1, N);
 	// B
-	 daxpy_(&N, &rp, object->K, &inc, object->B, &inc);
-//	__vsmsma__(object->K, 1, rp, object->B, 1, lambda, object->B, 1, N); // with forgetting factor to forget previous numerical error
+	double const rp = gamma * ps1;
+	daxpy_(&N, &rp, object->K, &inc, object->B, &inc);
 	// E
 	double const
 		er = y - ddot_(&N, w, &ldw, x, &ldx),
-		ep = er * object->theta * lambda / F;
+		ep = gamma * er;
 	// W
-	daxpy_(&N, &ep, object->G, &inc, w, &ldw);
-	// Rescaling
-	object->theta *= simd_precise_rsqrt(F * R);
-//	object->theta = pow(object->theta, lambda);
+	daxpy_(&N, &ep, object->K, &inc, w, &ldw);
 	// cache for next update
-	object->eta = x[N-1];
+	object->eta = x[( N - 1 ) * ldx];
 	object->zeta = ddot_(&N, object->A, &inc, x, &ldx);
 	return er;
-//	// VER.1
-//	// capture λ * current F
-//	double const Q = lambda * object->F;
-//	
-//	// (6.10)
-//	double const bf = *x + object->zeta;
-//	
-//	// (6.34)
-//	double const f = bf / object->theta;
-//
-//	// (6.38)
-//	object->F = simd_dot((simd_double2 const) { lambda, bf }, (simd_double2 const) { object->F, f });
-//	
-//	// GUARD
-//	if ( !(epsilon < object->F) ) {
-//		++object->recover;
-//		tfo_reset(object);
-//		return 0;
-//	}
-//	
-//	// (6.39)
-//	double const eta = object->F / Q * object->theta;
-//	
-//	// (6.51)
-//	__vsma__(object->A, 1, *object->G = bf / Q, object->K, 1, object->G + 1, 1, N);
-//	
-//	// (6.54)
-//	double const br = lambda * object->G[N] * object->R;
-//	
-//	// (6.49)
-//	object->theta = fabs(eta - object->G[N] * br); //
-//	assert(isnormal(object->theta));
-//	
-//	// (6.37)
-//	double const r = br / object->theta;
-//	
-//	// (6.40)
-//	object->R = simd_dot((simd_double2 const) { lambda, br }, (simd_double2 const) { object->R, r });
-//	
-//	// (6.47)
-//	daxpy_(&N, (double const[]){-f}, object->K, &inc, object->A, &inc);
-//	
-//	// (6.53)
-//	__vsma__(object->B, 1, -object->G[N], object->G, 1, object->K, 1, N);
-//	
-//	// (6.48)
-//	daxpy_(&N, (double const[]){-r}, object->K, &inc, object->B, &inc);
-//	
-//	// (6.16)
-//	double const e = y - ddot_(&N, w, &ldw, x, &ldx);
-//	
-//	// (6.22)
-//	double const d = e / eta;
-//	
-//	// (6.46)
-//	daxpy_(&N, &d, object->G, &inc, w, &ldw);
-//	
-//	// for next update
-//	object->zeta = ddot_(&N, object->A, &inc, x, &ldx);
-//	return e;
 }
 tfo_filter_t * __nonnull const tfo_filter_create(intptr_t const order) {
 	void * __nonnull const p = __malloc__(sizeof(tfo_filter_t const) + 3 * ( order + 1 ) * sizeof(double const));
