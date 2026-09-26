@@ -6,79 +6,416 @@
 //
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
-import func Accelerate.vecLib.dgemm_
-import func Accelerate.vecLib.dgemv_
-import func Accelerate.vecLib.vvpows
+import func Accelerate.vecLib.vDSP_deq22D
+import func BLAS.gemv
+import func BLAS.gemm
 import typealias CoreMedia.CMTime
 import protocol DSP.Stream
 import protocol DSP.Frequency
-import protocol DSP.Kernel
+import typealias DSP.Filter
 import typealias DSP.Instance
-import func simd.__tanpi
+import func DSP.filter
+import simd
 @preconcurrency import protocol Combine.Publisher
 @usableFromInline
 enum Prototype {
+    @usableFromInline
+    enum TransferFunction: Sendable {
+        @usableFromInline
+        struct Rn {
+            @usableFromInline let ω₀: Frequency
+            @usableFromInline let Bₛ: Array<Float64>
+            @usableFromInline let Aₛ: Array<Float64>
+        }
+        @usableFromInline
+        struct Ar {
+            @usableFromInline let ω₀: Stream
+            @usableFromInline let Bₛ: Array<Float64>
+            @usableFromInline let Aₛ: Array<Float64>
+        }
+    }
+    @usableFromInline
+    enum BiquadSeries: Sendable {
+        @usableFromInline
+        struct Rn {
+            @usableFromInline let ω₀: Frequency
+            @usableFromInline let Hₛ: Array<(bₛ: SIMD3<Float64>, aₛ: SIMD3<Float64>)>
+        }
+        @usableFromInline
+        struct Ar {
+            @usableFromInline let ω₀: Stream
+            @usableFromInline let Hₛ: Array<(bₛ: SIMD3<Float64>, aₛ: SIMD3<Float64>)>
+        }
+    }
 	@usableFromInline
-	struct Kernel {
-		@usableFromInline let ω₀: Frequency
-		@usableFromInline let Kₛ: Array<Float64>
-	}
-	@usableFromInline
-	struct BLT {
-		@usableFromInline let ω₀: Stream
-		@usableFromInline let Bₛ: Array<Float64>
-		@usableFromInline let Aₛ: Array<Float64>
-	}
+    struct BLT {
+        @usableFromInline let ω₀: Stream
+        @usableFromInline let Bₛ: Array<Float64>
+        @usableFromInline let Aₛ: Array<Float64>
+    }
 }
-extension Prototype.Kernel: DSP.Kernel {
-	@inlinable
-	func coefficients(for Tₛ: CMTime) -> Array<Float64> {
-		var n = Kₛ.count
-		let K = __tanpi(ω₀.increment(for: Tₛ))
-		return.init(unsafeUninitializedCapacity: 3 * n * n + 2 * n) {
-			let y = $0.extracting(0 * n ..< 1 * n)
-			let x = $0.extracting(1 * n ..< 2 * n)
-			let z = $0.extracting(2 * n + 0 * n * n ..< 2 * n + 1 * n * n)
-			let l = $0.extracting(2 * n + 1 * n * n ..< 2 * n + 2 * n * n)
-			let r = $0.extracting(2 * n + 2 * n * n ..< 2 * n + 3 * n * n)
-			$0.initialize(repeating: .zero)
-			x[0] = 1
-			l[0] = 1
-			r[0] = 1
-			for (k, j) in stride(from: 0, to: n * n, by: n).dropLast().enumerated() {
-				x[k+1] = x[k] * K
-				l[l[n+j..<n+j+k+1].initialize(fromContentsOf: l[j..<j+k+1])] = .zero
-				r[r[n+j..<n+j+k+1].initialize(fromContentsOf: r[j..<j+k+1])] = .zero
-				vDSP.add(     l[n+j+1..<n+j+k+2], l[j..<j+k+1], result: &l[n+j+1..<n+j+k+2])
-				vDSP.subtract(r[n+j+1..<n+j+k+2], r[j..<j+k+1], result: &r[n+j+1..<n+j+k+2])
-			}
-			for (p, q) in (0..<n).reversed().enumerated() {
-				let l = l[p*n...p*n+p]
-				let r = r[q*n...q*n+q]
-				for (s, t) in l.enumerated() {
-					for (u, v) in r.enumerated() {
-						z[p*n+s+u] += t * v
-					}
-				}
-			}
-			vDSP.multiply(x, Kₛ, result: &x[x.startIndex..<x.endIndex])
-			var α = 1.0
-			var β = 0.0
-			var k = 1
-			dgemv_("N",
-				   &n, &n,
-				   &α,
-				   z.baseAddress, &n,
-				   x.baseAddress, &k,
-				   &β,
-				   y.baseAddress, &k)
-			$1 = n
-		}
-	}
-	@inlinable
-	var count: Int {
-		Kₛ.count
-	}
+extension Prototype.TransferFunction {
+    @inlinable
+    static func Krawtchouk(size n: Int, target: UnsafeMutableBufferPointer<Float64>) {
+        precondition(0 < n)
+        guard case(let count, false) = n.multipliedReportingOverflow(by: n) else {
+            preconditionFailure()
+        }
+        precondition(count <= target.count)
+        target[0] = 1
+        for r in 1..<n {
+            target[r] = -target[r - 1] * Float64(n - r) / Float64(r)
+        }
+        for offset in stride(from: n, to: count, by: n) {
+            target[offset] = 1
+            target[offset + 1] = target[offset + 1 - n] + 2
+            vDSP.twoPoleTwoZeroFilter(
+                target[offset - n ..< offset],
+                coefficients: (1, 1, 0, -1, 0),
+                result: &target[offset ..< offset + n]
+            )
+        }
+    }
+    @inlinable
+    static func Krawtchouk(size n: Int) -> Array<Float64> {
+        .init(unsafeUninitializedCapacity: n * n) {
+            $1 = $0.count
+            Krawtchouk(size: n, target: $0)
+        }
+    }
+    @inlinable // ω is [0, 1) normalized angular frequency, 0.5 = π, 1 = 2π
+    static func BLT(prewarping ω: Float64, size n: Int, target: UnsafeMutableBufferPointer<Float64>) {
+        guard case(let n², false) = n.multipliedReportingOverflow(by: n) else {
+            preconditionFailure()
+        }
+        Krawtchouk(size: n, target: target)
+        let θ = ω.remainder(dividingBy: 1)
+        let γ = θ.magnitude
+        switch γ {
+        case 0:
+            vDSP.clear(&target[0+n..<n²])
+        case 0.5:
+            vDSP.clear(&target[0..<n²-n])
+        case 0.25...:
+            let k = __tanpi(copysign(0.5 - γ, θ))
+            for (c, s) in zip(stride(from: n²-n, to: 0, by: -n), sequence(first: k) { .some($0 * k) }) {
+                vDSP.multiply(s, target[c-n..<c], result: &target[c-n..<c])
+            }
+        default:
+            let k = __tanpi(θ)
+            for (c, s) in zip(stride(from: n, to: n²-0, by: +n), sequence(first: k) { .some($0 * k) }) {
+                vDSP.multiply(s, target[c..<c+n], result: &target[c..<c+n])
+            }
+        }
+    }
+    @inlinable // ω is [0, 1) normalized angular frequency, 0.5 = π, 1 = 2π
+    static func BLT(prewarping ω: Float64, size n: Int) -> Array<Float64> {
+        guard case(let capacity, false) = n.multipliedReportingOverflow(by: n) else {
+            preconditionFailure()
+        }
+        return.init(unsafeUninitializedCapacity: capacity) {
+            $1 = $0.count
+            BLT(prewarping: ω, size: n, target: $0)
+        }
+    }
+}
+extension Prototype.TransferFunction.Rn: Filter.TransferFunction {
+    @inlinable
+    func coefficients(for Tₛ: CMTime) -> (b: Array<Float64>, a: Array<Float64>) {
+        let n = max(Bₛ.count, Aₛ.count)
+        guard case(let capacity, false) = n.multipliedReportingOverflow(by: n) else {
+            preconditionFailure()
+        }
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: capacity) { m in
+            Prototype.TransferFunction.BLT(prewarping: ω₀.increment(for: Tₛ), size: n, target: m)
+            return (
+                .init(unsafeUninitializedCapacity: n) {
+                    $1 = $0.count
+                    gemv(n, Bₛ.count, 1,
+                         m.baseAddress.unsafelyUnwrapped, n, .N,
+                         Bₛ, 1,
+                         0,
+                         $0.baseAddress.unsafelyUnwrapped, 1)
+                },
+                .init(unsafeUninitializedCapacity: n) {
+                    $1 = $0.count
+                    gemv(n, Aₛ.count, 1,
+                         m.baseAddress.unsafelyUnwrapped, n, .N,
+                         Aₛ, 1,
+                         0,
+                         $0.baseAddress.unsafelyUnwrapped, 1)
+                },
+            )
+        }
+    }
+    @inlinable
+    var counts: SIMD2<Int> {
+        .init(repeating: max(Bₛ.count, Aₛ.count))
+    }
+}
+extension Prototype.TransferFunction.Ar: DSP.Stream {
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        guard ω₀.count == 1, !Bₛ.isEmpty, !Aₛ.isEmpty else { throw Error.invalidChannel }
+        switch max(Bₛ.count, Aₛ.count) {
+        case 1:
+            guard case.some(let b) = Bₛ.first, case.some(let a) = Aₛ.first else {
+                throw Error.unmatchChannel
+            }
+            return {
+                vDSP.fill(&UnsafeMutableBufferPointer(start: $2.advanced(by: 0 * $3), count: $1)[0..<$1], with: b)
+                vDSP.fill(&UnsafeMutableBufferPointer(start: $2.advanced(by: 1 * $3), count: $1)[0..<$1], with: a)
+            }
+        case 2:
+            guard case.some(let b₀) = Bₛ.first, case.some(let a₀) = Aₛ.first else {
+                throw Error.unmatchChannel
+            }
+            let ω = try ω₀(interval: interval, capacity: capacity, instance: &instance)
+            let b₁ = Bₛ.dropFirst().first ?? .zero
+            let a₁ = Aₛ.dropFirst().first ?? .zero
+            let Fₛ = interval.seconds
+            return {
+                ω($0, $1, $2, $3)
+                let buffer = UnsafeMutableBufferPointer<Float64>(start: $2, count: 3 * $3 + $1)
+                vDSP.multiply(Fₛ, buffer[0..<$1], result: &buffer[0..<$1])
+                vForce.tanPi(buffer[0..<$1], result: &buffer[0..<$1])
+                vDSP.add(multiplication: (buffer[0..<$1], a₁), -a₀, result: &buffer[3*$3..<3*$3+$1])
+                vDSP.add(multiplication: (buffer[0..<$1], a₁),  a₀, result: &buffer[2*$3..<2*$3+$1])
+                vDSP.add(multiplication: (buffer[0..<$1], b₁), -b₀, result: &buffer[1*$3..<1*$3+$1])
+                vDSP.add(multiplication: (buffer[0..<$1], b₁),  b₀, result: &buffer[0*$3..<0*$3+$1])
+            }
+        case let n:assert(2 < n)
+            let ω = try ω₀(interval: interval, capacity: capacity, instance: &instance)
+            let m = ( n - 1 ) / 2
+            let Fₛ = interval.seconds
+            let Kₛ = Prototype.TransferFunction.Krawtchouk(size: n)
+            return { [Bₛ, Aₛ] moment, length, target, stride in
+                ω(moment, length, target, stride)
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 2 * n ) * length) {
+                    let x = UnsafeMutableBufferPointer<Float64>(rebasing: $0[(0)*length..<(m+0)*length]) // cot
+                    let z = UnsafeMutableBufferPointer<Float64>(rebasing: $0[(m)*length..<(m+1)*length]) // 1
+                    let y = UnsafeMutableBufferPointer<Float64>(rebasing: $0[(m+1)*length..<(n)*length]) // tan
+                    let w = UnsafeMutableBufferPointer<Float64>(rebasing: $0.suffix(n * length)) // workspace
+                    vDSP.multiply(Fₛ, UnsafeBufferPointer<Float64>(start: target, count: length), result: &y[0..<length])
+                    vDSP.add(multiplication: (y[0..<length], -1), 0.5, result: &x[m*length-length..<m*length])
+                    vForce.tanPi(y[0..<length], result: &y[0..<length])
+                    vForce.tanPi(x[m*length-length..<m*length], result: &x[m*length-length..<m*length])
+                    for k in Swift.stride(from: x.count - length, to: 0, by: -length) { // x, lower
+                        vDSP.multiply(x[x.count-length..<x.count],
+                                      x[k..<k+length],
+                                      result: &x[k-length..<k])
+                    }
+                    for k in Swift.stride(from: length, to: y.count, by: length) { // y, upper
+                        vDSP.multiply(y[0..<length],
+                                      y[k-length..<k],
+                                      result: &y[k..<k+length])
+                    }
+                    vDSP.fill(&z[0..<length], with: 1)
+                    for (k, b) in Bₛ.enumerated() {
+                        vDSP.multiply(b,
+                                      $0[k*length..<k*length+length],
+                                      result: &w[k*length..<k*length+length])
+                    }
+                    gemm(length, n, Bₛ.count,
+                         1,
+                         w.baseAddress.unsafelyUnwrapped, length, .N,
+                         Kₛ, n, .T,
+                         0,
+                         target.advanced(by: 0 * stride), stride)
+                    for (k, a) in Aₛ.enumerated() {
+                        vDSP.multiply(a,
+                                      $0[k*length..<k*length+length],
+                                      result: &w[k*length..<k*length+length])
+                    }
+                    gemm(length, n, Aₛ.count,
+                         1,
+                         w.baseAddress.unsafelyUnwrapped, length, .N,
+                         Kₛ, n, .T,
+                         0,
+                         target.advanced(by: n * stride), stride)
+                }
+            }
+        }
+    }
+    @inlinable
+    var count: Int {
+        2 * max(Bₛ.count, Aₛ.count)
+    }
+}
+extension Prototype.BiquadSeries {
+    @usableFromInline
+    static let Krawtchouk = matrix_double3x3(columns: (
+        .init( 1, -2,  1),
+        .init( 1,  0, -1),
+        .init( 1,  2,  1)
+    ))
+    @inlinable
+    static func BLT(prewarping ω: Float64) -> matrix_double3x3 {
+        let θ = ω.remainder(dividingBy: 1)
+        let γ = θ.magnitude
+        switch γ {
+        case 0:
+            return.init(columns: (
+                Krawtchouk.columns.0,
+                .zero,
+                .zero
+            ))
+        case 0.5:
+            return.init(columns: (
+                .zero,
+                .zero,
+                Krawtchouk.columns.2
+            ))
+        case 0.25...:
+            let k = __tanpi(copysign(0.5 - γ, θ))
+            return.init(columns: (
+                Krawtchouk.columns.0 * k * k,
+                Krawtchouk.columns.1 * k,
+                Krawtchouk.columns.2
+            ))
+        default:
+            let k = __tanpi(θ)
+            return.init(columns: (
+                Krawtchouk.columns.0,
+                Krawtchouk.columns.1 * k,
+                Krawtchouk.columns.2 * k * k
+            ))
+        }
+    }
+}
+extension Prototype.BiquadSeries.Rn: DSP.Filter.BiquadSeries {
+    @usableFromInline
+    typealias Scalar = Float64
+    @inlinable
+    func coefficients(for Tₛ: CMTime) -> some Sequence<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)> {
+        let Mₛ = Prototype.BiquadSeries.BLT(prewarping: ω₀.increment(for: Tₛ))
+        return Hₛ.lazy.map(simd_double2x3.init(columns:)).map { Mₛ * $0 }.map(\.columns)
+    }
+    @inlinable
+    var count: Int {
+        Hₛ.count
+    }
+}
+extension Prototype.BiquadSeries.Ar: DSP.Stream {
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        guard ω₀.count == 1 else { throw Error.invalidChannel }
+        let ω = try ω₀(interval: interval, capacity: capacity, instance: &instance)
+        let (ldKₛ, r) = MemoryLayout<SIMD3<Float64>>.stride.quotientAndRemainder(dividingBy: MemoryLayout<Float64>.size)
+        assert(r == 0)
+        let Kₛ = withUnsafeBytes(of: Prototype.BiquadSeries.Krawtchouk) {
+            $0.withMemoryRebound(to: Float64.self, Array.init)
+        }
+        assert(Kₛ.count == 3 * ldKₛ)
+        let Fₛ = interval.seconds
+        return { [Hₛ] moment, length, target, stride in
+            ω(moment, length, target, stride)
+            withUnsafeTemporaryAllocation(of: Float64.self, capacity: 5 * length) {
+                vDSP.multiply(Fₛ, UnsafeBufferPointer(start: target, count: length), result: &$0[4*length..<5*length])
+                vDSP.add(multiplication: ($0[4*length..<5*length], -1), 0.5, result: &$0[3*length..<4*length])
+                vForce.tanPi($0[3*length..<5*length], result: &$0[3*length..<5*length])
+                for (k, (b, a)) in Hₛ.enumerated() {
+                    vDSP.multiply(b.x, $0[3*length..<4*length], result: &$0[0*length..<1*length])
+                    vDSP.fill(&$0[1*length..<2*length], with: b.y)
+                    vDSP.multiply(b.z, $0[4*length..<5*length], result: &$0[2*length..<3*length])
+                    gemm(length, 3, 3,
+                         1,
+                         $0.baseAddress.unsafelyUnwrapped, length, .N,
+                         Kₛ, ldKₛ, .T,
+                         0,
+                         target.advanced(by: (6 * k + 0) * stride), stride)
+                    vDSP.multiply(a.x, $0[3*length..<4*length], result: &$0[0*length..<1*length])
+                    vDSP.fill(&$0[1*length..<2*length], with: a.y)
+                    vDSP.multiply(a.z, $0[4*length..<5*length], result: &$0[2*length..<3*length])
+                    gemm(length, 3, 3,
+                         1,
+                         $0.baseAddress.unsafelyUnwrapped, length, .N,
+                         Kₛ, ldKₛ, .T,
+                         0,
+                         target.advanced(by: (6 * k + 3) * stride), stride)
+                }
+            }
+        }
+    }
+    @inlinable
+    var count: Int {
+        6 * Hₛ.count
+    }
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Publisher<(Int, Frequency), Never>,
+            H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
+            H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
+    let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
+    return filter(source, sos: ω₀.map {
+        ($0, Prototype.BiquadSeries.Rn(ω₀: $1, Hₛ: Hₛ))
+    }, count: Hₛ.count)
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: Stream,
+            H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
+            H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
+    let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
+    return filter(source, sos: Prototype.BiquadSeries.Ar(ω₀: ω₀, Hₛ: Hₛ))
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Publisher<(Int, Frequency), Never>,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source, iir: ω₀.map {
+        ($0, Prototype.TransferFunction.Rn(ω₀: $1, Bₛ: Bₛ, Aₛ: Aₛ))
+    }, counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: Stream,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source, iir: Prototype.TransferFunction.Ar(ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ), counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
+}
+extension Prototype.BLT {
+    @inlinable
+    static func Matrix(size n: Int, target: UnsafeMutableBufferPointer<Float64>) {
+        withUnsafeTemporaryAllocation(of: Int32.self, capacity: 3 * n * n) {
+            let lhs = $0.extracting(1 * n * n ..< 2 * n * n)
+            let rhs = $0.extracting(2 * n * n ..< 3 * n * n)
+            $0.initialize(repeating: .zero)
+            lhs[0] = 1
+            rhs[0] = 1
+            for (k, j) in stride(from: 0, to: n * n, by: n).dropLast().enumerated() {
+                for i in j...j+k {
+                    lhs[i+n+0] &+= lhs[i]
+                    rhs[i+n+0] &+= rhs[i]
+                }
+                for i in j...j+k {
+                    lhs[i+n+1] &+= lhs[i]
+                    rhs[i+n+1] &-= rhs[i]
+                }
+            }
+            for (p, q) in (0..<n).reversed().enumerated() {
+                let lhs = lhs[p*n...p*n+p]
+                let rhs = rhs[q*n...q*n+q]
+                for (s, t) in lhs.enumerated() {
+                    for (u, v) in rhs.enumerated() {
+                        $0[p*n+s+u] &+= t &* v
+                    }
+                }
+            }
+            assert(n * n <= target.count)
+            vDSP.convertElements(of: $0.prefix(n * n),
+                                 to: &target[target.startIndex..<target.startIndex.advanced(by: n * n)])
+        }
+    }
+    @inlinable
+    static func Matrix(size n: Int) -> Array<Float64> {
+        .init(unsafeUninitializedCapacity: n * n) {
+            $1 = $0.count
+            Matrix(size: n, target: $0)
+        }
+    }
 }
 extension Prototype.BLT: DSP.Stream {
 	@inlinable
@@ -92,90 +429,51 @@ extension Prototype.BLT: DSP.Stream {
 		switch max(Bₛ.count, Aₛ.count) {
 		case 1:
 			return {
-				for var target in zip(stride(from: 0, to: $3, by: $3).lazy.map($2.advanced(by:)), CollectionOfOne($1)).map(UnsafeMutableBufferPointer.init) {
-					vDSP.fill(&target, with: 1)
+				for target in zip(stride(from: 0, to: $3, by: $3).lazy.map($2.advanced(by:)), CollectionOfOne($1)).map(UnsafeMutableBufferPointer.init) {
+                    vDSP.fill(&target[0..<target.count], with: 1)
 				}
 			}
 		case let n:
 			let xₖ = try ω₀(interval: interval, capacity: capacity, instance: &instance)
 			let Tₛ = interval.seconds
-			let Mₛ = withUnsafeTemporaryAllocation(of: Int32.self, capacity: 3 * n * n) {
-				let lhs = $0.extracting(1 * n * n ..< 2 * n * n)
-				let rhs = $0.extracting(2 * n * n ..< 3 * n * n)
-				$0.initialize(repeating: .zero)
-				lhs[0] = 1
-				rhs[0] = 1
-				for (k, j) in stride(from: 0, to: n * n, by: n).dropLast().enumerated() {
-					for i in j...j+k {
-						lhs[i+n+0] += lhs[i]
-						rhs[i+n+0] += rhs[i]
-					}
-					for i in j...j+k {
-						lhs[i+n+1] += lhs[i]
-						rhs[i+n+1] -= rhs[i]
-					}
-				}
-				for (p, q) in (0..<n).reversed().enumerated() {
-					let lhs = lhs[p*n...p*n+p]
-					let rhs = rhs[q*n...q*n+q]
-					for (s, t) in lhs.enumerated() {
-						for (u, v) in rhs.enumerated() {
-							$0[p*n+s+u] += t * v
-						}
-					}
-				}
-				return vDSP.integerToFloatingPoint($0.prefix(n * n), floatingPointType: Float64.self)
-			}
+            let Mₛ = Prototype.BLT.Matrix(size: n)
 			return { moment, length, target, stride in
-				withUnsafeTemporaryAllocation(of: Float64.self, capacity: n * length) {
-					guard let source = $0.baseAddress else { return }
-					xₖ(moment, length, source, length)
-					vDSP.multiply(Tₛ, $0[0..<length], result: &$0[0..<length])
-					vForce.tanPi($0[0..<length], result: &$0[0..<length])
-					for offset in (0..<n).reversed() {
-						var count = Int32(length)
-						var power = Float64(offset)
-						vvpows(source.advanced(by: offset * length), &power, source, &count)
-					}
-					var m = length
-					var n = n
-					var k = n
-					var α = 1.0
-					var β = 0.0
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: n * length) {
+                    guard let source = $0.baseAddress else { return }
+                    xₖ(moment, length, source, length)
+                    vDSP.multiply(Tₛ, $0[0..<length], result: &$0[0..<length])
+                    vForce.tanPi($0[0..<length], result: &$0[0..<length])
+//                    for offset in (0..<n).reversed() {
+//                        vvpow(source, .init(offset), source.advanced(by: offset * length), length)
+//                    }
+                    for degree in 1..<n {
+                        vDSP.multiply($0[0..<length],
+                                      $0[degree * length - length ..< degree * length],
+                                      result: &$0[degree * length ..< degree * length + length])
+                    }
+                    vDSP.fill(&UnsafeMutableBufferPointer(start: source, count: length)[0..<length], with: 1)
 					for (bₖ, bₛ) in Bₛ.enumerated() {
 						vDSP.multiply(bₛ,
 									  $0[(bₖ) * length ..< (bₖ + 1) * length],
 									  result: &UnsafeMutableBufferPointer(start: target.advanced(by: (n+bₖ) * stride), count: length)[0..<length])
 					}
-					do {
-						var lda = stride
-						var ldb = n
-						var ldc = stride
-						dgemm_("N", "T",
-							   &m, &n, &k,
-							   &α,
-							   target.advanced(by: n * stride), &lda,
-							   Mₛ, &ldb,
-							   &β,
-							   target, &ldc)
-					}
+                    gemm(length, n, n,
+                         1,
+                         target.advanced(by: n * stride), stride, .N,
+                         Mₛ, n, .T,
+                         0,
+                         target, stride)
 					for (aₖ, aₛ) in Aₛ.enumerated() {
 						vDSP.multiply(aₛ,
 									  $0[(aₖ) * length ..< (aₖ + 1) * length],
 									  result: &UnsafeMutableBufferPointer(start: source.advanced(by: aₖ * length), count: length)[0..<length])
 					}
-					do {
-						var lda = length
-						var ldb = n
-						var ldc = stride
-						dgemm_("N", "T",
-							   &m, &n, &k,
-							   &α,
-							   source, &lda,
-							   Mₛ, &ldb,
-							   &β,
-							   target.advanced(by: n * stride), &ldc)
-					}
+                    gemm(length, n, n,
+                         1,
+                         source, length, .N,
+                         Mₛ, n, .T,
+                         0,
+                         target.advanced(by: n * stride), stride)
 				}
 			}
 		}
