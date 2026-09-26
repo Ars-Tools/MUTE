@@ -6,7 +6,7 @@
 //
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
-import func Accelerate.vecLib.dgemm_
+import func BLAS.gemm
 import func Accelerate.vecLib.vDSP_biquadm_CreateSetupD
 import func Accelerate.vecLib.vDSP_biquadm_DestroySetupD
 import func Accelerate.vecLib.vDSP_biquadm_SetCoefficientsDoubleD
@@ -57,7 +57,7 @@ extension Prototype.Kr: Stream {
 			case 0..<stream:
 				let K = __tanpi($1.increment(for: interval))
 				let Z₁ = simd_double2x2(columns: (.init(1, -1), .init(K, K)))
-				let Z₂ = simd_double3x3(columns: (.init(1, -2, 1), .init(K, 0, -K), .init(1, 2, 1) * K * K))
+				let Z₂ = simd_double3x3(columns: (.init(1, -2, 1), .init(1, 0, -1) * K, .init(1, 2, 1) * K * K))
 				let Zₛ = H₂.reduce(into: H₁.flatMap {
 					let a = Z₁ * $1
 					let b = Z₁ * $0 / a.x
@@ -126,8 +126,6 @@ extension Prototype.Ar: Stream {
 				let A = $0.extracting(3*length..<6*length)
 				let W = $0.extracting(6*length..<9*length)
 				let Z = $0.extracting(9*length..<$0.count)
-				var β = 0.0
-				var α = 1.0
 				// Z
 				ωₖ(moment, length, Z.baseAddress.unsafelyUnwrapped, length)
 				vDSP.multiply(Tₛ, Z[0..<length], result: &Z[0..<length])
@@ -135,35 +133,27 @@ extension Prototype.Ar: Stream {
 				vDSP.square(Z[0..<length], result: &Z[length..<2*length])
 				// H1
 				do {
-					var m = length
-					var n = 2
-					var k = 2
-					var lda = length
-					var ldb = 2
-					var ldc = length
 					vDSP.clear(&B[2*length..<3*length])
 					vDSP.clear(&A[2*length..<3*length])
 					for (f, h) in zip(f₁, H₁) {
 						// B
 						vDSP.fill(&W[0..<length], with: h.0.x)
 						vDSP.multiply(h.0.y, Z[0..<length], result: &W[length..<2*length])
-						dgemm_("N", "T",
-							   &m, &n, &k,
-							   &α,
-							   W.baseAddress, &lda,
-							   Z₁, &ldb,
-							   &β,
-							   B.baseAddress, &ldc)
+                        gemm(length, 2, 2,
+                             1,
+                             W.baseAddress.unsafelyUnwrapped, length, .N,
+                             Z₁, 2, .T,
+                             0,
+                             B.baseAddress.unsafelyUnwrapped, length)
 						// A
 						vDSP.fill(&W[0..<length], with: h.1.x)
 						vDSP.multiply(h.1.y, Z[0..<length], result: &W[length..<2*length])
-						dgemm_("N", "T",
-							   &m, &n, &k,
-							   &α,
-							   W.baseAddress, &lda,
-							   Z₁, &ldb,
-							   &β,
-							   A.baseAddress, &ldc)
+                        gemm(length, 2, 2,
+                             1,
+                             W.baseAddress.unsafelyUnwrapped, length, .N,
+                             Z₁, 2, .T,
+                             0,
+                             A.baseAddress.unsafelyUnwrapped, length)
 						// Y
 						biquad_filter_active(f.reference,
 											 B.baseAddress.unsafelyUnwrapped, length,
@@ -175,33 +165,25 @@ extension Prototype.Ar: Stream {
 				}
 				// H2
 				do {
-					var m = length
-					var n = 3
-					var k = 3
-					var lda = length
-					var ldb = 3
-					var ldc = length
 					for (f, h) in zip(f₂, H₂) {
 						vDSP.fill(&W[0..<length], with: h.0.x)
 						vDSP.multiply(h.0.y, Z[0*length..<1*length], result: &W[1*length..<2*length])
 						vDSP.multiply(h.0.z, Z[1*length..<2*length], result: &W[2*length..<3*length])
-						dgemm_("N", "T",
-							   &m, &n, &k,
-							   &α,
-							   W.baseAddress, &lda,
-							   Z₂, &ldb,
-							   &β,
-							   B.baseAddress, &ldc)
+                        gemm(length, 3, 3,
+                             1,
+                             W.baseAddress.unsafelyUnwrapped, length, .N,
+                             Z₂, 3, .T,
+                             0,
+                             B.baseAddress.unsafelyUnwrapped, length)
 						vDSP.fill(&W[0..<length], with: h.1.x)
 						vDSP.multiply(h.1.y, Z[0*length..<1*length], result: &W[1*length..<2*length])
 						vDSP.multiply(h.1.z, Z[1*length..<2*length], result: &W[2*length..<3*length])
-						dgemm_("N", "T",
-							   &m, &n, &k,
-							   &α,
-							   W.baseAddress, &lda,
-							   Z₂, &ldb,
-							   &β,
-							   A.baseAddress, &ldc)
+                        gemm(length, 3, 3,
+                             1,
+                             W.baseAddress.unsafelyUnwrapped, length, .N,
+                             Z₂, 3, .T,
+                             0,
+                             A.baseAddress.unsafelyUnwrapped, length)
 						biquad_filter_active(f.reference,
 											 B.baseAddress.unsafelyUnwrapped, length,
 											 A.baseAddress.unsafelyUnwrapped, length,

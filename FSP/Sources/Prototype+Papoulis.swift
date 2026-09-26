@@ -8,9 +8,8 @@ import typealias Accelerate.vDSP
 import protocol DSP.Stream
 import protocol DSP.Frequency
 import typealias Numerics.Complex128
-import simd
 @preconcurrency import protocol Combine.Publisher
-
+import simd
 @inlinable
 func legendre(count: Int) -> Array<Float64> {
     sequence(state: ([1.0], [1.0, 0.0])) { s in
@@ -157,50 +156,50 @@ func papoulis(hpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array
     return (H1, H2)
 }
 
-public func filter(_ source: Stream, lpf omega0: some Publisher<(Int, Frequency), Never> & Sendable, papoulis order: Int) -> some Stream {
-    let (H1, H2) = papoulis(lpf: order)
-    assert(H1.count + 2 * H2.count == order)
-    return Prototype.Kr(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
+public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, papoulis order: Int) -> some Stream {
+    let (H₁, H₂) = papoulis(lpf: order)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 
-public func filter(_ source: Stream, lpf omega0: some Publisher<Frequency, Never>, papoulis order: Int) -> some Stream {
-    filter(source, lpf: omega0.repeat(count: source.count), papoulis: order)
+public func filter(_ source: Stream, lpf ω₀: some Publisher<Frequency, Never>, papoulis order: Int) -> some Stream {
+    filter(source, lpf: ω₀.repeat(count: source.count), papoulis: order)
 }
 
-public func filter(_ source: Stream, lpf omega0: some Sequence<Frequency>, papoulis order: Int) -> some Stream {
-    filter(source, lpf: omega0.prefix(count: source.count), papoulis: order)
+public func filter(_ source: Stream, lpf ω₀: some Sequence<Frequency>, papoulis order: Int) -> some Stream {
+    filter(source, lpf: ω₀.prefix(count: source.count), papoulis: order)
 }
 
-public func filter(_ source: Stream, lpf omega0: Frequency, papoulis order: Int) -> some Stream {
-    filter(source, lpf: `repeat`(omega0, count: source.count), papoulis: order)
+public func filter(_ source: Stream, lpf ω₀: Frequency, papoulis order: Int) -> some Stream {
+    filter(source, lpf: `repeat`(ω₀, count: source.count), papoulis: order)
 }
 
-public func filter(_ source: Stream, lpf omega0: Stream, papoulis order: Int) -> some Stream {
-    let (H1, H2) = papoulis(lpf: order)
-    assert(H1.count + 2 * H2.count == order)
-    return Prototype.Ar(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
+public func filter(_ source: Stream, lpf ω₀: Stream, papoulis order: Int) -> some Stream {
+    let (H₁, H₂) = papoulis(lpf: order)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 
-public func filter(_ source: Stream, hpf omega0: some Publisher<(Int, Frequency), Never> & Sendable, papoulis order: Int) -> some Stream {
-    let (H1, H2) = papoulis(hpf: order)
-    assert(H1.count + 2 * H2.count == order)
-    return Prototype.Kr(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
+public func filter(_ source: Stream, hpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, papoulis order: Int) -> some Stream {
+    let (H₁, H₂) = papoulis(hpf: order)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 
-public func filter(_ source: Stream, hpf omega0: some Publisher<Frequency, Never>, papoulis order: Int) -> some Stream {
-    filter(source, hpf: omega0.repeat(count: source.count), papoulis: order)
+public func filter(_ source: Stream, hpf ω₀: some Publisher<Frequency, Never>, papoulis order: Int) -> some Stream {
+    filter(source, hpf: ω₀.repeat(count: source.count), papoulis: order)
 }
 
-public func filter(_ source: Stream, hpf omega0: some Sequence<Frequency>, papoulis order: Int) -> some Stream {
-    filter(source, hpf: omega0.prefix(count: source.count), papoulis: order)
+public func filter(_ source: Stream, hpf ω₀: some Sequence<Frequency>, papoulis order: Int) -> some Stream {
+    filter(source, hpf: ω₀.prefix(count: source.count), papoulis: order)
 }
 
-public func filter(_ source: Stream, hpf omega0: Frequency, papoulis order: Int) -> some Stream {
-    filter(source, hpf: `repeat`(omega0, count: source.count), papoulis: order)
+public func filter(_ source: Stream, hpf ω₀: Frequency, papoulis order: Int) -> some Stream {
+    filter(source, hpf: `repeat`(ω₀, count: source.count), papoulis: order)
 }
 
-public func filter(_ source: Stream, hpf omega0: Stream, papoulis order: Int) -> some Stream {
-    let (H1, H2) = papoulis(hpf: order)
-    assert(H1.count + 2 * H2.count == order)
-    return Prototype.Ar(x₀: source, ω₀: omega0, H₁: H1, H₂: H2)
+public func filter(_ source: Stream, hpf ω₀: Stream, papoulis order: Int) -> some Stream {
+    let (H₁, H₂) = papoulis(hpf: order)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }

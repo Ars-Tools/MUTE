@@ -6,6 +6,7 @@
 //
 import protocol DSP.Stream
 import protocol DSP.Frequency
+import func DSP.filter
 import func simd.length_squared
 @preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Just
@@ -46,9 +47,15 @@ func bessel(hpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(
     })
 }
 public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, bessel order: Int) -> some Stream {
-	let (H₁, H₂) = bessel(lpf: order)
-	assert(H₁.count + 2 * H₂.count == order)
-	return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+//	let (H₁, H₂) = bessel(lpf: order)
+//	assert(H₁.count + 2 * H₂.count == order)
+//	return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    let Aₛ = bessel(count: order).map(Float64.init)
+    let Bₛ = Array<Float64>(unsafeUninitializedCapacity: Aₛ.count) {
+        $0.initialize(repeating: .zero)
+        $1 = $0.suffix(1).update(fromContentsOf: Aₛ.suffix(1))
+    }
+    return filter(source, ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ)
 }
 public func filter(_ source: Stream, lpf ω₀: some Publisher<Frequency, Never>, bessel order: Int) -> some Stream {
 	filter(source, lpf: ω₀.repeat(count: source.count), bessel: order)
@@ -60,14 +67,32 @@ public func filter(_ source: Stream, lpf ω₀: Frequency, bessel order: Int) ->
 	filter(source, lpf: `repeat`(ω₀, count: source.count), bessel: order)
 }
 public func filter(_ source: Stream, lpf ω₀: Stream, bessel order: Int) -> some Stream {
-	let (H₁, H₂) = bessel(lpf: order)
-	assert(H₁.count + 2 * H₂.count == order)
-	return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+//	let (H₁, H₂) = bessel(lpf: order)
+//	assert(H₁.count + 2 * H₂.count == order)
+//	return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    let Aₛ = bessel(count: order).map(Float64.init)
+    let Bₛ = Array<Float64>(unsafeUninitializedCapacity: Aₛ.count) {
+        $0.initialize(repeating: .zero)
+        $1 = $0.suffix(1).update(fromContentsOf: Aₛ.suffix(1))
+    }
+    return filter(source, ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ)
 }
 public func filter(_ source: Stream, hpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, bessel order: Int) -> some Stream {
-	let (H₁, H₂) = bessel(hpf: order)
-	assert(H₁.count + 2 * H₂.count == order)
-	return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    let (H₁, H₂) = bessel(hpf: order)
+    assert(H₁.count + 2 * H₂.count == order)
+    return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+//    let Aₛ = bessel(count: order).lazy.map(Float64.init).reversed() as Array
+//    let Bₛ = Array<Float64>(unsafeUninitializedCapacity: Aₛ.count) {
+//        $1 = $0.count
+//        $0.initialize(repeating: .zero)
+//        $0[0] = Aₛ.first.unsafelyUnwrapped
+//    }
+//    return filter(source, with: ω₀.map {(
+//        ($0, (
+//            Prototype.Kernel(ω₀: $1, Kₛ: Bₛ),
+//            Prototype.Kernel(ω₀: $1, Kₛ: Aₛ)
+//        ))
+//    )}, length: .init(Bₛ.count, Aₛ.count))
 }
 public func filter(_ source: Stream, hpf ω₀: some Publisher<Frequency, Never>, bessel order: Int) -> some Stream {
 	filter(source, hpf: ω₀.repeat(count: source.count), bessel: order)

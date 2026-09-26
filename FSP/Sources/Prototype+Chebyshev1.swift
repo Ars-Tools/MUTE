@@ -91,7 +91,7 @@ func chebyshev1(ldf n: Int, ε: Float64) -> (Array<(SIMD2<Float64>, SIMD2<Float6
 public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
 	let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
 	assert(H₁.count + 2 * H₂.count == order)
-	return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, lpf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
 	filter(source, lpf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
@@ -104,13 +104,14 @@ public func filter(_ source: Stream, lpf ω₀: Frequency, chebyshev1 order: Int
 }
 public func filter(_ source: Stream, lpf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
 	let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
-	return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 // HPF
 public func filter(_ source: Stream, hpf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
 	let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
 	assert(H₁.count + 2 * H₂.count == order)
-	return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hpf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
 	filter(source, hpf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
@@ -122,15 +123,15 @@ public func filter(_ source: Stream, hpf ω₀: Frequency, chebyshev1 order: Int
 	filter(source, hpf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
 }
 public func filter(_ source: Stream, hpf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
-	assert(H₁.count + 2 * H₂.count == order)
-	return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 // LDF
 public func filter(_ source: Stream, ldf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
     assert(H₁.count + 2 * H₂.count == order)
-    return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, ldf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
     filter(source, ldf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
@@ -143,13 +144,14 @@ public func filter(_ source: Stream, ldf ω₀: Frequency, chebyshev1 order: Int
 }
 public func filter(_ source: Stream, ldf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
-    return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 // HDF
 public func filter(_ source: Stream, hdf ω₀: some Publisher<(Int, Frequency), Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
     assert(H₁.count + 2 * H₂.count == order)
-    return Prototype.Kr(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hdf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
     filter(source, hdf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
@@ -163,5 +165,5 @@ public func filter(_ source: Stream, hdf ω₀: Frequency, chebyshev1 order: Int
 public func filter(_ source: Stream, hdf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
     assert(H₁.count + 2 * H₂.count == order)
-    return Prototype.Ar(x₀: source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
