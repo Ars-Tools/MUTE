@@ -12,6 +12,12 @@ public struct Context: Hashable, Sendable {
 	@usableFromInline let identity: ObjectIdentifier
 }
 public typealias Instance = Dictionary<Context, Sendable>
+extension Instance {
+    public mutating func store(_ object: AnyObject, interval: CMTime, capacity: Int) {
+        updateValue(unsafeBitCast(object, to: (AnyObject & Sendable).self),
+                    forKey: .init(interval: interval, capacity: capacity, identity: .init(object)))
+    }
+}
 public typealias Commit = Array<@Sendable (CMTime, Int) -> Void>
 extension Instance {
     @inlinable
