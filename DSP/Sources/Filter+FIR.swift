@@ -43,34 +43,37 @@ extension Filter {
         }
     }
 }
+extension Filter.FIR.Domain {
+    @inlinable
+    init(auto count: Int) {
+        self = count + count.leadingZeroBitCount < Int.bitWidth + 12 ? .time : .freq
+    }
+}
 extension Filter.FIR.Kr: Stream {
 	@inlinable
 	var count: Int {
         x.count
 	}
-	@inlinable
+	@usableFromInline
 	func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
 		let source = try x(interval: interval, capacity: capacity, instance: &instance)
         let xs = capacity + b - 1
         switch (d, x.count) {
         case(.time, let xc):
             let buffer = Mutex<Array<Float64>>(.init(repeating: .zero, count: xc * xs + xc * b))
-            let cancel = z.sink {
-                switch $0 {
-                case 0..<xc:
-                    let kernel = $1.coefficient(for: interval).prefix(b).reversed()
-                    let base = xc * xs + $0 * b
-                    let head = base..<base+kernel.count
-                    let tail = head.upperBound..<base+b
-                    buffer.withLock {
-                        $0.replaceSubrange(head, with: kernel)
-                        $0.replaceSubrange(tail, with: repeatElement(.zero, count: tail.count))
-                    }
-                default:
-                    assertionFailure("out of range")
+            let cancel = z.flatMap {
+                let offset = $0 * xs
+                return $1.coefficient(for: interval).map { [b] in
+                    (offset, $0.prefix(b))
+                }
+            }.sink { offset, values in
+                buffer.withLock {
+                    $0.replaceSubrange((offset) ..< (offset + values.count), with: values)
+                    $0.replaceSubrange((offset + values.count)..., with: repeatElement(0, count: xs - values.count))
                 }
             }
-            return { [cancel, b, xc, xs] moment, length, memory, stride in
+            instance.store(cancel, interval: interval, capacity: capacity)
+            return { [b] moment, length, memory, stride in
                 buffer.withLock {
                     $0.withUnsafeMutablePointer { signal in
                         let filter = signal.advanced(by: xc * xs)
@@ -102,69 +105,65 @@ extension Filter.FIR.Kr: Stream {
             // [Freq Real] [0 ch] [1 ch] [2 ch] …
             // [Freq Imag] [0 ch] [1 ch] [2 ch] …
             let buffer = Mutex<Array<Float64>>(.init(repeating: .zero, count: frame * ( 6 * xc + 2 ) ))
-            let cancel = z.sink { index, value in
-                switch index {
-                case 0..<xc:
-                    let kernel = value.coefficient(for: interval).prefix(b)
-                    buffer.withLock {
-                        $0.withUnsafeMutablePointer {
-                            var w = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * 0),
-                                                          imagp: $0.advanced(by: frame * 1))
-                            var k = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 0 * xc + index)),
-                                                          imagp: $0.advanced(by: frame * (2 + 1 * xc + index)))
-                            let r = UnsafeMutableBufferPointer(start: k.realp, count: frame)
-                            let i = UnsafeMutableBufferPointer(start: k.imagp, count: frame)
-                            switch r.update(fromContentsOf: kernel) {
-                            case let eof:
-                                vDSP.divide(r[0..<eof], .init(frame), result: &r[0..<eof])
-                                vDSP.clear(&r[eof..<r.endIndex])
-                            }
-                            vDSP.clear(&i[0..<i.count])
-                            vDSP_fft_ziptD(setup.pointer, &k, 1, &w, .init(log2n), .init(kFFTDirection_Forward))
+            let cancel = z.flatMap {
+                let offset = $0 * xs
+                return $1.coefficient(for: interval).map { (offset, $0) }
+            }.sink { offset, kernel in
+                buffer.withLock {
+                    $0.withUnsafeMutablePointer {
+                        var w = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * 0),
+                                                      imagp: $0.advanced(by: frame * 1))
+                        var k = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 0 * xc + offset)),
+                                                      imagp: $0.advanced(by: frame * (2 + 1 * xc + offset)))
+                        let r = UnsafeMutableBufferPointer(start: k.realp, count: frame)
+                        let i = UnsafeMutableBufferPointer(start: k.imagp, count: frame)
+                        switch r.update(fromContentsOf: kernel) {
+                        case let eof:
+                            vDSP.divide(r[0..<eof], .init(frame), result: &r[0..<eof])
+                            vDSP.clear(&r[eof..<r.endIndex])
                         }
+                        vDSP.clear(&i[0..<i.count])
+                        vDSP_fft_ziptD(setup.pointer, &k, 1, &w, .init(log2n), .init(kFFTDirection_Forward))
                     }
-                default:
-                    assertionFailure("out of range")
                 }
             }
-            return { [cancel, b] moment, length, memory, stride in
-                withExtendedLifetime(cancel) {
-                    buffer.withLock {
-                        $0.withUnsafeMutablePointer {
-                            var w = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * 0),
-                                                          imagp: $0.advanced(by: frame * 1))
-                            var k = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 0 * xc)),
-                                                          imagp: $0.advanced(by: frame * (2 + 1 * xc)))
-                            var t = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 2 * xc)),
-                                                          imagp: $0.advanced(by: frame * (2 + 3 * xc)))
-                            var f = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 4 * xc)),
-                                                          imagp: $0.advanced(by: frame * (2 + 5 * xc)))
-                            source(moment, length, t.realp.advanced(by: b - 1), frame)
-                            for p in Swift.stride(from: length + b - 1, to: length + b - 1 + xc * frame, by: frame).map(t.realp.advanced(by:)) {
-                                vDSP_vclrD(p, 1, .init(frame - length - b + 1))
-                            }
-                            assert(vDSP.sumOfSquares(UnsafeMutableBufferPointer(start: t.imagp, count: frame * xc)).isZero)
-                            vDSP_fftm_zoptD(setup.pointer,
-                                            &t, 1, frame,
-                                            &f, 1, frame,
-                                            &w,
-                                            .init(log2n),
-                                            .init(xc),
-                                            .init(kFFTDirection_Forward))
-                            vDSP_zvmulD(&f, 1, &k, 1, &f, 1, .init(frame * xc), 1)
-                            vDSP_fftm_ziptD(setup.pointer,
-                                            &f, 1, frame,
-                                            &w,
-                                            .init(log2n),
-                                            .init(xc),
-                                            .init(kFFTDirection_Inverse))
-                            copy(x: f.realp.advanced(by: b - 1), ldx: frame,
-                                 y: memory, ldy: stride,
-                                 rows: xc, cols: length)
-                            copy(x: t.realp, ldx: frame,
-                                 y: t.realp.advanced(by: length), ldy: frame,
-                                 rows: xc, cols: b - 1)
+            instance.store(cancel, interval: interval, capacity: capacity)
+            return { [b] moment, length, memory, stride in
+                buffer.withLock {
+                    $0.withUnsafeMutablePointer {
+                        var w = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * 0),
+                                                      imagp: $0.advanced(by: frame * 1))
+                        var k = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 0 * xc)),
+                                                      imagp: $0.advanced(by: frame * (2 + 1 * xc)))
+                        var t = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 2 * xc)),
+                                                      imagp: $0.advanced(by: frame * (2 + 3 * xc)))
+                        var f = DSPDoubleSplitComplex(realp: $0.advanced(by: frame * (2 + 4 * xc)),
+                                                      imagp: $0.advanced(by: frame * (2 + 5 * xc)))
+                        source(moment, length, t.realp.advanced(by: b - 1), frame)
+                        for p in Swift.stride(from: length + b - 1, to: length + b - 1 + xc * frame, by: frame).map(t.realp.advanced(by:)) {
+                            vDSP_vclrD(p, 1, .init(frame - length - b + 1))
                         }
+                        assert(vDSP.sumOfSquares(UnsafeMutableBufferPointer(start: t.imagp, count: frame * xc)).isZero)
+                        vDSP_fftm_zoptD(setup.pointer,
+                                        &t, 1, frame,
+                                        &f, 1, frame,
+                                        &w,
+                                        .init(log2n),
+                                        .init(xc),
+                                        .init(kFFTDirection_Forward))
+                        vDSP_zvmulD(&f, 1, &k, 1, &f, 1, .init(frame * xc), 1)
+                        vDSP_fftm_ziptD(setup.pointer,
+                                        &f, 1, frame,
+                                        &w,
+                                        .init(log2n),
+                                        .init(xc),
+                                        .init(kFFTDirection_Inverse))
+                        copy(x: f.realp.advanced(by: b - 1), ldx: frame,
+                             y: memory, ldy: stride,
+                             rows: xc, cols: length)
+                        copy(x: t.realp, ldx: frame,
+                             y: t.realp.advanced(by: length), ldy: frame,
+                             rows: xc, cols: b - 1)
                     }
                 }
             }
@@ -223,19 +222,26 @@ extension Filter.FIR.Ar: Stream {
 }
 @_disfavoredOverload
 public func filter(_ source: Stream, fir kernel: some Publisher<(Int, some Filter.Kernel<Float64>), Never> & Sendable, count: Int, domain: Optional<Filter.FIR.Domain> = .none) -> some Stream {
-    Filter.FIR.Kr(x: source, z: kernel, b: count, d: domain ?? .time)
+    Filter.FIR.Kr(x: source, z: kernel, b: count, d: domain ?? .init(auto: count))
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, fir kernel: some Publisher<some Filter.Kernel<Float64>, Never>, count: Int, domain: Optional<Filter.FIR.Domain> = .none) -> some Stream {
+    Filter.FIR.Kr(x: source, z: kernel.repeat(count: source.count), b: count, d: domain ?? .init(auto: count))
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, fir kernel: some Sequence<some Filter.Kernel<Float64>> & Sendable, count: Optional<Int> = .none, domain: Optional<Filter.FIR.Domain> = .none) -> some Stream {
+    switch count ?? kernel.lazy.map(\.count).max() ?? 1 {
+    case let n:
+        Filter.FIR.Kr(x: source, z: kernel.prefix(count: source.count), b: n, d: domain ?? .init(auto: n))
+    }
+}
+@inlinable@_disfavoredOverload
+public func filter<Kernel: Filter.Kernel<Float64>>(_ source: Stream, fir kernel: Kernel..., domain: Optional<Filter.FIR.Domain> = .none) -> some Stream {
+    filter(source, fir: kernel, domain: domain)
 }
 @inlinable
-public func filter(_ source: Stream, fir kernel: some Publisher<some Filter.Kernel<Float64>, Never>, count: Int) -> some Stream {
-    filter(source, fir: kernel.repeat(count: source.count), count: count)
-}
-@inlinable
-public func filter(_ source: Stream, fir kernel: some Sequence<some Filter.Kernel<Float64>>) -> some Stream {
-    filter(source, fir: kernel.prefix(count: source.count), count: .init(kernel.map(\.count).max() ?? 0))
-}
-@inlinable
-public func filter(_ source: Stream, fir kernel: some Filter.Kernel<Float64>) -> some Stream {
-    filter(source, fir: `repeat`(kernel, count: source.count), count: .init(kernel.count))
+public func filter(_ source: Stream, fir kernel: some Filter.Kernel<Float64>, domain: Optional<Filter.FIR.Domain> = .none) -> some Stream {
+    filter(source, fir: repeatElement(kernel, count: source.count), count: .some(kernel.count), domain: domain)
 }
 @_disfavoredOverload
 public func filter(_ source: Stream, fir kernel: Stream) -> some Stream {
