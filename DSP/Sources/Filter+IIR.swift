@@ -44,7 +44,11 @@ extension Filter.IIR.Kr: Stream {
         case 1:
             let system = Mutex<(Array<Float64>, Array<Float64>)>((
                 .init(repeating: 0, count: b),
-                .init(repeating: 0, count: a))
+                .init(unsafeUninitializedCapacity: a) {
+                    $1 = $0.count
+                    $0.prefix(1).initialize(repeating: 1)
+                    $0.dropFirst().initialize(repeating: .zero)
+                })
             )
             let cancel = z.sink { k, zp in
                 switch k {
@@ -61,7 +65,7 @@ extension Filter.IIR.Kr: Stream {
             let object = Autorelease.Object(object: transversal_filter_create(b, a)) {
                 transversal_filter_destroy($0)
             }
-            return { [cancel, object] in
+            return { [cancel] in
                 xk($0, $1, $2, $3)
                 let (B, A) = system.withLock(\.self)
                 transversal_filter_static(object.reference,
