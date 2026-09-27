@@ -93,17 +93,29 @@ public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency),
 	assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, lpf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	filter(source, lpf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, lpf ω₀: some Publisher<Frequency, Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, lpf ω₀: some Publisher<Frequency, Never>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	filter(source, lpf: ω₀.repeat(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, lpf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, lpf ω₀: Frequency, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	filter(source, lpf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
+    let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, lpf ω₀: Frequency..., chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, lpf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
+    let (H₁, H₂) = chebyshev1(lpf: order, ε: ε)
     assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
@@ -113,14 +125,20 @@ public func filter(_ source: Stream, hpf ω₀: some Publisher<(Int, Frequency),
 	assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, hpf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	filter(source, hpf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, hpf ω₀: some Publisher<Frequency, Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, hpf ω₀: some Publisher<Frequency, Never>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	filter(source, hpf: ω₀.repeat(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, hpf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+	let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hpf ω₀: Frequency, chebyshev1 order: Int, ε: Float64) -> some Stream {
-	filter(source, hpf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
+	let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hpf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(hpf: order, ε: ε)
@@ -133,14 +151,26 @@ public func filter(_ source: Stream, ldf ω₀: some Publisher<(Int, Frequency),
     assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, ldf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-    filter(source, ldf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, ldf ω₀: some Publisher<Frequency, Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, ldf ω₀: some Publisher<Frequency, Never>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-    filter(source, ldf: ω₀.repeat(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, ldf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, ldf ω₀: Frequency, chebyshev1 order: Int, ε: Float64) -> some Stream {
-    filter(source, ldf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
+    let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, ldf ω₀: Frequency..., chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, ldf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(ldf: order, ε: ε)
@@ -153,14 +183,26 @@ public func filter(_ source: Stream, hdf ω₀: some Publisher<(Int, Frequency),
     assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, hdf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-    filter(source, hdf: ω₀.prefix(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, hdf ω₀: some Publisher<Frequency, Never> & Sendable, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, hdf ω₀: some Publisher<Frequency, Never>, chebyshev1 order: Int, ε: Float64) -> some Stream {
-    filter(source, hdf: ω₀.repeat(count: source.count), chebyshev1: order, ε: ε)
+public func filter(_ source: Stream, hdf ω₀: some Sequence<Frequency>, chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hdf ω₀: Frequency, chebyshev1 order: Int, ε: Float64) -> some Stream {
-    filter(source, hdf: `repeat`(ω₀, count: source.count), chebyshev1: order, ε: ε)
+    let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, hdf ω₀: Frequency..., chebyshev1 order: Int, ε: Float64) -> some Stream {
+    let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hdf ω₀: Stream, chebyshev1 order: Int, ε: Float64) -> some Stream {
     let (H₁, H₂) = chebyshev1(hdf: order, ε: ε)

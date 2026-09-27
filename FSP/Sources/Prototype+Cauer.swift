@@ -185,14 +185,26 @@ public func filter(_ source: Stream, lpf ω₀: some Publisher<(Int, Frequency),
     assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, lpf ω₀: some Sequence<Frequency>, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
-	filter(source, lpf: ω₀.prefix(count: source.count), cauer: order, ε: ε, η: η)
+public func filter(_ source: Stream, lpf ω₀: some Publisher<Frequency, Never> & Sendable, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
+    let (H₁, H₂) = cauer(lpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, lpf ω₀: some Publisher<Frequency, Never>, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
-	filter(source, lpf: ω₀.repeat(count: source.count), cauer: order, ε: ε, η: η)
+public func filter(_ source: Stream, lpf ω₀: some Sequence<Frequency>, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
+    let (H₁, H₂) = cauer(lpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, lpf ω₀: Frequency, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
-	filter(source, lpf: `repeat`(ω₀, count: source.count), cauer: order, ε: ε, η: η)
+    let (H₁, H₂) = cauer(lpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, lpf ω₀: Frequency..., cauer order: Int, ε: Float64, η: Float64) -> some Stream {
+    let (H₁, H₂) = cauer(lpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, lpf ω₀: Stream, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
 	let (H₁, H₂) = cauer(lpf: order, ε: ε, η: η)
@@ -205,14 +217,26 @@ public func filter(_ source: Stream, hpf ω₀: some Publisher<(Int, Frequency),
     assert(H₁.count + 2 * H₂.count == order)
     return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, hpf ω₀: some Sequence<Frequency>, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
-	filter(source, hpf: ω₀.prefix(count: source.count), cauer: order, ε: ε, η: η)
+public func filter(_ source: Stream, hpf ω₀: some Publisher<Frequency, Never> & Sendable, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
+    let (H₁, H₂) = cauer(hpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
-public func filter(_ source: Stream, hpf ω₀: some Publisher<Frequency, Never>, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
-	filter(source, hpf: ω₀.repeat(count: source.count), cauer: order, ε: ε, η: η)
+public func filter(_ source: Stream, hpf ω₀: some Sequence<Frequency>, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
+    let (H₁, H₂) = cauer(hpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hpf ω₀: Frequency, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
-	filter(source, hpf: `repeat`(ω₀, count: source.count), cauer: order, ε: ε, η: η)
+    let (H₁, H₂) = cauer(hpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, hpf ω₀: Frequency..., cauer order: Int, ε: Float64, η: Float64) -> some Stream {
+    let (H₁, H₂) = cauer(hpf: order, ε: ε, η: η)
+    assert(H₁.count + 2 * H₂.count == order)
+    return filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 public func filter(_ source: Stream, hpf ω₀: Stream, cauer order: Int, ε: Float64, η: Float64) -> some Stream {
 	let (H₁, H₂) = cauer(hpf: order, ε: ε, η: η)
