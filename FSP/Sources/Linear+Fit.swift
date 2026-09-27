@@ -795,3 +795,16 @@ extension Linear {
         }
     }
 }
+// MARK: Fit Group delay fit with Allpass
+extension Linear {
+    @inlinable
+    static func fit(group delay: some AccelerateBuffer<Float64>,
+                    frequency: some AccelerateBuffer<Float64>,
+                    weight: some AccelerateBuffer<Float64>,
+                    maximum iteration: Int,
+                    tolerance: Float64,
+                    initial poles: some AccelerateBuffer<Complex128>/* conjugate will be automatically computed, the lower half plane pole will be ignored */) -> Linear.ZPK {
+        // direct controle poles to fit with group delay, zeros will be used to construct allpass gain
+        fatalError()
+    }
+}
