@@ -14,6 +14,7 @@ public struct Context: Hashable, Sendable {
 public typealias Instance = Dictionary<Context, Sendable>
 extension Instance {
     public mutating func store(_ object: AnyObject, interval: CMTime, capacity: Int) {
+        precondition(!(object is Commit))
         updateValue(unsafeBitCast(object, to: (AnyObject & Sendable).self),
                     forKey: .init(interval: interval, capacity: capacity, identity: .init(object)))
     }
