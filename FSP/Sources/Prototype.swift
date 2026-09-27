@@ -15,15 +15,19 @@ import protocol DSP.Frequency
 import typealias DSP.Filter
 import typealias DSP.Instance
 import func DSP.filter
+import typealias Synchronization.Atomic
+import typealias Synchronization.Mutex
 import simd
 @preconcurrency import protocol Combine.Publisher
+@preconcurrency import typealias Combine.Publishers
+@preconcurrency import typealias Combine.Just
 @usableFromInline
 enum Prototype {
     @usableFromInline
     enum TransferFunction: Sendable {
         @usableFromInline
-        struct Rn {
-            @usableFromInline let ω₀: Frequency
+        struct Rn<Cutoff: Publisher<Frequency, Never> & Sendable> {
+            @usableFromInline let ω₀: Cutoff
             @usableFromInline let Bₛ: Array<Float64>
             @usableFromInline let Aₛ: Array<Float64>
         }
@@ -37,8 +41,8 @@ enum Prototype {
     @usableFromInline
     enum BiquadSeries: Sendable {
         @usableFromInline
-        struct Rn {
-            @usableFromInline let ω₀: Frequency
+        struct Rn<Cutoff: Publisher<Frequency, Never> & Sendable> {
+            @usableFromInline let ω₀: Cutoff
             @usableFromInline let Hₛ: Array<(bₛ: SIMD3<Float64>, aₛ: SIMD3<Float64>)>
         }
         @usableFromInline
@@ -52,6 +56,18 @@ enum Prototype {
         @usableFromInline let ω₀: Stream
         @usableFromInline let Bₛ: Array<Float64>
         @usableFromInline let Aₛ: Array<Float64>
+        @usableFromInline
+        struct Kr<Cutoff: Publisher<Frequency, Never> & Sendable> {
+            @usableFromInline let ω₀: Cutoff
+            @usableFromInline let Bₛ: Stream
+            @usableFromInline let Aₛ: Stream
+        }
+        @usableFromInline
+        struct Ar {
+            @usableFromInline let ω₀: Stream
+            @usableFromInline let Bₛ: Stream
+            @usableFromInline let Aₛ: Stream
+        }
     }
 }
 extension Prototype.TransferFunction {
@@ -120,33 +136,38 @@ extension Prototype.TransferFunction {
     }
 }
 extension Prototype.TransferFunction.Rn: Filter.TransferFunction {
+    @usableFromInline typealias B = Array<Float64>
+    @usableFromInline typealias A = Array<Float64>
     @inlinable
-    func coefficients(for Tₛ: CMTime) -> (b: Array<Float64>, a: Array<Float64>) {
+    func coefficients(for Tₛ: CMTime) -> Publishers.Map<Cutoff, (b: B, a: A)> {
         let n = max(Bₛ.count, Aₛ.count)
         guard case(let capacity, false) = n.multipliedReportingOverflow(by: n) else {
             preconditionFailure()
         }
-        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: capacity) { m in
-            Prototype.TransferFunction.BLT(prewarping: ω₀.increment(for: Tₛ), size: n, target: m)
-            return (
-                .init(unsafeUninitializedCapacity: n) {
-                    $1 = $0.count
-                    gemv(n, Bₛ.count, 1,
-                         m.baseAddress.unsafelyUnwrapped, n, .N,
-                         Bₛ, 1,
-                         0,
-                         $0.baseAddress.unsafelyUnwrapped, 1)
-                },
-                .init(unsafeUninitializedCapacity: n) {
-                    $1 = $0.count
-                    gemv(n, Aₛ.count, 1,
-                         m.baseAddress.unsafelyUnwrapped, n, .N,
-                         Aₛ, 1,
-                         0,
-                         $0.baseAddress.unsafelyUnwrapped, 1)
-                },
-            )
+        return ω₀.map { ω in
+            withUnsafeTemporaryAllocation(of: Float64.self, capacity: capacity) { m in
+                Prototype.TransferFunction.BLT(prewarping: ω.increment(for: Tₛ), size: n, target: m)
+                return (
+                    .init(unsafeUninitializedCapacity: n) {
+                        $1 = $0.count
+                        gemv($1, Bₛ.count, 1,
+                             m.baseAddress.unsafelyUnwrapped, $1, .N,
+                             Bₛ, 1,
+                             0,
+                             $0.baseAddress.unsafelyUnwrapped, 1)
+                    },
+                    .init(unsafeUninitializedCapacity: n) {
+                        $1 = $0.count
+                        gemv($1, Aₛ.count, 1,
+                             m.baseAddress.unsafelyUnwrapped, $1, .N,
+                             Aₛ, 1,
+                             0,
+                             $0.baseAddress.unsafelyUnwrapped, 1)
+                    },
+                )
+            }
         }
+        
     }
     @inlinable
     var counts: SIMD2<Int> {
@@ -284,12 +305,18 @@ extension Prototype.BiquadSeries {
     }
 }
 extension Prototype.BiquadSeries.Rn: DSP.Filter.BiquadSeries {
-    @usableFromInline
-    typealias Scalar = Float64
+    @usableFromInline typealias Biquad = Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
+    @usableFromInline typealias Sections = Publishers.Map<Cutoff, (Range<Int>, Biquad)>
+    @usableFromInline typealias A = Array<Scalar>
+    @usableFromInline typealias B = Array<Scalar>
+    @usableFromInline typealias Scalar = Float64
     @inlinable
-    func coefficients(for Tₛ: CMTime) -> some Sequence<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)> {
-        let Mₛ = Prototype.BiquadSeries.BLT(prewarping: ω₀.increment(for: Tₛ))
-        return Hₛ.lazy.map(simd_double2x3.init(columns:)).map { Mₛ * $0 }.map(\.columns)
+    func sections(for Tₛ: CMTime) -> Sections {
+        let H = Hₛ.map(simd_double2x3.init(columns:))
+        return ω₀.map {
+            let Mₛ = Prototype.BiquadSeries.BLT(prewarping: $0.increment(for: Tₛ))
+            return (0..<H.count, H.map { Mₛ * $0 }.map(\.columns))
+        }
     }
     @inlinable
     var count: Int {
@@ -342,15 +369,267 @@ extension Prototype.BiquadSeries.Ar: DSP.Stream {
         6 * Hₛ.count
     }
 }
+extension Prototype.BLT.Kr: DSP.Stream {
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        let Nₛ = SIMD2<Int>(Bₛ.count, Aₛ.count)
+        guard (0 .< Nₛ) == .init(repeating: true) else { throw Error.invalidChannel }
+        let B = try Bₛ(interval: interval, capacity: capacity, instance: &instance)
+        let A = try Aₛ(interval: interval, capacity: capacity, instance: &instance)
+        switch Nₛ.max() as Int {
+        case 1:
+            return {
+                B($0, $1, $2.advanced(by: 0 * $3), $3)
+                A($0, $1, $2.advanced(by: 1 * $3), $3)
+            }
+        case 2:
+            let K = Atomic<Float64>(0)
+            let cancel = ω₀.sink {
+                K.store(__tanpi($0.increment(for: interval)), ordering: .relaxed)
+            }
+            instance.store(cancel, interval: interval, capacity: capacity)
+            return {
+                let k = K.load(ordering: .relaxed)
+                let b = UnsafeMutableBufferPointer(start: $2.advanced(by: 0 * $3), count: $3 + $1)
+                let a = UnsafeMutableBufferPointer(start: $2.advanced(by: 2 * $3), count: $3 + $1)
+                vDSP.clear(&b[$3..<$3+$1])
+                B($0, $1, b.baseAddress.unsafelyUnwrapped, $3)
+                vDSP.multiply(k, b[$3..<$3+$1], result: &b[$3..<$3+$1])
+                vDSP.addSubtract(b[$3..<$3+$1], b[0..<$1],
+                                 addResult: &b[0..<$1],
+                                 subtractResult: &b[$3..<$3+$1])
+                vDSP.clear(&a[$3..<$3+$1])
+                A($0, $1, a.baseAddress.unsafelyUnwrapped, $3)
+                vDSP.multiply(k, a[$3..<$3+$1], result: &a[$3..<$3+$1])
+                vDSP.addSubtract(a[$3..<$3+$1], a[0..<$1],
+                                 addResult: &a[0..<$1],
+                                 subtractResult: &a[$3..<$3+$1])
+            }
+        case let N:
+            guard case(let N², false) = N.multipliedReportingOverflow(by: N) else {
+                throw Error.lackOfResource("BLT-Matrix")
+            }
+            let Kₛ = Mutex<Array<Float64>>(.init(unsafeUninitializedCapacity: N²) {
+                $1 = $0.count
+                $0.prefix(1).initialize(repeating: 1)
+                $0.dropFirst().initialize(repeating: .zero)
+            })
+            let cancel = ω₀.sink {
+                let ω = $0.increment(for: interval)
+                Kₛ.withLock {
+                    $0.withUnsafeMutableBufferPointer {
+                        Prototype.TransferFunction.BLT(prewarping: ω, size: N, target: $0)
+                    }
+                }
+            }
+            instance.store(cancel, interval: interval, capacity: capacity)
+            return { moment, length, target, stride in
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: N * length) {
+                    let W = UnsafeMutableBufferPointer(rebasing: $0.prefix(N * length))
+                    let K = Kₛ.withLock(\.self)
+                    B(moment, length, W.baseAddress.unsafelyUnwrapped, length)
+                    gemm(length, N, Bₛ.count,
+                         1,
+                         W.baseAddress.unsafelyUnwrapped, length, .N,
+                         K, N, .T,
+                         0,
+                         target.advanced(by: 0 * stride), stride)
+                    A(moment, length, W.baseAddress.unsafelyUnwrapped, length)
+                    gemm(length, N, Aₛ.count,
+                         1,
+                         W.baseAddress.unsafelyUnwrapped, length, .N,
+                         K, N, .T,
+                         0,
+                         target.advanced(by: N * stride), stride)
+                }
+            }
+        }
+    }
+    @inlinable
+    var count: Int {
+        2 * max(Bₛ.count, Aₛ.count)
+    }
+}
+extension Prototype.BLT.Ar: DSP.Stream {
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        let Nₛ = SIMD2<Int>(Bₛ.count, Aₛ.count)
+        guard (0 .< Nₛ) == .init(repeating: true), ω₀.count == 1 else { throw Error.invalidChannel }
+        let ω = try ω₀(interval: interval, capacity: capacity, instance: &instance)
+        let B = try Bₛ(interval: interval, capacity: capacity, instance: &instance)
+        let A = try Aₛ(interval: interval, capacity: capacity, instance: &instance)
+        let Fₛ = interval.seconds
+        switch Nₛ.max() as Int {
+        case 1:
+            return {
+                B($0, $1, $2.advanced(by: 0 * $3), $3)
+                A($0, $1, $2.advanced(by: 1 * $3), $3)
+            }
+        case 2:
+            return { moment, length, target, stride in
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: length) {
+                    ω(moment, length, $0.baseAddress.unsafelyUnwrapped, length)
+                    vDSP.multiply(Fₛ, $0, result: &$0[0..<length])
+                    vForce.tanPi($0, result: &$0[0..<length])
+                    let b = UnsafeMutableBufferPointer(start: target.advanced(by: 0 * stride), count: stride + length)
+                    let a = UnsafeMutableBufferPointer(start: target.advanced(by: 2 * stride), count: stride + length)
+                    vDSP.clear(&b[stride..<stride+length])
+                    B(moment, length, b.baseAddress.unsafelyUnwrapped, stride)
+                    vDSP.multiply($0, b[stride..<stride+length], result: &b[stride..<stride+length])
+                    vDSP.addSubtract(b[stride..<stride+length], b[0..<length],
+                                     addResult: &b[0..<length],
+                                     subtractResult: &b[stride..<stride+length])
+                    vDSP.clear(&a[stride..<stride+length])
+                    A(moment, length, a.baseAddress.unsafelyUnwrapped, stride)
+                    vDSP.multiply($0, a[stride..<stride+length], result: &a[stride..<stride+length])
+                    vDSP.addSubtract(a[stride..<stride+length], a[0..<length],
+                                     addResult: &a[0..<length],
+                                     subtractResult: &a[stride..<stride+length])
+                }
+            }
+        case let N:
+            let Kₛ = Prototype.TransferFunction.Krawtchouk(size: N)
+            return { moment, length, target, stride in
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( N + 2 ) * length) {
+                    let W = UnsafeMutableBufferPointer(rebasing: $0.prefix(N * length))
+                    let K = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(N * length).prefix(length))
+                    let k = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(N * length).suffix(length))
+                    ω(moment, length, k.baseAddress.unsafelyUnwrapped, length)
+                    vDSP.multiply(Fₛ, k, result: &k[0..<length])
+                    vForce.tanPi(k, result: &k[0..<length])
+                    B(moment, length, W.baseAddress.unsafelyUnwrapped, length)
+                    vDSP.fill(&K[0..<length], with: 1)
+                    for offset in Swift.stride(from: length, to: Nₛ.x * length, by: length) {
+                        vDSP.multiply(k, K[0..<length], result: &K[0..<length])
+                        vDSP.multiply(K, W[offset..<offset+length], result: &W[offset..<offset+length])
+                    }
+                    gemm(length, N, Bₛ.count,
+                         1,
+                         W.baseAddress.unsafelyUnwrapped, length, .N,
+                         Kₛ, N, .T,
+                         0,
+                         target.advanced(by: 0 * stride), stride)
+                    A(moment, length, W.baseAddress.unsafelyUnwrapped, length)
+                    vDSP.fill(&K[0..<length], with: 1)
+                    for offset in Swift.stride(from: length, to: Nₛ.y * length, by: length) {
+                        vDSP.multiply(K, k[0..<length], result: &K[0..<length])
+                        vDSP.multiply(K, W[offset..<offset+length], result: &W[offset..<offset+length])
+                    }
+                    gemm(length, N, Aₛ.count,
+                         1,
+                         W.baseAddress.unsafelyUnwrapped, length, .N,
+                         Kₛ, N, .T,
+                         0,
+                         target.advanced(by: N * stride), stride)
+                }
+            }
+        }
+    }
+    @inlinable
+    var count: Int {
+        2 * max(Bₛ.count, Aₛ.count)
+    }
+}
+// MARK: TransferFunction
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Publisher<(Int, Frequency), Never>,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source,
+           iir: repeatElement(ω₀, count: source.count).enumerated().publisher.map { k, y in
+        (k, Prototype.TransferFunction.Rn(ω₀: y.compactMap {
+            k == $0 ? .some($1) : .none
+        }, Bₛ: Bₛ, Aₛ: Aₛ))
+    }, counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Publisher<Frequency, Never> & Sendable,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source,
+           iir: Prototype.TransferFunction.Rn(ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ))
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Sequence<Frequency>,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source,
+           iir: ω₀.lazy.map {
+        Prototype.TransferFunction.Rn(ω₀: Just($0), Bₛ: Bₛ, Aₛ: Aₛ)
+    })
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: Frequency,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source,
+           iir: Prototype.TransferFunction.Rn(ω₀: Just(ω₀), Bₛ: Bₛ, Aₛ: Aₛ)
+    )
+}
+@inline(__always)@_transparent@_disfavoredOverload
+func filter(_ source: Stream,
+            ω₀: Frequency...,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source, ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ)
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: Stream,
+            Bₛ: Array<Float64>,
+            Aₛ: Array<Float64>) -> some DSP.Stream {
+    filter(source, iir: Prototype.TransferFunction.Ar(ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ), counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
+}
+// MARK: BiquadSeries
 @inline(__always)@_transparent
 func filter(_ source: Stream,
             ω₀: some Publisher<(Int, Frequency), Never>,
             H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
             H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
-    return filter(source, sos: ω₀.map {
-        ($0, Prototype.BiquadSeries.Rn(ω₀: $1, Hₛ: Hₛ))
+    return filter(source,
+                  sos: repeatElement(ω₀, count: source.count).enumerated().publisher.map { k, ω in
+        (k, Prototype.BiquadSeries.Rn(ω₀: ω.compactMap {
+            $0 == k ? .some($1) : .none
+        }, Hₛ: Hₛ))
     }, count: Hₛ.count)
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Publisher<Frequency, Never> & Sendable,
+            H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
+            H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
+    let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
+    return filter(source, sos: Prototype.BiquadSeries.Rn(ω₀: ω₀, Hₛ: Hₛ))
+}
+@inline(__always)@_transparent
+func filter(_ source: Stream,
+            ω₀: some Sequence<Frequency>,
+            H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
+            H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
+    let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
+    return filter(source, sos: ω₀.lazy.map {
+        Prototype.BiquadSeries.Rn(ω₀: Just($0), Hₛ: Hₛ)
+    }, count: .some(Hₛ.count))
+}
+@inline(__always)@_transparent@_disfavoredOverload
+func filter(_ source: Stream,
+            ω₀: Frequency,
+            H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
+            H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
+    let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
+    return filter(source, sos: Prototype.BiquadSeries.Rn(ω₀: Just(ω₀), Hₛ: Hₛ))
+}
+@inline(__always)@_transparent@_disfavoredOverload
+func filter(_ source: Stream,
+            ω₀: Frequency...,
+            H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
+            H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
+    filter(source, ω₀: ω₀, H₁: H₁, H₂: H₂)
 }
 @inline(__always)@_transparent
 func filter(_ source: Stream,
@@ -359,22 +638,6 @@ func filter(_ source: Stream,
             H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
     return filter(source, sos: Prototype.BiquadSeries.Ar(ω₀: ω₀, Hₛ: Hₛ))
-}
-@inline(__always)@_transparent
-func filter(_ source: Stream,
-            ω₀: some Publisher<(Int, Frequency), Never>,
-            Bₛ: Array<Float64>,
-            Aₛ: Array<Float64>) -> some DSP.Stream {
-    filter(source, iir: ω₀.map {
-        ($0, Prototype.TransferFunction.Rn(ω₀: $1, Bₛ: Bₛ, Aₛ: Aₛ))
-    }, counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
-}
-@inline(__always)@_transparent
-func filter(_ source: Stream,
-            ω₀: Stream,
-            Bₛ: Array<Float64>,
-            Aₛ: Array<Float64>) -> some DSP.Stream {
-    filter(source, iir: Prototype.TransferFunction.Ar(ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ), counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
 }
 extension Prototype.BLT {
     @inlinable
