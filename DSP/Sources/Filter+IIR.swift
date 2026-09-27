@@ -17,7 +17,7 @@ extension Filter {
     @usableFromInline
     enum IIR {
         @usableFromInline
-        struct Kr<Signal: Publisher<(Int, Design), Never> & Sendable, Design: Filter.TransferFunction<Float64>> {
+        struct Kr<Signal: Publisher<(Int, System), Never> & Sendable, System: Filter.TransferFunction<Float64>> {
             @usableFromInline let x: Stream
             @usableFromInline let z: Signal
             @usableFromInline let b: Int
@@ -42,30 +42,37 @@ extension Filter.IIR.Kr: Stream {
 		let xk = try x(interval: interval, capacity: capacity, instance: &instance)
         switch x.count {
         case 1:
-            let system = Mutex<(Array<Float64>, Array<Float64>)>((
-                .init(repeating: 0, count: b),
-                .init(unsafeUninitializedCapacity: a) {
-                    $1 = $0.count
-                    $0.prefix(1).initialize(repeating: 1)
-                    $0.dropFirst().initialize(repeating: .zero)
-                })
-            )
-            let cancel = z.sink { k, zp in
-                switch k {
-                case 0:
-                    let (B, A) = zp.coefficients(for: interval)
-                    system.withLock {
-                        $0.0.replaceSubrange(0..<B.count, with: B)
-                        $0.1.replaceSubrange(0..<A.count, with: A)
-                    }
-                default:
-                    assertionFailure("out of range")
-                }
-            }
             let object = Autorelease.Object(object: transversal_filter_create(b, a)) {
                 transversal_filter_destroy($0)
             }
-            return { [cancel] in
+            let period = SIMD2<Int>(b, a)
+            let system = Mutex<(Array<Float64>, Array<Float64>)>((
+                .init(unsafeUninitializedCapacity: period.x) {
+                    $1 = $0.count
+                    $0.prefix(1).initialize(repeating: 1)
+                    $0.dropFirst().initialize(repeating: .zero)
+                },
+                .init(unsafeUninitializedCapacity: period.y) {
+                    $1 = $0.count
+                    $0.prefix(1).initialize(repeating: 1)
+                    $0.dropFirst().initialize(repeating: .zero)
+                }
+            ))
+            let cancel = z.flatMap {
+                assert($0 == 0)
+                return $1.coefficients(for: interval)
+            }.sink { [b, a] in
+                let bc = $0.prefix(b)
+                let ac = $1.prefix(a)
+                system.withLock {
+                    $0.0.replaceSubrange(0..<bc.count, with: bc)
+                    $0.0.replaceSubrange(bc.count..<period.x, with: repeatElement(0, count: b - bc.count))
+                    $0.1.replaceSubrange(0..<ac.count, with: ac)
+                    $0.1.replaceSubrange(ac.count..<period.y, with: repeatElement(0, count: a - ac.count))
+                }
+            }
+            instance.store(cancel, interval: interval, capacity: capacity)
+            return {
                 xk($0, $1, $2, $3)
                 let (B, A) = system.withLock(\.self)
                 transversal_filter_static(object.reference,
@@ -77,26 +84,44 @@ extension Filter.IIR.Kr: Stream {
             }
         case let c:
             assert(1 < c)
-            let system = Mutex<(Array<Float64>, Array<Float64>)>((
-                .init(repeating: 0, count: b * c),
-                .init(repeating: 0, count: a * c))
-            )
-            let cancel = z.sink { k, zp in
-                switch k {
-                case 0..<c:
-                    let (B, A) = zp.coefficients(for: interval)
-                    system.withLock {
-                        $0.0.replaceSubrange(b*k..<b*k+B.count, with: B)
-                        $0.1.replaceSubrange(a*k..<a*k+A.count, with: A)
-                    }
-                default:
-                    assertionFailure("out of range")
-                }
-            }
             let object = Autorelease.Object(object: transversal_filter_create(b, a, c)) {
                 transversal_filter_destroy($0)
             }
-            return { [object, cancel, b, a] in
+            let period = SIMD2<Int>(b, a)
+            let system = Mutex<(Array<Float64>, Array<Float64>)>((
+                repeatElement(Array<Float64>(unsafeUninitializedCapacity: period.x) {
+                    $1 = $0.count
+                    $0.prefix(1).initialize(repeating: 1)
+                    $0.dropFirst().initialize(repeating: .zero)
+                }, count: c).flatMap(\.self),
+                repeatElement(Array<Float64>(unsafeUninitializedCapacity: period.y) {
+                    $1 = $0.count
+                    $0.prefix(1).initialize(repeating: 1)
+                    $0.dropFirst().initialize(repeating: .zero)
+                }, count: c).flatMap(\.self),
+            ))
+            let cancel = z.flatMap {
+                assert(0..<c ~= $0)
+                let offset = period &* .init(repeating: $0)
+                return $1.coefficients(for: interval).map { (offset, $0) }
+            }.sink {
+                let b = switch $1.b.prefix(period.x) {
+                case let s:
+                    ($0.x, s)
+                }
+                let a = switch $1.a.prefix(period.y) {
+                case let s:
+                    ($0.y, s)
+                }
+                system.withLock {
+                    $0.0.replaceSubrange(b.0..<b.0+b.1.count, with: b.1)
+                    $0.0.replaceSubrange(b.0+b.1.count..<b.0+period.x, with: repeatElement(0, count: period.x - b.1.count))
+                    $0.1.replaceSubrange(a.0..<a.0+a.1.count, with: a.1)
+                    $0.1.replaceSubrange(a.0+a.1.count..<a.0+period.y, with: repeatElement(0, count: period.y - a.1.count))
+                }
+            }
+            instance.store(cancel, interval: interval, capacity: capacity)
+            return { [object, b, a] in
                 xk($0, $1, $2, $3)
                 let (B, A) = system.withLock(\.self)
                 transversal_filter_static(object.reference,
@@ -158,20 +183,27 @@ extension Filter.IIR.Ar: Stream {
 	}
 }
 @_disfavoredOverload
-public func filter(_ source: Stream, iir design: some Publisher<(Int, some Filter.TransferFunction<Float64>), Never> & Sendable, counts: SIMD2<Int>) -> some Stream {
-    Filter.IIR.Kr(x: source, z: design, b: counts.x, a: counts.y)
+public func filter(_ source: Stream, iir system: some Publisher<(Int, some Filter.TransferFunction<Float64>), Never> & Sendable, counts: SIMD2<Int>) -> some Stream {
+    Filter.IIR.Kr(x: source, z: system, b: counts.x, a: counts.y)
 }
-@inlinable
-public func filter(_ source: Stream, iir design: some Publisher<some Filter.TransferFunction<Float64>, Never>, counts: SIMD2<Int>) -> some Stream {
-	filter(source, iir: design.repeat(count: source.count), counts: counts)
+@_disfavoredOverload
+public func filter(_ source: Stream, iir system: some Publisher<some Filter.TransferFunction<Float64>, Never>, counts: SIMD2<Int>) -> some Stream {
+    Filter.IIR.Kr(x: source, z: system.repeat(count: source.count), b: counts.x, a: counts.y)
 }
-@inlinable
-public func filter(_ source: Stream, iir design: some Sequence<some Filter.TransferFunction<Float64>>) -> some Stream{
-    filter(source, iir: design.prefix(count: source.count), counts: design.map(\.counts).reduce(SIMD2<Int>(repeating: 0), simd_max))
+@_disfavoredOverload
+public func filter(_ source: Stream, iir system: some Sequence<some Filter.TransferFunction<Float64>> & Sendable, counts: Optional<SIMD2<Int>> = .none) -> some Stream {
+    switch counts ?? system.lazy.map(\.counts).reduce(.init(repeating: 1), simd_max) {
+    case let n:
+        Filter.IIR.Kr(x: source, z: system.prefix(count: source.count), b: n.x, a: n.y)
+    }
 }
-@inlinable
-public func filter(_ source: Stream, iir design: some Filter.TransferFunction<Float64>) -> some Stream {
-    filter(source, iir: `repeat`(design, count: source.count), counts: design.counts)
+@_disfavoredOverload
+public func filter(_ source: Stream, iir system: some Filter.TransferFunction<Float64>) -> some Stream {
+    Filter.IIR.Kr(x: source, z: `repeat`(system, count: source.count), b: system.counts.x, a: system.counts.y)
+}
+@inlinable@_disfavoredOverload
+public func filter<System: Filter.TransferFunction<Float64>>(_ source: Stream, iir system: System...) -> some Stream {
+    filter(source, iir: system)
 }
 @_disfavoredOverload
 public func filter(_ source: Stream, iir design: Stream, counts: SIMD2<Int>) -> some Stream {
@@ -179,5 +211,5 @@ public func filter(_ source: Stream, iir design: Stream, counts: SIMD2<Int>) -> 
 }
 @inlinable
 public func filter(_ source: Stream, iir design: (b: Stream, a: Stream)) -> some Stream {
-    filter(source, iir: stack(design.b, design.a), counts: .init(design.b.count, design.a.count))
+    filter(source, iir: stack(design.b, design.a, parallel: false), counts: .init(design.b.count, design.a.count))
 }
