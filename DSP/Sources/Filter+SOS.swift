@@ -9,7 +9,6 @@
 @preconcurrency import typealias Combine.Publishers
 import typealias Synchronization.Mutex
 import typealias Accelerate.vDSP
-import typealias Accelerate.vForce
 import func Accelerate.vecLib.vDSP_biquadm_CreateSetupD
 import func Accelerate.vecLib.vDSP_biquadm_DestroySetupD
 import func Accelerate.vecLib.vDSP_biquadm_SetTargetsDoubleD
@@ -24,10 +23,7 @@ import func NSP.biquad_filter_destroy
 import func NSP.biquad_filter_active
 import func NSP.biquad_filter_convolve_static
 import func NSP.biquad_filter_convolve_active
-import func simd.cos
-import func simd.log2
 import typealias Auxiliary.Autorelease
-import typealias ESP.BiquadFilter
 extension SIMD2: @retroactive RandomAccessCollection<Scalar> {
     @inlinable
     public var startIndex: Int { 0 }
@@ -59,50 +55,40 @@ extension SIMD3: @retroactive AccelerateBuffer<Scalar> {
     }
 }
 extension Filter {
-    public protocol Biquad<Scalar>: TransferFunction where B == SIMD3<Scalar>, A == SIMD3<Scalar>, Scalar: SIMDScalar {
-        @inlinable
-        func coefficients(for Tₛ: CMTime) -> (b: B, a: A)
-    }
+//    public protocol Biquad<Scalar>: TransferFunction where B == SIMD3<Scalar>, A == SIMD3<Scalar>, Scalar: SIMDScalar {
+//        associatedtype BiquadCoefficient: Publisher<(b: SIMD3<Scalar>, a: SIMD3<Scalar>), Never>
+//        func coefficients(for Tₛ: CMTime) -> BiquadCoefficient
+//    }
     public protocol BiquadSeries<Scalar>: TransferFunction where Scalar: SIMDScalar {
-        associatedtype Biquad: Collection<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
-        associatedtype Sections: Publisher<(Range<Int>, Biquad), Never>
+        associatedtype BiquadSeriesCollection: Collection<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
+        associatedtype BiquadSeriesCoefficients: Publisher<(Range<Int>, BiquadSeriesCollection), Never>
         @inlinable
-        func sections(for Tₛ: CMTime) -> Sections
+        func coefficients(for Tₛ: CMTime) -> BiquadSeriesCoefficients
         @inlinable
         var count: Int { get } // number of stages
     }
 }
-extension Filter.Biquad {
-    @inlinable
-    public var counts: SIMD2<Int> {
-        .init(3, 3)
-    }
-    @inlinable
-    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Scalar> where Scalar == Float64 {
-        let (b, a) = coefficients(for: Tₛ)
-        return.init(unsafeUninitializedCapacity: 5) {
-            $1 = $0.startIndex.distance(to: $0[$0.initialize(fromContentsOf: b / a.x)...].initialize(fromContentsOf: (a / a.x).dropFirst()))
-        }
-    }
-    @inlinable
-    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Scalar> where Scalar == Float32 {
-        let (b, a) = coefficients(for: Tₛ)
-        return.init(unsafeUninitializedCapacity: 5) {
-            $1 = $0.startIndex.distance(to: $0[$0.initialize(fromContentsOf: b / a.x)...].initialize(fromContentsOf: (a / a.x).dropFirst()))
-        }
-    }
-    @inlinable
-    public func normalizedCoefficients(for Tₛ: CMTime) -> Array<Scalar> where Scalar == Float16 {
-        let (b, a) = coefficients(for: Tₛ)
-        return.init(unsafeUninitializedCapacity: 5) {
-            $1 = $0.startIndex.distance(to: $0[$0.initialize(fromContentsOf: b / a.x)...].initialize(fromContentsOf: (a / a.x).dropFirst()))
-        }
-    }
-}
+//extension Filter.Biquad {
+//    @inlinable
+//    public var counts: SIMD2<Int> {
+//        .init(3, 3)
+//    }
+//    @inlinable
+//    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<BiquadCoefficient, (b: Array<Scalar>, a: Array<Scalar>)> {
+//        (coefficients(for: Tₛ) as BiquadCoefficient).map {(
+//            b: withUnsafeBytes(of: $0.b) {
+//                $0.withMemoryRebound(to: Scalar.self, Array.init)
+//            },
+//            a: withUnsafeBytes(of: $0.a) {
+//                $0.withMemoryRebound(to: Scalar.self, Array.init)
+//            }
+//        )}
+//    }
+//}
 extension Filter.BiquadSeries {
     @inlinable
-    func scan(for Tₛ: CMTime) -> Publishers.Scan<Sections, Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>> {
-        sections(for: Tₛ).scan(Array(repeating: (
+    func scan(for Tₛ: CMTime) -> Publishers.Scan<BiquadSeriesCoefficients, Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>> {
+        coefficients(for: Tₛ).scan(Array(repeating: (
             b: .init(x: 1, y: 0, z: 0),
             a: .init(x: 1, y: 0, z: 0)
         ), count: count)) {
@@ -137,7 +123,7 @@ extension Filter.BiquadSeries {
 }
 extension Filter.BiquadSeries where Scalar == Float64 {
     @inlinable
-    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<Publishers.Scan<Sections, Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>>, (b: Array<Scalar>, a: Array<Scalar>)> {
+    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<Publishers.Scan<BiquadSeriesCoefficients, Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>>, (b: Array<Scalar>, a: Array<Scalar>)> {
         scan(for: Tₛ).map {
             $0.reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
                 switch ($0, $1) {
@@ -165,7 +151,7 @@ extension Filter.BiquadSeries where Scalar == Float64 {
 }
 extension Filter.BiquadSeries where Scalar == Float32 {
     @inlinable
-    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<Publishers.Scan<Sections, Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>>, (b: Array<Scalar>, a: Array<Scalar>)> {
+    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<Publishers.Scan<BiquadSeriesCoefficients, Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>>, (b: Array<Scalar>, a: Array<Scalar>)> {
         scan(for: Tₛ).map {
             $0.reduce((Array<Scalar>(arrayLiteral: 1), Array<Scalar>(arrayLiteral: 1))) {
                 switch ($0, $1) {
@@ -251,7 +237,7 @@ extension Filter.SOS.Kr: DSP.Stream {
                                 ))
             let cancel = design.flatMap {
                 assert($0 == 0)
-                return $1.sections(for: interval)
+                return $1.coefficients(for: interval)
             }.sink { range, value in
                 filter.withLock {
                     $0.0.replaceSubrange(range, with: value.lazy.map(\.b))
@@ -281,7 +267,7 @@ extension Filter.SOS.Kr: DSP.Stream {
                 throw Error.failedToAllocate(OpaquePointer.self)
             }
             let cancel = design.flatMap { index, value in
-                value.sections(for: interval).map { (index, $0) }
+                value.coefficients(for: interval).map { (index, $0) }
             }.sink {
                 assert((0..<stream) ~= $0)
                 var buffer = Array<Float64>()
