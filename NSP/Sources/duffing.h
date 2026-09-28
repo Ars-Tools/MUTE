@@ -8,10 +8,10 @@
 #include<simd/simd.h>
 void duffing_filter_convolve_static(register simd_double3 const b,
                                     register simd_double3 const a,
+                                    simd_double2 const ab,
                                     register double const * __nonnull x,
                                     register double       * __nonnull y,
                                     simd_double2 * __nonnull const h,
-                                    simd_double2 const ab,
                                     intptr_t const length);
 void duffing_filter_convolve_active(register double const * __nonnull b0,
                                     register double const * __nonnull b1,
@@ -19,10 +19,10 @@ void duffing_filter_convolve_active(register double const * __nonnull b0,
                                     register double const * __nonnull a0,
                                     register double const * __nonnull a1,
                                     register double const * __nonnull a2,
+                                    simd_double2 const ab,
                                     register double const * __nonnull x,
                                     register double       * __nonnull y,
                                     simd_double2 * __nonnull const h,
-                                    simd_double2 const ab,
                                     intptr_t const length);
 typedef struct {
 	simd_double4 * __nonnull const s;
