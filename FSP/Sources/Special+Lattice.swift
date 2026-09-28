@@ -10,7 +10,7 @@ import protocol Accelerate.AccelerateMutableBuffer
 import func Accelerate.vDSP_wienerD
 import typealias CoreMedia.CMTime
 import protocol DSP.Stream
-import protocol DSP.Kernel
+import typealias DSP.Filter
 import typealias DSP.Instance
 import func NSP.lattice_filter_create
 import func NSP.lattice_filter_destroy
@@ -24,7 +24,7 @@ extension Special {
     @usableFromInline
     enum Lattice {
         @usableFromInline
-        struct Kr<Signal: Publisher<(Int, Kernel), Never> & Sendable, Kernel: DSP.Kernel<Float64>> {
+        struct Kr<Signal: Publisher<(Int, Kernel), Never> & Sendable, Kernel: Filter.Kernel<Float64>> {
             @usableFromInline let x₀: Stream
             @usableFromInline let p₀: Signal
             @usableFromInline let order: Int
@@ -48,21 +48,25 @@ extension Special.Lattice.Kr: Stream {
             lattice_filter_destroy($0)
         }
         let parcor = Mutex<Array<Float64>>(.init(repeating: .zero, count: order * x₀.count))
-        let cancel = p₀.sink {
+        let cancel = p₀.flatMap { k, v in
+            v.coefficient(for: interval).map { (k ,$0) }
+        }.sink {
             switch $0 {
             case 0..<object.reference.pointee.c:
-                let value = $1.coefficients(for: interval)
+                let value = $1.prefix(object.reference.pointee.n)
                 let range = $0 * object.reference.pointee.n ..< $0 * object.reference.pointee.n + value.count
                 parcor.withLock {
                     $0.replaceSubrange(range, with: value)
+                    $0.replaceSubrange(range.upperBound..<range.lowerBound+object.reference.pointee.n,
+                                       with: repeatElement(0, count: object.reference.pointee.n - value.count))
                 }
             default:
                 assertionFailure("out of range")
             }
         }
+        instance.store(cancel, interval: interval, capacity: capacity)
         return {
             xₖ($0, $1, $2, $3)
-            let object = withExtendedLifetime(cancel) { object }
             lattice_filter_static(object.reference,
                                   parcor.withLock(\.self), object.reference.pointee.n,
                                   $2, $3,
@@ -97,16 +101,16 @@ extension Special.Lattice.Ar: Stream {
         }
     }
 }
-public func filter(_ source: Stream, stg pₙ: some Publisher<(Int, some Kernel<Float64>), Never> & Sendable, order: Int) -> some Stream {
+public func filter(_ source: Stream, stg pₙ: some Publisher<(Int, some Filter.Kernel<Float64>), Never> & Sendable, order: Int) -> some Stream {
     Special.Lattice.Kr(x₀: source, p₀: pₙ, order: order)
 }
-public func filter(_ source: Stream, stg pₙ: some Publisher<some Kernel<Float64>, Never>, order: Int) -> some Stream {
+public func filter(_ source: Stream, stg pₙ: some Publisher<some Filter.Kernel<Float64>, Never>, order: Int) -> some Stream {
     filter(source, stg: pₙ.repeat(count: source.count), order: order)
 }
-public func filter(_ source: Stream, stg pₙ: some Sequence<some Kernel<Float64>>, order: Int) -> some Stream {
+public func filter(_ source: Stream, stg pₙ: some Sequence<some Filter.Kernel<Float64>>, order: Int) -> some Stream {
     filter(source, stg: pₙ.prefix(count: source.count), order: order)
 }
-public func filter(_ source: Stream, stg pₙ: some Kernel<Float64>) -> some Stream {
+public func filter(_ source: Stream, stg pₙ: some Filter.Kernel<Float64>) -> some Stream {
     filter(source, stg: `repeat`(pₙ, count: source.count), order: pₙ.count)
 }
 @_disfavoredOverload
