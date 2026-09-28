@@ -424,19 +424,19 @@ extension Prototype.BLT.Kr: DSP.Stream {
             instance.store(cancel, interval: interval, capacity: capacity)
             return { moment, length, target, stride in
                 withUnsafeTemporaryAllocation(of: Float64.self, capacity: N * length) {
-                    let W = UnsafeMutableBufferPointer(rebasing: $0.prefix(N * length))
+                    guard case.some(let W) = $0.baseAddress else { return }
                     let K = Kₛ.withLock(\.self)
-                    B(moment, length, W.baseAddress.unsafelyUnwrapped, length)
+                    B(moment, length, W, length)
                     gemm(length, N, Bₛ.count,
                          1,
-                         W.baseAddress.unsafelyUnwrapped, length, .N,
+                         W, length, .N,
                          K, N, .T,
                          0,
                          target.advanced(by: 0 * stride), stride)
-                    A(moment, length, W.baseAddress.unsafelyUnwrapped, length)
+                    A(moment, length, W, length)
                     gemm(length, N, Aₛ.count,
                          1,
-                         W.baseAddress.unsafelyUnwrapped, length, .N,
+                         W, length, .N,
                          K, N, .T,
                          0,
                          target.advanced(by: N * stride), stride)
