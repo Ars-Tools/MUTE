@@ -101,3 +101,52 @@ void duffing_filter_static(duffing_filter_t * __nonnull const object,
 		object->s[c] = (simd_double4 const) {z.x, z.y, w.x, w.y};
 	}
 }
+__attribute__((always_inline))
+void duffing_filter_convolve_static(register simd_double3 const b,
+                                    register simd_double3 const a,
+                                    register double const * __nonnull x,
+                                    register double       * __nonnull y,
+                                    simd_double2 * __nonnull const h,
+                                    simd_double2 const ab,
+                                    intptr_t const length) {
+    register simd_double2x2 const S = {
+        (simd_double2 const) { b.y,  b.z},
+        (simd_double2 const) {-a.y, -a.z}
+    };
+    register simd_double2 s = *h;
+    for ( register intptr_t k = 0 ; k < length ; ++ k ) {
+        register double const _ = *x++;
+        s = simd_mul(S, (simd_double2 const) {
+            _,
+            *y++ = cardano_solver(fma(_, b.x, s.x) / a.x, ab.x, ab.y),
+        }) + (simd_double2 const) {s.y, 0};
+    }
+    *h = s;
+}
+__attribute__((always_inline))
+void duffing_filter_convolve_active(register double const * __nonnull b0,
+                                    register double const * __nonnull b1,
+                                    register double const * __nonnull b2,
+                                    register double const * __nonnull a0,
+                                    register double const * __nonnull a1,
+                                    register double const * __nonnull a2,
+                                    register double const * __nonnull x,
+                                    register double       * __nonnull y,
+                                    simd_double2 * __nonnull const h,
+                                    simd_double2 const ab,
+                                    intptr_t const length) {
+    
+    register simd_double2 s = *h;
+    for ( register intptr_t k = 0 ; k < length ; ++ k ) {
+        register simd_double2x2 const S = {
+            (simd_double2 const) { *b1++,  *b2++},
+            (simd_double2 const) {-*a1++, -*a2++}
+        };
+        register double const _ = *x++;
+        s = simd_mul(S, (simd_double2 const) {
+            _,
+            *y++ = cardano_solver(fma(_, *b0++, s.x) / *a0++, ab.x, ab.y),
+        }) + (simd_double2 const) {s.y, 0};
+    }
+    *h = s;
+}
