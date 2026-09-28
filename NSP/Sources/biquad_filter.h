@@ -73,18 +73,45 @@ void biquad_filter_convolve_static(register simd_double3 const b,
     *h = z;
 }
 __attribute__((overloadable, always_inline)) static inline /*SOS*/
-void biquad_filter_convolve_static(register simd_double3 const * __nonnull const b,
-                                   register simd_double3 const * __nonnull const a,
+void biquad_filter_convolve_static(register simd_double3 const * __nonnull b,
+                                   register simd_double3 const * __nonnull a,
                                    register double const * __nonnull x,
                                    register double       * __nonnull y,
-                                   simd_double4 * __nonnull const h, intptr_t const c,
+                                   register simd_double2 * __nonnull h, intptr_t const c,
                                    intptr_t const length) {
-    for ( register intptr_t k = 0, K = c ; k < K ; ++ k )
-        biquad_filter_convolve_static(b[k],
-                                      a[k],
-                                      k ? y : x,
+    biquad_filter_convolve_static(*b++,
+                                  *a++,
+                                  x,
+                                  y,
+                                  h++,
+                                  length);
+    for ( register intptr_t k = 1 ; k < c ; ++ k )
+        biquad_filter_convolve_static(*b++,
+                                      *a++,
                                       y,
-                                      h + k,
+                                      y,
+                                      h++,
+                                      length);
+}
+__attribute__((overloadable, always_inline)) static inline /*SOS*/
+void biquad_filter_convolve_static(register simd_double3 const * __nonnull b,
+                                   register simd_double3 const * __nonnull a,
+                                   register double const * __nonnull x,
+                                   register double       * __nonnull y,
+                                   register simd_double4 * __nonnull h, intptr_t const c,
+                                   intptr_t const length) {
+    biquad_filter_convolve_static(*b++,
+                                  *a++,
+                                  x,
+                                  y,
+                                  h++,
+                                  length);
+    for ( register intptr_t k = 1 ; k < c ; ++ k )
+        biquad_filter_convolve_static(*b++,
+                                      *a++,
+                                      y,
+                                      y,
+                                      h++,
                                       length);
 }
 __attribute__((overloadable, always_inline)) static inline /*Cascaded Zero-Pole, Paired Real Root*/
