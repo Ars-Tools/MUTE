@@ -78,3 +78,6 @@ extension Dup.Ne: Stream {
 public func `repeat`(_ source: Stream, count: Int) -> some Stream {
 	Dup.Ne(source: source, repeat: count)
 }
+public func dup(_ source: Stream, count: Int) -> some Stream {
+    Dup.Ne(source: source, repeat: count)
+}
