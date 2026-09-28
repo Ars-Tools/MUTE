@@ -13,8 +13,8 @@ public enum Filter {
         associatedtype Scalar: Numeric
         associatedtype A: AccelerateBuffer<Scalar> & RandomAccessCollection<Scalar> where A.Index == Int
         associatedtype B: AccelerateBuffer<Scalar> & RandomAccessCollection<Scalar> where B.Index == Int
-        associatedtype Coefficients: Publisher<(b: B, a: A), Never> & Sendable
-        @inlinable func coefficients(for Tₛ: CMTime) -> Coefficients
+        associatedtype TransferFunctionCoefficients: Publisher<(b: B, a: A), Never> & Sendable
+        @inlinable func coefficients(for Tₛ: CMTime) -> TransferFunctionCoefficients
         @inlinable var counts: SIMD2<Int> { get }
     }
 }
@@ -25,14 +25,14 @@ extension CollectionOfOne: @retroactive AccelerateBuffer {
 }
 extension Filter {
     public protocol Kernel<Scalar>: TransferFunction where A == CollectionOfOne<Scalar> {
-        associatedtype Coefficient: Publisher<B, Never> & Sendable
-        @inlinable func coefficient(for Tₛ: CMTime) -> Coefficient
+        associatedtype KernelCoefficients: Publisher<B, Never> & Sendable
+        @inlinable func coefficient(for Tₛ: CMTime) -> KernelCoefficients
         var count: Int { get }
     }
 }
 extension Filter.Kernel {
     @inlinable
-    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<Coefficient, (b: B, a: A)> {
+    public func coefficients(for Tₛ: CMTime) -> Publishers.Map<KernelCoefficients, (b: B, a: A)> {
         coefficient(for: Tₛ).map {
             (b: $0, a: CollectionOfOne<Scalar>(1))
         }
@@ -43,20 +43,18 @@ extension Filter.Kernel {
     }
 }
 extension Array: Filter.TransferFunction & Filter.Kernel where Element: Numeric {
-    public typealias Coefficient = Just<B>
     public typealias Scalar = Element
     public typealias B = Array<Scalar>
     @inlinable
-    public func coefficient(for Tₛ: CMTime) -> Coefficient {
+    public func coefficient(for Tₛ: CMTime) -> Just<B> {
         Just(self)
     }
 }
 extension ArraySlice: Filter.TransferFunction & Filter.Kernel where Element: Numeric {
-    public typealias Coefficient = Just<B>
     public typealias Scalar = Element
     public typealias B = ArraySlice<Scalar>
     @inlinable
-    public func coefficient(for Tₛ: CMTime) -> Coefficient {
+    public func coefficient(for Tₛ: CMTime) -> Just<B> {
         Just(self)
     }
 }
