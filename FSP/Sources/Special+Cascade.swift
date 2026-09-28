@@ -20,7 +20,7 @@ import func DSP.filter
 import func DSP.stack
 extension Filter {
     public enum Cascade {
-        public struct Kr {
+        public struct Rn {
             @usableFromInline
             let rawValue: Array<Section>
             public struct Section: Sendable {
@@ -39,14 +39,14 @@ extension Filter {
     }
 }
 // MARK: Kr
-extension Filter.Cascade.Kr: Filter.BiquadSeries {
-    public typealias Biquad = CollectionOfOne<(b: SIMD3<Float64>, a: SIMD3<Float64>)>
-    public typealias Sections = Publishers.MergeMany<Publishers.Map<AnyPublisher<Linear.Biquad, Never>, (Range<Int>, Biquad)>>
+extension Filter.Cascade.Rn: Filter.BiquadSeries {
+    public typealias BiquadSeriesCollection = CollectionOfOne<(b: SIMD3<Float64>, a: SIMD3<Float64>)>
+    public typealias BiquadSeriesCoefficients = Publishers.MergeMany<Publishers.Map<AnyPublisher<Linear.Biquad, Never>, (Range<Int>, BiquadSeriesCollection)>>
     public typealias A = Array<Float64>
     public typealias B = Array<Float64>
     public typealias Scalar = Float64
     @inlinable
-    public func sections(for Tₛ: CMTime) -> Sections {
+    public func coefficients(for Tₛ: CMTime) -> BiquadSeriesCoefficients {
         Publishers.MergeMany(
             rawValue.enumerated().map {
                 let range = Range<Int>($0...$0)
@@ -80,7 +80,7 @@ extension Filter.Cascade.Ar: DSP.Stream {
     }
 }
 // MARK: BPF
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func bpf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>
@@ -147,7 +147,7 @@ extension Filter.Cascade.Kr.Section {
     }
 }
 // MARK: LPF
-extension Filter.Cascade.Kr.Section { // Kr
+extension Filter.Cascade.Rn.Section { // Kr
     public static func lpf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>
@@ -214,7 +214,7 @@ extension Filter.Cascade.Kr.Section { // Kr
     }
 }
 // MARK: HPF
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func hpf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>
@@ -281,7 +281,7 @@ extension Filter.Cascade.Kr.Section {
     }
 }
 // MARK: APF
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func apf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>
@@ -348,7 +348,7 @@ extension Filter.Cascade.Kr.Section {
     }
 }
 // MARK: BSF
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func bsf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>
@@ -415,7 +415,7 @@ extension Filter.Cascade.Kr.Section {
     }
 }
 // MARK: LSF
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func lsf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>,
@@ -622,7 +622,7 @@ extension Filter.Cascade.Kr.Section {
     }
 }
 // MARK: HSF
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func hsf(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>,
@@ -829,7 +829,7 @@ extension Filter.Cascade.Kr.Section {
     }
 }
 // MARK: PEQ
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func peq(
         ω₀: some Publisher<Frequency, Never>,
         Q: some Publisher<Float64, Never>,
@@ -1037,7 +1037,7 @@ extension Filter.Cascade.Kr.Section {
 }
 
 // MARK: RAW
-extension Filter.Cascade.Kr.Section {
+extension Filter.Cascade.Rn.Section {
     public static func raw(_ object: Linear.Biquad) -> Self {
         let raw = Just(object).eraseToAnyPublisher()
         return.init { _ in
@@ -1056,11 +1056,11 @@ prefix operator ∂
 public prefix func ∂(x: Stream) -> some Stream { // diff(f(t)) without reset trigger
     filter(x, sos: .raw(b: .init( 1, 0, -1), a: .init( 1, 1, 0)))
 }
-public func filter(_ source: Stream, sos series: some Sequence<Filter.Cascade.Kr.Section> & Sendable) -> some Stream {
-    filter(source, sos: Filter.Cascade.Kr(rawValue: .init(series)))
+public func filter(_ source: Stream, sos series: some Sequence<Filter.Cascade.Rn.Section> & Sendable) -> some Stream {
+    filter(source, sos: Filter.Cascade.Rn(rawValue: .init(series)))
 }
 @inlinable@_disfavoredOverload
-public func filter(_ source: Stream, sos series: Filter.Cascade.Kr.Section...) -> some Stream {
+public func filter(_ source: Stream, sos series: Filter.Cascade.Rn.Section...) -> some Stream {
     filter(source, sos: series)
 }
 public func filter(_ source: Stream, sos series: some Sequence<Filter.Cascade.Ar.Section>) -> some Stream {
