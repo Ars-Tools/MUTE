@@ -52,10 +52,7 @@ enum Prototype {
         }
     }
 	@usableFromInline
-    struct BLT {
-        @usableFromInline let ω₀: Stream
-        @usableFromInline let Bₛ: Array<Float64>
-        @usableFromInline let Aₛ: Array<Float64>
+    enum BLT {
         @usableFromInline
         struct Kr<Cutoff: Publisher<Frequency, Never> & Sendable> {
             @usableFromInline let ω₀: Cutoff
@@ -406,14 +403,16 @@ extension Prototype.BLT.Kr: DSP.Stream {
                                  subtractResult: &a[$3..<$3+$1])
             }
         case let N:
-            guard case(let N², false) = N.multipliedReportingOverflow(by: N) else {
-                throw Error.lackOfResource("BLT-Matrix")
+            let Kₛ = switch N.multipliedReportingOverflow(by: N) {
+            case(let N², false):
+                Mutex<Array<Float64>>(.init(unsafeUninitializedCapacity: N²) {
+                    $1 = $0.count
+                    $0.prefix(1).initialize(repeating: 1)
+                    $0.dropFirst().initialize(repeating: .zero)
+                })
+            default:
+                throw Error.lackOfResource("Kₛ")
             }
-            let Kₛ = Mutex<Array<Float64>>(.init(unsafeUninitializedCapacity: N²) {
-                $1 = $0.count
-                $0.prefix(1).initialize(repeating: 1)
-                $0.dropFirst().initialize(repeating: .zero)
-            })
             let cancel = ω₀.sink {
                 let ω = $0.increment(for: interval)
                 Kₛ.withLock {
@@ -467,21 +466,21 @@ extension Prototype.BLT.Ar: DSP.Stream {
             }
         case 2:
             return { moment, length, target, stride in
-                withUnsafeTemporaryAllocation(of: Float64.self, capacity: length) {
-                    ω(moment, length, $0.baseAddress.unsafelyUnwrapped, length)
-                    vDSP.multiply(Fₛ, $0, result: &$0[0..<length])
-                    vForce.tanPi($0, result: &$0[0..<length])
+                ω(moment, length, target, length)
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: length) { K in
+                    vDSP.multiply(Fₛ, UnsafeBufferPointer(start: target, count: length), result: &K[0..<length])
+                    vForce.tanPi(K, result: &K[0..<length])
                     let b = UnsafeMutableBufferPointer(start: target.advanced(by: 0 * stride), count: stride + length)
                     let a = UnsafeMutableBufferPointer(start: target.advanced(by: 2 * stride), count: stride + length)
                     vDSP.clear(&b[stride..<stride+length])
                     B(moment, length, b.baseAddress.unsafelyUnwrapped, stride)
-                    vDSP.multiply($0, b[stride..<stride+length], result: &b[stride..<stride+length])
+                    vDSP.multiply(K, b[stride..<stride+length], result: &b[stride..<stride+length])
                     vDSP.addSubtract(b[stride..<stride+length], b[0..<length],
                                      addResult: &b[0..<length],
                                      subtractResult: &b[stride..<stride+length])
                     vDSP.clear(&a[stride..<stride+length])
                     A(moment, length, a.baseAddress.unsafelyUnwrapped, stride)
-                    vDSP.multiply($0, a[stride..<stride+length], result: &a[stride..<stride+length])
+                    vDSP.multiply(K, a[stride..<stride+length], result: &a[stride..<stride+length])
                     vDSP.addSubtract(a[stride..<stride+length], a[0..<length],
                                      addResult: &a[0..<length],
                                      subtractResult: &a[stride..<stride+length])
@@ -490,12 +489,12 @@ extension Prototype.BLT.Ar: DSP.Stream {
         case let N:
             let Kₛ = Prototype.TransferFunction.Krawtchouk(size: N)
             return { moment, length, target, stride in
+                ω(moment, length, target, length)
                 withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( N + 2 ) * length) {
                     let W = UnsafeMutableBufferPointer(rebasing: $0.prefix(N * length))
                     let K = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(N * length).prefix(length))
                     let k = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(N * length).suffix(length))
-                    ω(moment, length, k.baseAddress.unsafelyUnwrapped, length)
-                    vDSP.multiply(Fₛ, k, result: &k[0..<length])
+                    vDSP.multiply(Fₛ, UnsafeBufferPointer(start: target, count: length), result: &k[0..<length])
                     vForce.tanPi(k, result: &k[0..<length])
                     B(moment, length, W.baseAddress.unsafelyUnwrapped, length)
                     vDSP.fill(&K[0..<length], with: 1)
@@ -639,106 +638,106 @@ func filter(_ source: Stream,
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
     return filter(source, sos: Prototype.BiquadSeries.Ar(ω₀: ω₀, Hₛ: Hₛ))
 }
-extension Prototype.BLT {
-    @inlinable
-    static func Matrix(size n: Int, target: UnsafeMutableBufferPointer<Float64>) {
-        withUnsafeTemporaryAllocation(of: Int32.self, capacity: 3 * n * n) {
-            let lhs = $0.extracting(1 * n * n ..< 2 * n * n)
-            let rhs = $0.extracting(2 * n * n ..< 3 * n * n)
-            $0.initialize(repeating: .zero)
-            lhs[0] = 1
-            rhs[0] = 1
-            for (k, j) in stride(from: 0, to: n * n, by: n).dropLast().enumerated() {
-                for i in j...j+k {
-                    lhs[i+n+0] &+= lhs[i]
-                    rhs[i+n+0] &+= rhs[i]
-                }
-                for i in j...j+k {
-                    lhs[i+n+1] &+= lhs[i]
-                    rhs[i+n+1] &-= rhs[i]
-                }
-            }
-            for (p, q) in (0..<n).reversed().enumerated() {
-                let lhs = lhs[p*n...p*n+p]
-                let rhs = rhs[q*n...q*n+q]
-                for (s, t) in lhs.enumerated() {
-                    for (u, v) in rhs.enumerated() {
-                        $0[p*n+s+u] &+= t &* v
-                    }
-                }
-            }
-            assert(n * n <= target.count)
-            vDSP.convertElements(of: $0.prefix(n * n),
-                                 to: &target[target.startIndex..<target.startIndex.advanced(by: n * n)])
-        }
-    }
-    @inlinable
-    static func Matrix(size n: Int) -> Array<Float64> {
-        .init(unsafeUninitializedCapacity: n * n) {
-            $1 = $0.count
-            Matrix(size: n, target: $0)
-        }
-    }
-}
-extension Prototype.BLT: DSP.Stream {
-	@inlinable
-	var count: Int {
-		2 * max(Bₛ.count, Aₛ.count)
-	}
-	@inlinable
-	func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
-		guard ω₀.count == 1 else { throw Error.invalidChannel }
-		guard Bₛ.count == Aₛ.count else { throw Error.unmatchChannel }
-		switch max(Bₛ.count, Aₛ.count) {
-		case 1:
-			return {
-				for target in zip(stride(from: 0, to: $3, by: $3).lazy.map($2.advanced(by:)), CollectionOfOne($1)).map(UnsafeMutableBufferPointer.init) {
-                    vDSP.fill(&target[0..<target.count], with: 1)
-				}
-			}
-		case let n:
-			let xₖ = try ω₀(interval: interval, capacity: capacity, instance: &instance)
-			let Tₛ = interval.seconds
-            let Mₛ = Prototype.BLT.Matrix(size: n)
-			return { moment, length, target, stride in
-                withUnsafeTemporaryAllocation(of: Float64.self, capacity: n * length) {
-                    guard let source = $0.baseAddress else { return }
-                    xₖ(moment, length, source, length)
-                    vDSP.multiply(Tₛ, $0[0..<length], result: &$0[0..<length])
-                    vForce.tanPi($0[0..<length], result: &$0[0..<length])
-//                    for offset in (0..<n).reversed() {
-//                        vvpow(source, .init(offset), source.advanced(by: offset * length), length)
+//extension Prototype.BLT {
+//    @inlinable
+//    static func Matrix(size n: Int, target: UnsafeMutableBufferPointer<Float64>) {
+//        withUnsafeTemporaryAllocation(of: Int32.self, capacity: 3 * n * n) {
+//            let lhs = $0.extracting(1 * n * n ..< 2 * n * n)
+//            let rhs = $0.extracting(2 * n * n ..< 3 * n * n)
+//            $0.initialize(repeating: .zero)
+//            lhs[0] = 1
+//            rhs[0] = 1
+//            for (k, j) in stride(from: 0, to: n * n, by: n).dropLast().enumerated() {
+//                for i in j...j+k {
+//                    lhs[i+n+0] &+= lhs[i]
+//                    rhs[i+n+0] &+= rhs[i]
+//                }
+//                for i in j...j+k {
+//                    lhs[i+n+1] &+= lhs[i]
+//                    rhs[i+n+1] &-= rhs[i]
+//                }
+//            }
+//            for (p, q) in (0..<n).reversed().enumerated() {
+//                let lhs = lhs[p*n...p*n+p]
+//                let rhs = rhs[q*n...q*n+q]
+//                for (s, t) in lhs.enumerated() {
+//                    for (u, v) in rhs.enumerated() {
+//                        $0[p*n+s+u] &+= t &* v
 //                    }
-                    for degree in 1..<n {
-                        vDSP.multiply($0[0..<length],
-                                      $0[degree * length - length ..< degree * length],
-                                      result: &$0[degree * length ..< degree * length + length])
-                    }
-                    vDSP.fill(&UnsafeMutableBufferPointer(start: source, count: length)[0..<length], with: 1)
-					for (bₖ, bₛ) in Bₛ.enumerated() {
-						vDSP.multiply(bₛ,
-									  $0[(bₖ) * length ..< (bₖ + 1) * length],
-									  result: &UnsafeMutableBufferPointer(start: target.advanced(by: (n+bₖ) * stride), count: length)[0..<length])
-					}
-                    gemm(length, n, n,
-                         1,
-                         target.advanced(by: n * stride), stride, .N,
-                         Mₛ, n, .T,
-                         0,
-                         target, stride)
-					for (aₖ, aₛ) in Aₛ.enumerated() {
-						vDSP.multiply(aₛ,
-									  $0[(aₖ) * length ..< (aₖ + 1) * length],
-									  result: &UnsafeMutableBufferPointer(start: source.advanced(by: aₖ * length), count: length)[0..<length])
-					}
-                    gemm(length, n, n,
-                         1,
-                         source, length, .N,
-                         Mₛ, n, .T,
-                         0,
-                         target.advanced(by: n * stride), stride)
-				}
-			}
-		}
-	}
-}
+//                }
+//            }
+//            assert(n * n <= target.count)
+//            vDSP.convertElements(of: $0.prefix(n * n),
+//                                 to: &target[target.startIndex..<target.startIndex.advanced(by: n * n)])
+//        }
+//    }
+//    @inlinable
+//    static func Matrix(size n: Int) -> Array<Float64> {
+//        .init(unsafeUninitializedCapacity: n * n) {
+//            $1 = $0.count
+//            Matrix(size: n, target: $0)
+//        }
+//    }
+//}
+//extension Prototype.BLT: DSP.Stream {
+//	@inlinable
+//	var count: Int {
+//		2 * max(Bₛ.count, Aₛ.count)
+//	}
+//	@inlinable
+//	func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+//		guard ω₀.count == 1 else { throw Error.invalidChannel }
+//		guard Bₛ.count == Aₛ.count else { throw Error.unmatchChannel }
+//		switch max(Bₛ.count, Aₛ.count) {
+//		case 1:
+//			return {
+//				for target in zip(stride(from: 0, to: $3, by: $3).lazy.map($2.advanced(by:)), CollectionOfOne($1)).map(UnsafeMutableBufferPointer.init) {
+//                    vDSP.fill(&target[0..<target.count], with: 1)
+//				}
+//			}
+//		case let n:
+//			let xₖ = try ω₀(interval: interval, capacity: capacity, instance: &instance)
+//			let Tₛ = interval.seconds
+//            let Mₛ = Prototype.BLT.Matrix(size: n)
+//			return { moment, length, target, stride in
+//                withUnsafeTemporaryAllocation(of: Float64.self, capacity: n * length) {
+//                    guard let source = $0.baseAddress else { return }
+//                    xₖ(moment, length, source, length)
+//                    vDSP.multiply(Tₛ, $0[0..<length], result: &$0[0..<length])
+//                    vForce.tanPi($0[0..<length], result: &$0[0..<length])
+////                    for offset in (0..<n).reversed() {
+////                        vvpow(source, .init(offset), source.advanced(by: offset * length), length)
+////                    }
+//                    for degree in 1..<n {
+//                        vDSP.multiply($0[0..<length],
+//                                      $0[degree * length - length ..< degree * length],
+//                                      result: &$0[degree * length ..< degree * length + length])
+//                    }
+//                    vDSP.fill(&UnsafeMutableBufferPointer(start: source, count: length)[0..<length], with: 1)
+//					for (bₖ, bₛ) in Bₛ.enumerated() {
+//						vDSP.multiply(bₛ,
+//									  $0[(bₖ) * length ..< (bₖ + 1) * length],
+//									  result: &UnsafeMutableBufferPointer(start: target.advanced(by: (n+bₖ) * stride), count: length)[0..<length])
+//					}
+//                    gemm(length, n, n,
+//                         1,
+//                         target.advanced(by: n * stride), stride, .N,
+//                         Mₛ, n, .T,
+//                         0,
+//                         target, stride)
+//					for (aₖ, aₛ) in Aₛ.enumerated() {
+//						vDSP.multiply(aₛ,
+//									  $0[(aₖ) * length ..< (aₖ + 1) * length],
+//									  result: &UnsafeMutableBufferPointer(start: source.advanced(by: aₖ * length), count: length)[0..<length])
+//					}
+//                    gemm(length, n, n,
+//                         1,
+//                         source, length, .N,
+//                         Mₛ, n, .T,
+//                         0,
+//                         target.advanced(by: n * stride), stride)
+//				}
+//			}
+//		}
+//	}
+//}
