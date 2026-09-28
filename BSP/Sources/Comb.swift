@@ -36,18 +36,19 @@ extension Echo.Kr: Stream {
             offset.store($0.samples(for: interval), ordering: .releasing)
             weight.store($1, ordering: .releasing)
         }
+        instance.store(cancel, interval: interval, capacity: capacity)
         return {
             kernel($0, $1, $2, $3)
             let cursor = $0.samples(for: interval)
-            let (weight, offset) = withExtendedLifetime(cancel) {(
+            var (weight, offset) = (
                 weight.load(ordering: .acquiring),
                 offset.load(ordering: .acquiring)
-            )}
+            )
             for stream in 0..<buffer.stream {
                 periodic_lookup_with_update($2.advanced(by: stream * $3),
                                             $2.advanced(by: stream * $3),
                                             buffer.start.advanced(by: stream * buffer.period),
-                                            withUnsafePointer(to: weight, \.self), 0,
+                                            &weight, 0,
                                             cursor,
                                             offset,
                                             buffer.period,
@@ -60,7 +61,10 @@ public func filter(_ source: Stream, cmb object: (lag: some Publisher<Duration, 
     Echo.Kr(source: source, period: period, object: Publishers.Zip(object.0, object.1))
 }
 public func filter(_ source: Stream, apf object: (lag: some Publisher<Duration, Never>, gain: some Publisher<Float64, Never>), period: Duration) -> some Stream {
-    fma(filter(source, cmb: object, period: period), object.1.map { fma($0, $0, -1) }, source)
+    switch buffer(source) {
+    case let cached:
+        fma(filter(cached, cmb: object, period: period), object.1.map { fma($0, $0, -1) }, cached)
+    }
 }
 public func filter(_ source: Stream, cmb object: (lag: Duration, gain: Float64)) -> some Stream {
     filter(source, cmb: (Just(object.0), Just(object.1)), period: object.0)
