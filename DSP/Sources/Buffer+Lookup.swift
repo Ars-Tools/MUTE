@@ -8,6 +8,7 @@ import func Layout.broadcast
 import func Layout.zip
 import func NSP.periodic_lookup_with_static
 import func Accelerate.vDSP_vsmulD
+import typealias Accelerate.vDSP
 extension Buffer {
     @usableFromInline
     struct Cursor: Sendable {
@@ -39,9 +40,8 @@ extension Buffer.Cursor: Stream {
                 kernel($0, $1, $2, $3)
                 let ys = broadcast(target: xc, source: yc, stride: $3)
                 for k in 0..<yc {
-                    vDSP_vsmulD($2.advanced(by: k * $3), 1,
-                                withUnsafePointer(to: Float64(xb.period), \.self),
-                                $2.advanced(by: k * $3), 1, .init($1))
+                    vDSP.multiply(.init(xb.period), UnsafeBufferPointer(start: $2.advanced(by: k * $3), count: $1),
+                                  result: &UnsafeMutableBufferPointer(start: $2.advanced(by: k * $3), count: $1)[0..<$1])
                 }
                 for k in (0..<xc).reversed() {
                     periodic_lookup_with_static(xb.start.advanced(by: k * xs),
@@ -57,9 +57,8 @@ extension Buffer.Cursor: Stream {
                 kernel($0, $1, $2, $3)
                 let ys = $3
                 for k in (0..<yc).reversed() {
-                    vDSP_vsmulD($2.advanced(by: k * $3), 1,
-                                withUnsafePointer(to: Float64(xb.period), \.self),
-                                $2.advanced(by: k * $3), 1, .init($1))
+                    vDSP.multiply(.init(xb.period), UnsafeBufferPointer(start: $2.advanced(by: k * $3), count: $1),
+                                  result: &UnsafeMutableBufferPointer(start: $2.advanced(by: k * $3), count: $1)[0..<$1])
                     periodic_lookup_with_static(xb.start.advanced(by: k * xs),
                                                 $2.advanced(by: k * ys),
                                                 $2.advanced(by: k * $3),
@@ -91,9 +90,8 @@ extension Buffer.Elapse: Stream {
                 kernel($0, $1, $2, $3)
                 let ys = broadcast(target: xc, source: yc, stride: $3)
                 for k in 0..<yc {
-                    vDSP_vsmulD($2.advanced(by: k * $3), 1,
-                                withUnsafePointer(to: factor, \.self),
-                                $2.advanced(by: k * $3), 1, .init($1))
+                    vDSP.multiply(factor, UnsafeBufferPointer(start: $2.advanced(by: k * $3), count: $1),
+                                  result: &UnsafeMutableBufferPointer(start: $2.advanced(by: k * $3), count: $1)[0..<$1])
                 }
                 for k in (0..<xc).reversed() {
                     periodic_lookup_with_static(xb.start.advanced(by: k * xs),
@@ -109,9 +107,8 @@ extension Buffer.Elapse: Stream {
                 kernel($0, $1, $2, $3)
                 let ys = $3
                 for k in (0..<yc).reversed() {
-                    vDSP_vsmulD($2.advanced(by: k * $3), 1,
-                                withUnsafePointer(to: factor, \.self),
-                                $2.advanced(by: k * $3), 1, .init($1))
+                    vDSP.multiply(factor, UnsafeBufferPointer(start: $2.advanced(by: k * $3), count: $1),
+                                  result: &UnsafeMutableBufferPointer(start: $2.advanced(by: k * $3), count: $1)[0..<$1])
                     periodic_lookup_with_static(xb.start.advanced(by: k * xs),
                                                 $2.advanced(by: k * ys),
                                                 $2.advanced(by: k * $3),
