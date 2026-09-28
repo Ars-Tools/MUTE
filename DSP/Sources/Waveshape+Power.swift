@@ -14,6 +14,10 @@ import func Accelerate.vvfabs
 import func Accelerate.vvpows
 import func Accelerate.vvpow
 import func Accelerate.vvcopysign
+import func vFORCE.vvfabs
+import func vFORCE.vvpows
+import func vFORCE.vvpow
+import func vFORCE.vvcopysign
 import func Layout.broadcast
 import func NSP.vvexp10
 // MARK: Pow
@@ -61,28 +65,24 @@ extension Pow.Kr: Stream {
 			{ moment, length, target, stride in
 				let factor = withExtendedLifetime(cancel) { factor.withLock(\.self) }
 				kernel(moment, length, target, stride)
-				withUnsafeTemporaryAllocation(of: Float64.self, capacity: length) {
-					guard let memory = $0.baseAddress else { return }
-					withUnsafePointer(to: Int32(length)) {
-						for (offset, var element) in factor.enumerated() {
-							let target = target.advanced(by: offset * stride)
-							vvfabs(memory, target, $0)
-							vvpows(memory, &element, memory, $0)
-							vvcopysign(target, memory, target, $0)
-						}
-					}
-				}
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: length) {
+                    guard let memory = $0.baseAddress else { return }
+                    for (offset, var element) in factor.enumerated() {
+                        let target = target.advanced(by: offset * stride)
+                        vvfabs(memory, target, length)
+                        vvpow(memory, &element, memory, length)
+                        vvcopysign(target, memory, target, length)
+                    }
+                }
 			}
 		} else {
 			{ moment, length, target, stride in
 				let factor = withExtendedLifetime(cancel) { factor.withLock(\.self) }
 				kernel(moment, length, target, stride)
-				withUnsafePointer(to: Int32(length)) {
-					for (offset, var element) in factor.enumerated() {
-						let target = target.advanced(by: offset * stride)
-						vvpows(target, &element, target, $0)
-					}
-				}
+                for (offset, var element) in factor.enumerated() {
+                    let target = target.advanced(by: offset * stride)
+                    vvpow(target, &element, target, length)
+                }
 			}
 		}
 	}
@@ -107,13 +107,11 @@ extension Pow.Ar: Stream {
 					let memory = buffer.advanced(by: length)
 					let ys = broadcast(target: xc, source: yc, stride: length)
 					yk(moment, length, memory, length)
-					withUnsafePointer(to: Int32(length)) {
-						for offset in (0..<xc).reversed() {
-							vvfabs(buffer, target.advanced(by: offset * stride), $0)
-							vvpow(buffer, memory.advanced(by: offset * ys), buffer, $0)
-							vvcopysign(target.advanced(by: offset * stride), buffer, target.advanced(by: offset * stride), $0)
-						}
-					}
+                    for offset in (0..<xc).reversed() {
+                        vvfabs(buffer, target.advanced(by: offset * stride), length)
+                        vvpow(buffer, memory.advanced(by: offset * ys), buffer, length)
+                        vvcopysign(target.advanced(by: offset * stride), buffer, target.advanced(by: offset * stride), length)
+                    }
 				}
 			}
 		case (xc, false):
@@ -123,11 +121,9 @@ extension Pow.Ar: Stream {
 					guard let memory = $0.baseAddress else { return }
 					let ys = broadcast(target: xc, source: yc, stride: length)
 					yk(moment, length, memory, length)
-					withUnsafePointer(to: Int32(length)) {
-						for offset in (0..<xc).reversed() {
-							vvpow(target.advanced(by: offset * stride), memory.advanced(by: offset * ys), target.advanced(by: offset * stride), $0)
-						}
-					}
+                    for offset in (0..<xc).reversed() {
+                        vvpow(target.advanced(by: offset * stride), memory.advanced(by: offset * ys), target.advanced(by: offset * stride), length)
+                    }
 				}
 			}
 		case (yc, true):
@@ -138,28 +134,24 @@ extension Pow.Ar: Stream {
 					let memory = buffer.advanced(by: length)
 					let xs = broadcast(target: yc, source: xc, stride: length)
 					xk(moment, length, memory, length)
-					withUnsafePointer(to: Int32(length)) {
-						for offset in (0..<yc).reversed() {
-							vvfabs(buffer, memory.advanced(by: offset * xs), $0)
-							vvpow(buffer, target.advanced(by: offset * stride), buffer, $0)
-							vvcopysign(target.advanced(by: offset * stride), buffer, memory.advanced(by: offset * xs), $0)
-						}
-					}
+                    for offset in (0..<yc).reversed() {
+                        vvfabs(buffer, memory.advanced(by: offset * xs), length)
+                        vvpow(buffer, target.advanced(by: offset * stride), buffer, length)
+                        vvcopysign(target.advanced(by: offset * stride), buffer, memory.advanced(by: offset * xs), length)
+                    }
 				}
 			}
 		case (yc, false):
 			{ moment, length, target, stride in
 				yk(moment, length, target, stride)
-				withUnsafeTemporaryAllocation(of: Float64.self, capacity: xc * length) {
-					guard let memory = $0.baseAddress else { return }
-					let xs = broadcast(target: yc, source: xc, stride: length)
-					xk(moment, length, memory, length)
-					withUnsafePointer(to: Int32(length)) {
-						for offset in (0..<yc).reversed() {
-							vvpow(target.advanced(by: offset * stride), target.advanced(by: offset * stride), memory.advanced(by: offset * xs), $0)
-						}
-					}
-				}
+                withUnsafeTemporaryAllocation(of: Float64.self, capacity: xc * length) {
+                    guard let memory = $0.baseAddress else { return }
+                    let xs = broadcast(target: yc, source: xc, stride: length)
+                    xk(moment, length, memory, length)
+                    for offset in (0..<yc).reversed() {
+                        vvpow(target.advanced(by: offset * stride), target.advanced(by: offset * stride), memory.advanced(by: offset * xs), length)
+                    }
+                }
 			}
 		default:
 			throw Error.invalidChannel
