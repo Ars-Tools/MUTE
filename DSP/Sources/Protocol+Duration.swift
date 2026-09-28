@@ -7,7 +7,7 @@
 import protocol Synchronization.AtomicRepresentable
 import typealias Numerics.Rational64
 import func CLK.times
-public protocol Duration: Sendable {
+public protocol Duration: Sendable, Comparable, Equatable, AdditiveArithmetic {
 	@inlinable func divide(by time: CMTime) -> (quotient: Int, remainder: CMTime)
 	@inlinable func samples(for duration: CMTime) -> Int
 }
@@ -15,11 +15,11 @@ extension Duration {
 	public func samples(for duration: CMTime) -> Int {
 		switch divide(by: duration) {
 		case (let q, let r):
-			q + Int(r.convertScale(1, method: .roundHalfAwayFromZero).value)
+            q + .init(r.convertScale(1, method: .roundHalfAwayFromZero).value)
 		}
 	}
 }
-extension CMTime: Sendable, Duration {
+extension CMTime: Duration {
 	public func divide(by time: CMTime) -> (quotient: Int, remainder: CMTime) {
 		times(of: time, rounding: .none)
 	}
@@ -42,20 +42,37 @@ extension Float64: Duration {
 	}
 }
 extension Samples: AdditiveArithmetic {
+    @inlinable@inline(__always)@_transparent
 	public static func+(lhs: Self, rhs: Self) -> Self {
 		.init(rawValue: lhs.rawValue + rhs.rawValue)
 	}
+    @inlinable@inline(__always)@_transparent
 	public static func-(lhs: Self, rhs: Self) -> Self {
 		.init(rawValue: lhs.rawValue - rhs.rawValue)
 	}
+    @inlinable@inline(__always)@_transparent
+    public static func > (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue > rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func <= (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue <= rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func >= (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue >= rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue == rhs.rawValue
+    }
 }
 extension Samples: Duration {
-	public static func<(lhs: Self, rhs: Self) -> Bool {
-		lhs.rawValue < rhs.rawValue
-	}
-	public static func>(lhs: Self, rhs: Self) -> Bool {
-		lhs.rawValue > rhs.rawValue
-	}
+    @inlinable@inline(__always)@_transparent
 	public func divide(by time: CMTime) -> (quotient: Int, remainder: CMTime) {
 		(rawValue, .zero)
 	}

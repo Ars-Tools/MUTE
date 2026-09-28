@@ -12,7 +12,7 @@ import func CoreMedia.CMTimeMultiplyByRatio
 import func CoreMedia.CMTimeMultiplyByFloat64
 import typealias Numerics.Rational64
 import typealias Numerics.Rational128
-public protocol Frequency: Sendable & Comparable & Equatable {
+public protocol Frequency: Sendable, Comparable, Equatable, AdditiveArithmetic {
 	@inlinable func multiply(time: CMTime) -> CMTime
 	@inlinable func increment(for time: CMTime) -> Float64
 }
