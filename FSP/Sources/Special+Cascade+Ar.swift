@@ -14,24 +14,14 @@ import func Darwin.log2
 import let Darwin.M_LN2
 import let Darwin.M_LN10
 
-private let _cascadeHalfAngleScale = Float64.pi
-private let _cascadeBandwidth = 0.5 * Float64(M_LN2)
-private let _cascadeGain = 0.025 * Float64(M_LN10)
-private let _cascadeGain2 = Float64(log2(10.0)) / 40.0
+private let _cascadeHalfAngleScale = .pi as Float64
+private let _cascadeBandwidth = 0.5 * M_LN2
+private let _cascadeGain = 0.025 * M_LN10
+private let _cascadeGain2 = 0.025 * M_LN10 / M_LN2
 
 private typealias _CascadeStreamKernel = @Sendable (
     CMTime, Int, UnsafeMutablePointer<Float64>, Int
 ) -> Void
-
-@inline(__always)@_transparent
-private func _cascadeBuffer(
-    _ base: UnsafeMutablePointer<Float64>,
-    _ channel: Int,
-    _ stride: Int,
-    _ length: Int
-) -> UnsafeMutableBufferPointer<Float64> {
-    .init(start: base.advanced(by: channel * stride), count: length)
-}
 
 @inline(__always)@_transparent
 private func _cascadeCopy(
@@ -42,20 +32,15 @@ private func _cascadeCopy(
     case let eof:
         assert(target.startIndex.distance(to: eof) == source.count)
     }
-//    target.baseAddress.unsafelyUnwrapped.update(
-//        from: source.baseAddress.unsafelyUnwrapped,
-//        count: source.count
-//    )
 }
 
-private struct _CascadeWorkspace {
-    var x0: UnsafeMutableBufferPointer<Float64>
-    var x1: UnsafeMutableBufferPointer<Float64>
-    var x2: UnsafeMutableBufferPointer<Float64>
-    var x3: UnsafeMutableBufferPointer<Float64>
-    var x4: UnsafeMutableBufferPointer<Float64>
-    var x5: UnsafeMutableBufferPointer<Float64>
-
+private struct _CascadeWorkspace: ~Copyable {
+    @usableFromInline var x0: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var x1: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var x2: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var x3: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var x4: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var x5: UnsafeMutableBufferPointer<Float64>
     @inline(__always)
     init(_ workspace: UnsafeMutableBufferPointer<Float64>, length: Int) {
         x0 = .init(rebasing: workspace[0 * length ..< 1 * length])
@@ -67,22 +52,21 @@ private struct _CascadeWorkspace {
     }
 }
 
-private struct _CascadeCoefficients {
-    var b0: UnsafeMutableBufferPointer<Float64>
-    var b1: UnsafeMutableBufferPointer<Float64>
-    var b2: UnsafeMutableBufferPointer<Float64>
-    var a0: UnsafeMutableBufferPointer<Float64>
-    var a1: UnsafeMutableBufferPointer<Float64>
-    var a2: UnsafeMutableBufferPointer<Float64>
-
+private struct _CascadeCoefficients: ~Copyable {
+    @usableFromInline var b0: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var b1: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var b2: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var a0: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var a1: UnsafeMutableBufferPointer<Float64>
+    @usableFromInline var a2: UnsafeMutableBufferPointer<Float64>
     @inline(__always)
     init(_ target: UnsafeMutablePointer<Float64>, stride: Int, length: Int) {
-        b0 = _cascadeBuffer(target, 0, stride, length)
-        b1 = _cascadeBuffer(target, 1, stride, length)
-        b2 = _cascadeBuffer(target, 2, stride, length)
-        a0 = _cascadeBuffer(target, 3, stride, length)
-        a1 = _cascadeBuffer(target, 4, stride, length)
-        a2 = _cascadeBuffer(target, 5, stride, length)
+        b0 = .init(start: target.advanced(by: 0 * stride), count: length)
+        b1 = .init(start: target.advanced(by: 1 * stride), count: length)
+        b2 = .init(start: target.advanced(by: 2 * stride), count: length)
+        a0 = .init(start: target.advanced(by: 3 * stride), count: length)
+        a1 = .init(start: target.advanced(by: 4 * stride), count: length)
+        a2 = .init(start: target.advanced(by: 5 * stride), count: length)
     }
 }
 
@@ -481,31 +465,31 @@ extension Filter.Cascade.Ar.Section {
     public static func lpf(ω₀: Float64, Q: Float64) -> Self { lpf(ω₀: const(ω₀), Q: const(Q)) }
     public static func lpf(ω₀: Stream, BW: Float64) -> Self { lpf(ω₀: ω₀, BW: const(BW)) }
     public static func lpf(ω₀: Float64, BW: Stream) -> Self { lpf(ω₀: const(ω₀), BW: BW) }
-    public static func lpf(ω₀: Float64, BW: Float64) -> Self { lpf(ω₀: const(ω₀), BW: const(BW)) }
+//    public static func lpf(ω₀: Float64, BW: Float64) -> Self { lpf(ω₀: const(ω₀), BW: const(BW)) }
     public static func hpf(ω₀: Stream, Q: Float64) -> Self { hpf(ω₀: ω₀, Q: const(Q)) }
     public static func hpf(ω₀: Float64, Q: Stream) -> Self { hpf(ω₀: const(ω₀), Q: Q) }
     public static func hpf(ω₀: Float64, Q: Float64) -> Self { hpf(ω₀: const(ω₀), Q: const(Q)) }
     public static func hpf(ω₀: Stream, BW: Float64) -> Self { hpf(ω₀: ω₀, BW: const(BW)) }
     public static func hpf(ω₀: Float64, BW: Stream) -> Self { hpf(ω₀: const(ω₀), BW: BW) }
-    public static func hpf(ω₀: Float64, BW: Float64) -> Self { hpf(ω₀: const(ω₀), BW: const(BW)) }
+//    public static func hpf(ω₀: Float64, BW: Float64) -> Self { hpf(ω₀: const(ω₀), BW: const(BW)) }
     public static func bpf(ω₀: Stream, Q: Float64) -> Self { bpf(ω₀: ω₀, Q: const(Q)) }
     public static func bpf(ω₀: Float64, Q: Stream) -> Self { bpf(ω₀: const(ω₀), Q: Q) }
     public static func bpf(ω₀: Float64, Q: Float64) -> Self { bpf(ω₀: const(ω₀), Q: const(Q)) }
     public static func bpf(ω₀: Stream, BW: Float64) -> Self { bpf(ω₀: ω₀, BW: const(BW)) }
     public static func bpf(ω₀: Float64, BW: Stream) -> Self { bpf(ω₀: const(ω₀), BW: BW) }
-    public static func bpf(ω₀: Float64, BW: Float64) -> Self { bpf(ω₀: const(ω₀), BW: const(BW)) }
+//    public static func bpf(ω₀: Float64, BW: Float64) -> Self { bpf(ω₀: const(ω₀), BW: const(BW)) }
     public static func bsf(ω₀: Stream, Q: Float64) -> Self { bsf(ω₀: ω₀, Q: const(Q)) }
     public static func bsf(ω₀: Float64, Q: Stream) -> Self { bsf(ω₀: const(ω₀), Q: Q) }
     public static func bsf(ω₀: Float64, Q: Float64) -> Self { bsf(ω₀: const(ω₀), Q: const(Q)) }
     public static func bsf(ω₀: Stream, BW: Float64) -> Self { bsf(ω₀: ω₀, BW: const(BW)) }
     public static func bsf(ω₀: Float64, BW: Stream) -> Self { bsf(ω₀: const(ω₀), BW: BW) }
-    public static func bsf(ω₀: Float64, BW: Float64) -> Self { bsf(ω₀: const(ω₀), BW: const(BW)) }
+//    public static func bsf(ω₀: Float64, BW: Float64) -> Self { bsf(ω₀: const(ω₀), BW: const(BW)) }
     public static func apf(ω₀: Stream, Q: Float64) -> Self { apf(ω₀: ω₀, Q: const(Q)) }
     public static func apf(ω₀: Float64, Q: Stream) -> Self { apf(ω₀: const(ω₀), Q: Q) }
     public static func apf(ω₀: Float64, Q: Float64) -> Self { apf(ω₀: const(ω₀), Q: const(Q)) }
     public static func apf(ω₀: Stream, BW: Float64) -> Self { apf(ω₀: ω₀, BW: const(BW)) }
     public static func apf(ω₀: Float64, BW: Stream) -> Self { apf(ω₀: const(ω₀), BW: BW) }
-    public static func apf(ω₀: Float64, BW: Float64) -> Self { apf(ω₀: const(ω₀), BW: const(BW)) }
+//    public static func apf(ω₀: Float64, BW: Float64) -> Self { apf(ω₀: const(ω₀), BW: const(BW)) }
 
     public static func lsf(ω₀: Stream, Q: Stream, dB: Float64) -> Self { lsf(ω₀: ω₀, Q: Q, dB: const(dB)) }
     public static func lsf(ω₀: Stream, Q: Float64, dB: Stream) -> Self { lsf(ω₀: ω₀, Q: const(Q), dB: dB) }
@@ -513,21 +497,21 @@ extension Filter.Cascade.Ar.Section {
     public static func lsf(ω₀: Float64, Q: Stream, dB: Stream) -> Self { lsf(ω₀: const(ω₀), Q: Q, dB: dB) }
     public static func lsf(ω₀: Float64, Q: Stream, dB: Float64) -> Self { lsf(ω₀: const(ω₀), Q: Q, dB: const(dB)) }
     public static func lsf(ω₀: Float64, Q: Float64, dB: Stream) -> Self { lsf(ω₀: const(ω₀), Q: const(Q), dB: dB) }
-    public static func lsf(ω₀: Float64, Q: Float64, dB: Float64) -> Self { lsf(ω₀: const(ω₀), Q: const(Q), dB: const(dB)) }
+//    public static func lsf(ω₀: Float64, Q: Float64, dB: Float64) -> Self { lsf(ω₀: const(ω₀), Q: const(Q), dB: const(dB)) }
     public static func lsf(ω₀: Stream, BW: Stream, dB: Float64) -> Self { lsf(ω₀: ω₀, BW: BW, dB: const(dB)) }
     public static func lsf(ω₀: Stream, BW: Float64, dB: Stream) -> Self { lsf(ω₀: ω₀, BW: const(BW), dB: dB) }
     public static func lsf(ω₀: Stream, BW: Float64, dB: Float64) -> Self { lsf(ω₀: ω₀, BW: const(BW), dB: const(dB)) }
     public static func lsf(ω₀: Float64, BW: Stream, dB: Stream) -> Self { lsf(ω₀: const(ω₀), BW: BW, dB: dB) }
     public static func lsf(ω₀: Float64, BW: Stream, dB: Float64) -> Self { lsf(ω₀: const(ω₀), BW: BW, dB: const(dB)) }
     public static func lsf(ω₀: Float64, BW: Float64, dB: Stream) -> Self { lsf(ω₀: const(ω₀), BW: const(BW), dB: dB) }
-    public static func lsf(ω₀: Float64, BW: Float64, dB: Float64) -> Self { lsf(ω₀: const(ω₀), BW: const(BW), dB: const(dB)) }
+//    public static func lsf(ω₀: Float64, BW: Float64, dB: Float64) -> Self { lsf(ω₀: const(ω₀), BW: const(BW), dB: const(dB)) }
     public static func lsf(ω₀: Stream, S: Stream, dB: Float64) -> Self { lsf(ω₀: ω₀, S: S, dB: const(dB)) }
     public static func lsf(ω₀: Stream, S: Float64, dB: Stream) -> Self { lsf(ω₀: ω₀, S: const(S), dB: dB) }
     public static func lsf(ω₀: Stream, S: Float64, dB: Float64) -> Self { lsf(ω₀: ω₀, S: const(S), dB: const(dB)) }
     public static func lsf(ω₀: Float64, S: Stream, dB: Stream) -> Self { lsf(ω₀: const(ω₀), S: S, dB: dB) }
     public static func lsf(ω₀: Float64, S: Stream, dB: Float64) -> Self { lsf(ω₀: const(ω₀), S: S, dB: const(dB)) }
     public static func lsf(ω₀: Float64, S: Float64, dB: Stream) -> Self { lsf(ω₀: const(ω₀), S: const(S), dB: dB) }
-    public static func lsf(ω₀: Float64, S: Float64, dB: Float64) -> Self { lsf(ω₀: const(ω₀), S: const(S), dB: const(dB)) }
+//    public static func lsf(ω₀: Float64, S: Float64, dB: Float64) -> Self { lsf(ω₀: const(ω₀), S: const(S), dB: const(dB)) }
 
     public static func hsf(ω₀: Stream, Q: Stream, dB: Float64) -> Self { hsf(ω₀: ω₀, Q: Q, dB: const(dB)) }
     public static func hsf(ω₀: Stream, Q: Float64, dB: Stream) -> Self { hsf(ω₀: ω₀, Q: const(Q), dB: dB) }
@@ -535,21 +519,21 @@ extension Filter.Cascade.Ar.Section {
     public static func hsf(ω₀: Float64, Q: Stream, dB: Stream) -> Self { hsf(ω₀: const(ω₀), Q: Q, dB: dB) }
     public static func hsf(ω₀: Float64, Q: Stream, dB: Float64) -> Self { hsf(ω₀: const(ω₀), Q: Q, dB: const(dB)) }
     public static func hsf(ω₀: Float64, Q: Float64, dB: Stream) -> Self { hsf(ω₀: const(ω₀), Q: const(Q), dB: dB) }
-    public static func hsf(ω₀: Float64, Q: Float64, dB: Float64) -> Self { hsf(ω₀: const(ω₀), Q: const(Q), dB: const(dB)) }
+//    public static func hsf(ω₀: Float64, Q: Float64, dB: Float64) -> Self { hsf(ω₀: const(ω₀), Q: const(Q), dB: const(dB)) }
     public static func hsf(ω₀: Stream, BW: Stream, dB: Float64) -> Self { hsf(ω₀: ω₀, BW: BW, dB: const(dB)) }
     public static func hsf(ω₀: Stream, BW: Float64, dB: Stream) -> Self { hsf(ω₀: ω₀, BW: const(BW), dB: dB) }
     public static func hsf(ω₀: Stream, BW: Float64, dB: Float64) -> Self { hsf(ω₀: ω₀, BW: const(BW), dB: const(dB)) }
     public static func hsf(ω₀: Float64, BW: Stream, dB: Stream) -> Self { hsf(ω₀: const(ω₀), BW: BW, dB: dB) }
     public static func hsf(ω₀: Float64, BW: Stream, dB: Float64) -> Self { hsf(ω₀: const(ω₀), BW: BW, dB: const(dB)) }
     public static func hsf(ω₀: Float64, BW: Float64, dB: Stream) -> Self { hsf(ω₀: const(ω₀), BW: const(BW), dB: dB) }
-    public static func hsf(ω₀: Float64, BW: Float64, dB: Float64) -> Self { hsf(ω₀: const(ω₀), BW: const(BW), dB: const(dB)) }
+//    public static func hsf(ω₀: Float64, BW: Float64, dB: Float64) -> Self { hsf(ω₀: const(ω₀), BW: const(BW), dB: const(dB)) }
     public static func hsf(ω₀: Stream, S: Stream, dB: Float64) -> Self { hsf(ω₀: ω₀, S: S, dB: const(dB)) }
     public static func hsf(ω₀: Stream, S: Float64, dB: Stream) -> Self { hsf(ω₀: ω₀, S: const(S), dB: dB) }
     public static func hsf(ω₀: Stream, S: Float64, dB: Float64) -> Self { hsf(ω₀: ω₀, S: const(S), dB: const(dB)) }
     public static func hsf(ω₀: Float64, S: Stream, dB: Stream) -> Self { hsf(ω₀: const(ω₀), S: S, dB: dB) }
     public static func hsf(ω₀: Float64, S: Stream, dB: Float64) -> Self { hsf(ω₀: const(ω₀), S: S, dB: const(dB)) }
     public static func hsf(ω₀: Float64, S: Float64, dB: Stream) -> Self { hsf(ω₀: const(ω₀), S: const(S), dB: dB) }
-    public static func hsf(ω₀: Float64, S: Float64, dB: Float64) -> Self { hsf(ω₀: const(ω₀), S: const(S), dB: const(dB)) }
+//    public static func hsf(ω₀: Float64, S: Float64, dB: Float64) -> Self { hsf(ω₀: const(ω₀), S: const(S), dB: const(dB)) }
 
     public static func peq(ω₀: Stream, Q: Stream, dB: Float64) -> Self { peq(ω₀: ω₀, Q: Q, dB: const(dB)) }
     public static func peq(ω₀: Stream, Q: Float64, dB: Stream) -> Self { peq(ω₀: ω₀, Q: const(Q), dB: dB) }
@@ -557,19 +541,19 @@ extension Filter.Cascade.Ar.Section {
     public static func peq(ω₀: Float64, Q: Stream, dB: Stream) -> Self { peq(ω₀: const(ω₀), Q: Q, dB: dB) }
     public static func peq(ω₀: Float64, Q: Stream, dB: Float64) -> Self { peq(ω₀: const(ω₀), Q: Q, dB: const(dB)) }
     public static func peq(ω₀: Float64, Q: Float64, dB: Stream) -> Self { peq(ω₀: const(ω₀), Q: const(Q), dB: dB) }
-    public static func peq(ω₀: Float64, Q: Float64, dB: Float64) -> Self { peq(ω₀: const(ω₀), Q: const(Q), dB: const(dB)) }
+//    public static func peq(ω₀: Float64, Q: Float64, dB: Float64) -> Self { peq(ω₀: const(ω₀), Q: const(Q), dB: const(dB)) }
     public static func peq(ω₀: Stream, BW: Stream, dB: Float64) -> Self { peq(ω₀: ω₀, BW: BW, dB: const(dB)) }
     public static func peq(ω₀: Stream, BW: Float64, dB: Stream) -> Self { peq(ω₀: ω₀, BW: const(BW), dB: dB) }
     public static func peq(ω₀: Stream, BW: Float64, dB: Float64) -> Self { peq(ω₀: ω₀, BW: const(BW), dB: const(dB)) }
     public static func peq(ω₀: Float64, BW: Stream, dB: Stream) -> Self { peq(ω₀: const(ω₀), BW: BW, dB: dB) }
     public static func peq(ω₀: Float64, BW: Stream, dB: Float64) -> Self { peq(ω₀: const(ω₀), BW: BW, dB: const(dB)) }
     public static func peq(ω₀: Float64, BW: Float64, dB: Stream) -> Self { peq(ω₀: const(ω₀), BW: const(BW), dB: dB) }
-    public static func peq(ω₀: Float64, BW: Float64, dB: Float64) -> Self { peq(ω₀: const(ω₀), BW: const(BW), dB: const(dB)) }
+//    public static func peq(ω₀: Float64, BW: Float64, dB: Float64) -> Self { peq(ω₀: const(ω₀), BW: const(BW), dB: const(dB)) }
     public static func peq(ω₀: Stream, S: Stream, dB: Float64) -> Self { peq(ω₀: ω₀, S: S, dB: const(dB)) }
     public static func peq(ω₀: Stream, S: Float64, dB: Stream) -> Self { peq(ω₀: ω₀, S: const(S), dB: dB) }
     public static func peq(ω₀: Stream, S: Float64, dB: Float64) -> Self { peq(ω₀: ω₀, S: const(S), dB: const(dB)) }
     public static func peq(ω₀: Float64, S: Stream, dB: Stream) -> Self { peq(ω₀: const(ω₀), S: S, dB: dB) }
     public static func peq(ω₀: Float64, S: Stream, dB: Float64) -> Self { peq(ω₀: const(ω₀), S: S, dB: const(dB)) }
     public static func peq(ω₀: Float64, S: Float64, dB: Stream) -> Self { peq(ω₀: const(ω₀), S: const(S), dB: dB) }
-    public static func peq(ω₀: Float64, S: Float64, dB: Float64) -> Self { peq(ω₀: const(ω₀), S: const(S), dB: const(dB)) }
+//    public static func peq(ω₀: Float64, S: Float64, dB: Float64) -> Self { peq(ω₀: const(ω₀), S: const(S), dB: const(dB)) }
 }
