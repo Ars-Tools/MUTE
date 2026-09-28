@@ -330,13 +330,13 @@ extension Prototype.BiquadSeries {
     }
 }
 extension Prototype.BiquadSeries.Kr: DSP.Filter.BiquadSeries {
-    @usableFromInline typealias Biquad = Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
-    @usableFromInline typealias Sections = Publishers.Map<Cutoff, (Range<Int>, Biquad)>
+    @usableFromInline typealias BiquadSeriesCollection = Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
+    @usableFromInline typealias BiquadSeriesCoefficients = Publishers.Map<Cutoff, (Range<Int>, BiquadSeriesCollection)>
     @usableFromInline typealias A = Array<Scalar>
     @usableFromInline typealias B = Array<Scalar>
     @usableFromInline typealias Scalar = Float64
     @inlinable
-    func sections(for Tₛ: CMTime) -> Sections {
+    func coefficients(for Tₛ: CMTime) -> BiquadSeriesCoefficients {
         let H = Hₛ.map(simd_double2x3.init(columns:))
         return ω₀.map {
             let Mₛ = Prototype.BiquadSeries.BLT(prewarping: $0.increment(for: Tₛ))
