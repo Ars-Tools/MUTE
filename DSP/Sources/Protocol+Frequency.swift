@@ -12,7 +12,7 @@ import func CoreMedia.CMTimeMultiplyByRatio
 import func CoreMedia.CMTimeMultiplyByFloat64
 import typealias Numerics.Rational64
 import typealias Numerics.Rational128
-public protocol Frequency: Sendable {
+public protocol Frequency: Sendable & Comparable & Equatable {
 	@inlinable func multiply(time: CMTime) -> CMTime
 	@inlinable func increment(for time: CMTime) -> Float64
 }
@@ -70,6 +70,26 @@ extension AngularFrequency: Frequency {
 	public func multiply(time: CMTime) -> CMTime {
 		.init(value: .init(rawValue.numerator), timescale: .init(rawValue.denominator))
 	}
+    @inlinable@inline(__always)@_transparent
+    public static func > (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue > rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func <= (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue <= rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func >= (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue >= rhs.rawValue
+    }
+    @inlinable@inline(__always)@_transparent
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue == rhs.rawValue
+    }
 }
 @usableFromInline
 enum θHz {
