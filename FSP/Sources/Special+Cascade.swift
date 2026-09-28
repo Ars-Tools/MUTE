@@ -1040,13 +1040,14 @@ extension Filter.Cascade.Rn.Section {
 extension Filter.Cascade.Rn.Section {
     public static func raw(_ object: Linear.Biquad) -> Self {
         let raw = Just(object).eraseToAnyPublisher()
-        return.init { _ in
+        return.init { Tₛ in
             raw
         }
     }
     public static func raw(b: SIMD3<Float64>, a: SIMD3<Float64>) -> Self {
         .raw(.init(b: b, a: a))
     }
+    public static let identity = .raw(b: .init(1, 0, 0), a: .init(1, 0, 0)) as Self
 }
 prefix operator ∫
 public prefix func ∫(x: Stream) -> some Stream { // cumsum(f(t)) without reset trigger
