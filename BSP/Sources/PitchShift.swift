@@ -42,13 +42,13 @@ extension PitchShift.Kr: DSP.Stream {
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
         let count = count
-        let log2n = 13
+        let log2n = 11
         let frame = 1 << ( log2n - 0 )
         let shift = 1 << ( log2n - 3 )
         let window = Array<Float64>(unsafeUninitializedCapacity: frame) {
             $1 = $0.count
-            vDSP.clear(&$0)
             vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/2], isHalfWindow: false)
+            vDSP.clear(&$0[$1/2..<$1])
         }
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
@@ -104,7 +104,7 @@ extension PitchShift.Kr: DSP.Stream {
                     vDSP_zvphasD(&z, 1, z.imagp, 1, .init(count * frame))
                     
                     // synth
-                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(count * frame), \.self))
+                    vvsincos(z.imagp, z.imagp, z.realp, count * frame)
                     vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(count * frame))
                     vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(count * frame))
                     vDSP_fftm_ziptD(dft.pointer,
@@ -112,12 +112,9 @@ extension PitchShift.Kr: DSP.Stream {
                                     &w,
                                     .init(log2n), .init(count),
                                     .init(kFFTDirection_Inverse))
-                    vDSP_vsdivD(z.realp, 1,
-                                withUnsafePointer(to: Float64(frame), \.self),
-                                z.realp, 1,
-                                .init(count * frame))
-//                    o.merge(cursor: cursor, length: frame, window: window, source: z.realp, stride: frame)
-                    o.blend(cursor: cursor, length: frame, weight: window, source: z.realp, stride: frame)
+                    vDSP_div(z.realp, 1, .init(frame), z.realp, 1, count * frame)
+                    o.merge(cursor: cursor, length: frame, window: window, source: z.realp, stride: frame)
+//                    o.blend(cursor: cursor, length: frame, weight: window, source: z.realp, stride: frame)
                 }
             }
             o.copy(cursor: offset, length: $1, target: $2, stride: $3)
