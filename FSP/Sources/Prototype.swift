@@ -26,7 +26,7 @@ enum Prototype {
     @usableFromInline
     enum TransferFunction: Sendable {
         @usableFromInline
-        struct Rn<Cutoff: Publisher<Frequency, Never> & Sendable> {
+        struct Kr<Cutoff: Publisher<Frequency, Never> & Sendable> {
             @usableFromInline let ω₀: Cutoff
             @usableFromInline let Bₛ: Array<Float64>
             @usableFromInline let Aₛ: Array<Float64>
@@ -41,7 +41,7 @@ enum Prototype {
     @usableFromInline
     enum BiquadSeries: Sendable {
         @usableFromInline
-        struct Rn<Cutoff: Publisher<Frequency, Never> & Sendable> {
+        struct Kr<Cutoff: Publisher<Frequency, Never> & Sendable> {
             @usableFromInline let ω₀: Cutoff
             @usableFromInline let Hₛ: Array<(bₛ: SIMD3<Float64>, aₛ: SIMD3<Float64>)>
         }
@@ -132,7 +132,7 @@ extension Prototype.TransferFunction {
         }
     }
 }
-extension Prototype.TransferFunction.Rn: Filter.TransferFunction {
+extension Prototype.TransferFunction.Kr: Filter.TransferFunction {
     @usableFromInline typealias B = Array<Float64>
     @usableFromInline typealias A = Array<Float64>
     @inlinable
@@ -169,6 +169,34 @@ extension Prototype.TransferFunction.Rn: Filter.TransferFunction {
     @inlinable
     var counts: SIMD2<Int> {
         .init(repeating: max(Bₛ.count, Aₛ.count))
+    }
+}
+extension Prototype.TransferFunction.Kr: DSP.Stream {
+    @inlinable
+    func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+        let length = counts.max() as Int
+        let buffer = Mutex<Array<Float64>>(.init(unsafeUninitializedCapacity: 2 * length) {
+            $1 = $0.count
+            $0.initialize(repeating: .zero)
+            $0.prefix(1).initialize(repeating: 1)
+            $0.dropFirst(length).prefix(1).initialize(repeating: 1)
+        })
+        let cancel = coefficients(for: interval).sink { b, a in
+            buffer.withLock {
+                $0.replaceSubrange(0*length..<1*length, with: b)
+                $0.replaceSubrange(1*length..<2*length, with: a)
+            }
+        }
+        instance.store(cancel, interval: interval, capacity: capacity)
+        return {
+            for (k, v) in buffer.withLock(\.self).enumerated() {
+                vDSP.fill(&UnsafeMutableBufferPointer(start: $2.advanced(by: k * $3), count: $1)[0..<$1], with: v)
+            }
+        }
+    }
+    @inlinable
+    var count: Int {
+        counts.wrappedSum()
     }
 }
 extension Prototype.TransferFunction.Ar: DSP.Stream {
@@ -301,7 +329,7 @@ extension Prototype.BiquadSeries {
         }
     }
 }
-extension Prototype.BiquadSeries.Rn: DSP.Filter.BiquadSeries {
+extension Prototype.BiquadSeries.Kr: DSP.Filter.BiquadSeries {
     @usableFromInline typealias Biquad = Array<(b: SIMD3<Scalar>, a: SIMD3<Scalar>)>
     @usableFromInline typealias Sections = Publishers.Map<Cutoff, (Range<Int>, Biquad)>
     @usableFromInline typealias A = Array<Scalar>
@@ -537,7 +565,7 @@ func filter(_ source: Stream,
             Aₛ: Array<Float64>) -> some DSP.Stream {
     filter(source,
            iir: repeatElement(ω₀, count: source.count).enumerated().publisher.map { k, y in
-        (k, Prototype.TransferFunction.Rn(ω₀: y.compactMap {
+        (k, Prototype.TransferFunction.Kr(ω₀: y.compactMap {
             k == $0 ? .some($1) : .none
         }, Bₛ: Bₛ, Aₛ: Aₛ))
     }, counts: .init(repeating: max(Bₛ.count, Aₛ.count)))
@@ -548,7 +576,7 @@ func filter(_ source: Stream,
             Bₛ: Array<Float64>,
             Aₛ: Array<Float64>) -> some DSP.Stream {
     filter(source,
-           iir: Prototype.TransferFunction.Rn(ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ))
+           iir: Prototype.TransferFunction.Kr(ω₀: ω₀, Bₛ: Bₛ, Aₛ: Aₛ))
 }
 @inline(__always)@_transparent
 func filter(_ source: Stream,
@@ -557,7 +585,7 @@ func filter(_ source: Stream,
             Aₛ: Array<Float64>) -> some DSP.Stream {
     filter(source,
            iir: ω₀.lazy.map {
-        Prototype.TransferFunction.Rn(ω₀: Just($0), Bₛ: Bₛ, Aₛ: Aₛ)
+        Prototype.TransferFunction.Kr(ω₀: Just($0), Bₛ: Bₛ, Aₛ: Aₛ)
     })
 }
 @inline(__always)@_transparent
@@ -566,7 +594,7 @@ func filter(_ source: Stream,
             Bₛ: Array<Float64>,
             Aₛ: Array<Float64>) -> some DSP.Stream {
     filter(source,
-           iir: Prototype.TransferFunction.Rn(ω₀: Just(ω₀), Bₛ: Bₛ, Aₛ: Aₛ)
+           iir: Prototype.TransferFunction.Kr(ω₀: Just(ω₀), Bₛ: Bₛ, Aₛ: Aₛ)
     )
 }
 @inline(__always)@_transparent@_disfavoredOverload
@@ -592,7 +620,7 @@ func filter(_ source: Stream,
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
     return filter(source,
                   sos: repeatElement(ω₀, count: source.count).enumerated().publisher.map { k, ω in
-        (k, Prototype.BiquadSeries.Rn(ω₀: ω.compactMap {
+        (k, Prototype.BiquadSeries.Kr(ω₀: ω.compactMap {
             $0 == k ? .some($1) : .none
         }, Hₛ: Hₛ))
     }, count: Hₛ.count)
@@ -603,7 +631,7 @@ func filter(_ source: Stream,
             H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
             H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
-    return filter(source, sos: Prototype.BiquadSeries.Rn(ω₀: ω₀, Hₛ: Hₛ))
+    return filter(source, sos: Prototype.BiquadSeries.Kr(ω₀: ω₀, Hₛ: Hₛ))
 }
 @inline(__always)@_transparent
 func filter(_ source: Stream,
@@ -612,7 +640,7 @@ func filter(_ source: Stream,
             H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
     return filter(source, sos: ω₀.lazy.map {
-        Prototype.BiquadSeries.Rn(ω₀: Just($0), Hₛ: Hₛ)
+        Prototype.BiquadSeries.Kr(ω₀: Just($0), Hₛ: Hₛ)
     }, count: .some(Hₛ.count))
 }
 @inline(__always)@_transparent@_disfavoredOverload
@@ -621,7 +649,7 @@ func filter(_ source: Stream,
             H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
             H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
-    return filter(source, sos: Prototype.BiquadSeries.Rn(ω₀: Just(ω₀), Hₛ: Hₛ))
+    return filter(source, sos: Prototype.BiquadSeries.Kr(ω₀: Just(ω₀), Hₛ: Hₛ))
 }
 @inline(__always)@_transparent@_disfavoredOverload
 func filter(_ source: Stream,
