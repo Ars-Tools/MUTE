@@ -7,10 +7,6 @@
 import struct Synchronization.Mutex
 import func Layout.broadcast
 import func NSP.calculus_differentiation
-prefix operator ∂
-public prefix func ∂(x: Stream) -> some Stream { // diff(f(t)) without reset trigger
-	filter(x, sos: .raw(b₀: 1, b₁: 0, b₂: -1, a₁: 1, a₂: 0))
-}
 @usableFromInline
 enum Differentiation {
 	@usableFromInline

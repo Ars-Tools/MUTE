@@ -11,10 +11,6 @@ import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import func Layout.broadcast
 import func NSP.calculus_integration
-prefix operator ∫
-public prefix func ∫(x: Stream) -> some Stream { // cumsum(f(t)) without reset trigger
-	filter(x, sos: .raw(b₀: 0.5, b₁: 0.5, b₂: 0, a₁: -1, a₂: 0))
-}
 @usableFromInline
 enum Integration {
 	@usableFromInline
