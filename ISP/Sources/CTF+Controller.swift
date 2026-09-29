@@ -22,7 +22,7 @@ extension CTF {
     /**
      Estimate Y(ω)=G(ω)X(ω)+N(ω) for a channel (SISO)
      **/
-    public final class SISOController<Exciter: Exciters.`Protocol`, Estimator: Estimators.`Protocol`>: Sendable {
+    public final class SISOController<Exciter: Exciters.`Protocol`, Estimator: SISO.`Protocol`>: Sendable {
         @usableFromInline
         let buffer: Mutex<Buffer>
         @usableFromInline
