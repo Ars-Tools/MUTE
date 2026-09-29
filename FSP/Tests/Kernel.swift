@@ -7,7 +7,7 @@
 import Testing
 import DSP
 import ESP
-import NSP
+import KSP
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import typealias Numerics.Complex128
