@@ -5,7 +5,7 @@
 //  Created by Kota on 7/24/R7.
 //
 import Testing
-import NSP
+import KSP
 import simd
 
 @Suite
