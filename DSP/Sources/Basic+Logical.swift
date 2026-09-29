@@ -5,13 +5,13 @@
 //  Created by Kota on 7/11/R7.
 //
 @preconcurrency import protocol Combine.Publisher
-import func NSP.logical_not
-import func NSP.logical_or
-import func NSP.logical_and
-import func NSP.logical_nor
-import func NSP.logical_nand
-import func NSP.logical_xor
-import func NSP.logical_xnor
+import func KSP.logical_not
+import func KSP.logical_or
+import func KSP.logical_and
+import func KSP.logical_nor
+import func KSP.logical_nand
+import func KSP.logical_xor
+import func KSP.logical_xnor
 @usableFromInline
 enum Logical {}
 // MARK: NOT
