@@ -6,7 +6,7 @@
 //
 import Testing
 import Numerics
-@testable import NSP
+@testable import KSP
 @Suite(.serialized)
 struct DFTTestCase {
     @Test(
