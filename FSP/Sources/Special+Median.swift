@@ -5,9 +5,9 @@
 //  Created by Kota on 5/11/26.
 //
 import typealias CoreMedia.CMTime
-import func NSP.median_filter_create
-import func NSP.median_filter_destroy
-import func NSP.median_filter
+import func KSP.median_filter_create
+import func KSP.median_filter_destroy
+import func KSP.median_filter
 import protocol DSP.Stream
 import typealias DSP.Instance
 import typealias Auxiliary.Autorelease
