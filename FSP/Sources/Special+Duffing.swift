@@ -9,7 +9,7 @@ import typealias Synchronization.Mutex
 import protocol DSP.Stream
 import typealias DSP.Filter
 import typealias DSP.Instance
-import func NSP.duffing_filter_convolve_static
+import func KSP.duffing_filter_convolve_static
 @preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Publishers
 @preconcurrency import typealias Combine.Just
