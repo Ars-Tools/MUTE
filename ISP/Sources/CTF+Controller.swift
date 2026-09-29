@@ -105,8 +105,8 @@ extension CTF.SISOController {
         assert(memory == memory.advanced(by: 0 * stride))
         assert(0 <= sample)
         defer {
-            let lower = (sample + 1         ).align(up: stride)
-            let upper = (sample + 1 + length).align(up: stride)
+            let lower = (window.count + sample + 1         ).align(up: stride)
+            let upper = (window.count + sample + 1 + length).align(up: stride)
 //            for cursor in Swift.stride(from: lower, to: upper, by: stride).suffix(1) {
 //                signal.replace(data: .init(cursor))
 //            }
