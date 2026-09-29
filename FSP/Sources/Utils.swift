@@ -20,7 +20,7 @@ import func simd.expm1
 import func simd.pow
 import func simd.simd_precise_recip
 import typealias Numerics.Complex128
-import NSP
+import KSP
 public enum Utils {}
 extension Utils {
 	public static func ripple(dB: Float64) -> Float64 {
