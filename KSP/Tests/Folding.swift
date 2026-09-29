@@ -6,7 +6,7 @@
 //
 import Testing
 import Accelerate
-import NSP
+import KSP
 @Test
 func folding() {
 	let x = Array<Float64>(unsafeUninitializedCapacity: 512) {
