@@ -5,7 +5,7 @@
 //  Created by Kota on 7/23/R7.
 //
 import Testing
-import NSP
+import KSP
 import Accelerate
 @Suite
 struct SpecialFunction {
@@ -47,8 +47,8 @@ struct SpecialFunction {
 		switch a {
 		case.success((let r, let e)):
 			#expect(e.magnitude < 1e-3)
-			#expect((r / .pi - NSP.in(1, x)).magnitude < 1e-6)
-			print(r / .pi, NSP.in(1, x))
+			#expect((r / .pi - KSP.in(1, x)).magnitude < 1e-6)
+			print(r / .pi, KSP.in(1, x))
 		case.failure(let e):
 			Issue.record(.__line(e.errorDescription))
 		}
