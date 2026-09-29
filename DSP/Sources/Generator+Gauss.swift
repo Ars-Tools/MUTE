@@ -7,7 +7,7 @@
 @preconcurrency import protocol Combine.Publisher
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
-import func NSP.gauss_rng
+import func KSP.gauss_rng
 @usableFromInline
 enum Gauss {
 	@usableFromInline
