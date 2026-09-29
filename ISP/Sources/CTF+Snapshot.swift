@@ -11,7 +11,7 @@ import func simd.recip
 import typealias CLK.CMTime
 extension CTF {
     public struct Snapshot: Sendable {
-        public var τ: CMTime // sample index
+        public var τ: Int // sample index
         public let ω: Array<Float64> // normalized angular frequency [0, 1) -> [0, 2π) or [0, 0.5] -> [0, π]. [0, 0.5] is preferred
         public var ε: Array<Complex128>
         public var x: Array<Complex128>
