@@ -102,6 +102,8 @@ typedef struct {
     intptr_t const order; // filter length
     __complex double * __nonnull const w; // [count, order], channel-major, conj(kernel)
     __complex double * __nonnull const h; // [count, order], channel-major, 0-started buffer for history
+    dispatch_queue_t __nullable const q;
+    intptr_t k;
     rls_complex_t rls[];
 } rls_complex_filterbank_t;
 __attribute__((overloadable))
