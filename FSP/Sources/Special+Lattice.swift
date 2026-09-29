@@ -12,10 +12,10 @@ import typealias CoreMedia.CMTime
 import protocol DSP.Stream
 import typealias DSP.Filter
 import typealias DSP.Instance
-import func NSP.lattice_filter_create
-import func NSP.lattice_filter_destroy
-import func NSP.lattice_filter_static
-import func NSP.lattice_filter_active
+import func KSP.lattice_filter_create
+import func KSP.lattice_filter_destroy
+import func KSP.lattice_filter_static
+import func KSP.lattice_filter_active
 import typealias Auxiliary.Autorelease
 import typealias Synchronization.Mutex
 import func simd.fma
