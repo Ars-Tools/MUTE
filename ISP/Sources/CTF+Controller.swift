@@ -64,7 +64,7 @@ extension CTF.SISOController {
             guard case.some(let target) = $0.baseAddress else { return }
             $1 = $0.count
             buffer.withLock {
-                $0.fetch(cursor: cursor,
+                $0.fetch(cursor: ( cursor + $0.period ) % $0.period,
                          length: window.count,
                          window: window,
                          target: target,
@@ -105,8 +105,8 @@ extension CTF.SISOController {
         assert(memory == memory.advanced(by: 0 * stride))
         assert(0 <= sample)
         defer {
-            let lower = (window.count + sample + 1         ).align(up: stride)
-            let upper = (window.count + sample + 1 + length).align(up: stride)
+            let lower = (sample + 1         ).align(up: stride)
+            let upper = (sample + 1 + length).align(up: stride)
 //            for cursor in Swift.stride(from: lower, to: upper, by: stride).suffix(1) {
 //                signal.replace(data: .init(cursor))
 //            }
