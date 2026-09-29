@@ -32,6 +32,10 @@ let package = Package(
         .library(
             name: "MUTE.GSP",
             targets: ["GSP"]
+        ),
+        .library(
+            name: "MUTE.ISP",
+            targets: ["ISP"]
         )
     ],
 	dependencies: [
