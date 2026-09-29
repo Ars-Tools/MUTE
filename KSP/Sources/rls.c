@@ -388,3 +388,169 @@ void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const object,
         zlacgv_(&object->order,
                 d, &one);
 }
+
+
+// SOA
+// row-major upper-triangle vector index for (i, j), i <= j
+__attribute__((always_inline, visibility("hidden"))) static inline
+intptr_t const rls_soa_index(intptr_t const n, intptr_t const i, intptr_t const j) {
+    return i * n - ( i * ( i - 1 ) ) / 2 + ( j - i );
+}
+// split view over interleaved complex storage; use vDSP stride 2 * (complex stride)
+__attribute__((always_inline, visibility("hidden"))) static inline
+DSPDoubleSplitComplex const rls_soa_split(__complex double const * __nonnull const z) {
+    return (DSPDoubleSplitComplex const) {
+        .realp = (double*const)z + 0,
+        .imagp = (double*const)z + 1,
+    };
+}
+// MARK: - Lifecycle
+__attribute__((overloadable))
+rls_complex_soa_t*__nonnull const rls_complex_soa_create(intptr_t const order, intptr_t const count) {
+    intptr_t const triangle = order * ( order + 1 ) / 2;
+    void*__nonnull const ptr = __malloc__(sizeof(rls_complex_soa_t const)
+                                          + (size_t)(( 3 * order + triangle + 2 ) * count) * sizeof(__complex double const)
+                                          + (size_t)(2 * count) * sizeof(double const));
+    rls_complex_soa_t*__nonnull const object = (rls_complex_soa_t*__nonnull const)ptr;
+    __complex double * cursor = (__complex double*)(object + 1);
+    *(intptr_t*const)&object->count = count;
+    *(intptr_t*const)&object->order = order;
+    *(__complex double**const)&object->w = cursor; cursor += order * count;
+    *(__complex double**const)&object->h = cursor; cursor += order * count;
+    *(__complex double**const)&object->p = cursor; cursor += triangle * count;
+    *(__complex double**const)&object->k = cursor; cursor += order * count;
+    *(__complex double**const)&object->t = cursor; cursor += count;
+    *(__complex double**const)&object->u = cursor; cursor += count;
+    *(double**const)&object->q = (double*const)cursor;
+    *(double**const)&object->r = (double*const)cursor + count;
+    object->lambda = 1;
+    rls_filter_reset(object);
+    return object;
+}
+__attribute__((overloadable))
+void rls_filter_destroy(rls_complex_soa_t*__nonnull const object) {
+    __free__(object);
+}
+__attribute__((overloadable))
+void rls_filter_reset(rls_complex_soa_t*__nonnull const object) {
+    intptr_t const m = object->count;
+    intptr_t const n = object->order;
+    __clr__(object->w, 1, n * m);
+    __clr__(object->h, 1, n * m);
+    __clr__(object->p, 1, ( n * ( n + 1 ) / 2 ) * m);
+    for ( intptr_t i = 0 ; i < n ; ++ i ) // P = I
+        __fill__((__complex double const)1, object->p + rls_soa_index(n, i, i) * m, 1, m);
+}
+__attribute__((overloadable))
+void rls_filter_lambda(rls_complex_soa_t*__nonnull const object, double const lambda) {
+    object->lambda = lambda;
+}
+// MARK: - Update
+__attribute__((overloadable))
+void rls_filter_error(rls_complex_soa_t*__nonnull const object,
+                      __complex double const * __nonnull x, intptr_t const ldx,
+                      __complex double const * __nonnull y, intptr_t const ldy,
+                      __complex double       * _Nullable e, intptr_t const lde,
+                      intptr_t const length) {
+    static intptr_t const one = 1;
+    intptr_t const m = object->count;
+    intptr_t const n = object->order;
+    int const im = (int const)m;
+    double const lambda = object->lambda;
+    double const gamma = simd_precise_recip(lambda);
+    __complex double * __nonnull const w = object->w;
+    __complex double * __nonnull const h = object->h;
+    __complex double * __nonnull const p = object->p;
+    __complex double * __nonnull const k = object->k;
+    double * __nonnull const q = object->q;
+    double * __nonnull const r = object->r;
+    DSPDoubleSplitComplex const T = rls_soa_split(object->t);
+    DSPDoubleSplitComplex const U = rls_soa_split(object->u);
+    for ( intptr_t s = 0 ; s < length ; ++ s, ++ x, ++ y ) {
+        // h[i] <- h[i-1], h[0] <- x_s : one block move, taps are contiguous rows
+        memmove(h + m, h, (size_t)(( n - 1 ) * m) * sizeof(__complex double const));
+        zcopy_(&m, x, &ldx, h, &one);
+        // k[i] = Σ_{j>=i} P[i,j] h[j] + Σ_{j<i} conj(P[j,i]) h[j]
+        __clr__(k, 1, n * m);
+        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+            DSPDoubleSplitComplex const Ki = rls_soa_split(k + i * m);
+            DSPDoubleSplitComplex const Hi = rls_soa_split(h + i * m);
+            for ( intptr_t j = i ; j < n ; ++ j ) {
+                DSPDoubleSplitComplex const Pij = rls_soa_split(p + rls_soa_index(n, i, j) * m);
+                DSPDoubleSplitComplex const Hj = rls_soa_split(h + j * m);
+                vDSP_zvmaD(&Pij, 2, &Hj, 2, &Ki, 2, &Ki, 2, m); // k_i += P_ij h_j
+                if ( i != j ) {
+                    DSPDoubleSplitComplex const Kj = rls_soa_split(k + j * m);
+                    vDSP_zvmulD(&Pij, 2, &Hi, 2, &T, 2, m, -1); // conj(P_ij) h_i
+                    vDSP_zvaddD(&Kj, 2, &T, 2, &Kj, 2, m);
+                }
+            }
+        }
+        // q = Re(h^H k) = x^H P x, r = 1/sqrt(lambda + q)
+        vDSP_vclrD(q, 1, m);
+        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+            DSPDoubleSplitComplex const Ki = rls_soa_split(k + i * m);
+            DSPDoubleSplitComplex const Hi = rls_soa_split(h + i * m);
+            vDSP_zvmulD(&Hi, 2, &Ki, 2, &T, 2, m, -1); // conj(h_i) k_i
+            vDSP_vaddD(q, 1, T.realp, 2, q, 1, m);
+        }
+        vDSP_vsaddD(q, 1, &lambda, q, 1, m);
+        vvrsqrt(r, q, &im);
+        // v = k r (in place), v v^H / (lambda + q) is the downdate below
+        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+            DSPDoubleSplitComplex const Ki = rls_soa_split(k + i * m);
+            vDSP_zrvmulD(&Ki, 2, r, 1, &Ki, 2, m);
+        }
+        // a-priori error e_s = y_s - w^H h against the caller's strided layout
+        __complex double * __nonnull const error = e ? e : object->t;
+        intptr_t const lderror = e ? lde : 1;
+        {
+            DSPDoubleSplitComplex const Y = rls_soa_split(y);
+            DSPDoubleSplitComplex const E = rls_soa_split(error);
+            vDSP_vclrD(U.realp, 1, 2 * m); // interleaved u = 0
+            for ( intptr_t i = 0 ; i < n ; ++ i ) {
+                DSPDoubleSplitComplex const Wi = rls_soa_split(w + i * m);
+                DSPDoubleSplitComplex const Hi = rls_soa_split(h + i * m);
+                vDSP_zvmulD(&Wi, 2, &Hi, 2, &T, 2, m, -1); // conj(w_i) h_i
+                vDSP_zvaddD(&U, 2, &T, 2, &U, 2, m);
+            }
+            vDSP_zvsubD(&Y, 2 * ldy, &U, 2, &E, 2 * lderror, m);
+            // u = r conj(e)
+            vDSP_zrvmulD(&E, 2 * lderror, r, 1, &U, 2, m);
+            vDSP_vnegD(U.imagp, 2, U.imagp, 2, m);
+        }
+        // P <- (P - v v^H) / lambda, upper triangle only
+        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+            DSPDoubleSplitComplex const Ki = rls_soa_split(k + i * m);
+            for ( intptr_t j = i ; j < n ; ++ j ) {
+                __complex double * __nonnull const pij = p + rls_soa_index(n, i, j) * m;
+                DSPDoubleSplitComplex const Kj = rls_soa_split(k + j * m);
+                vDSP_zvmulD(&Kj, 2, &Ki, 2, &T, 2, m, -1); // (v v^H)_ij = v_i conj(v_j)
+                // real scalar acts identically on re/im: fused (P - t) / lambda on raw doubles
+                vDSP_vsbsmD((double*const)pij, 1, T.realp, 1, &gamma, (double*const)pij, 1, 2 * m);
+            }
+        }
+        // w[i] += v[i] u
+        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+            DSPDoubleSplitComplex const Wi = rls_soa_split(w + i * m);
+            DSPDoubleSplitComplex const Ki = rls_soa_split(k + i * m);
+            vDSP_zvmaD(&Ki, 2, &U, 2, &Wi, 2, &Wi, 2, m);
+        }
+        if ( e )
+            ++ e;
+    }
+}
+// MARK: - Export
+__attribute__((overloadable))
+void rls_filter_coefficients(rls_complex_soa_t*__nonnull const object,
+                             __complex double * __nonnull const c, intptr_t const ldc) {
+    static intptr_t const one = 1;
+    intptr_t const m = object->count;
+    intptr_t const n = object->order;
+    for ( intptr_t i = 0 ; i < n ; ++ i ) { // physical taps are conj of stored w
+        zcopy_(&m, object->w + i * m, &one, c + i, &ldc);
+        vDSP_vnegD((double*const)(c + i) + 1, 2 * ldc,
+                   (double*const)(c + i) + 1, 2 * ldc, m);
+    }
+}
+

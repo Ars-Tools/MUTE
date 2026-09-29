@@ -121,3 +121,40 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const,
 __attribute__((overloadable))
 void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const,
                              __complex double * __nonnull, intptr_t const);
+
+
+// SOA
+ typedef struct {
+     intptr_t const count;                 // frequency bins (m)
+     intptr_t const order;                 // taps (n)
+     double lambda;
+     __complex double * __nonnull const w; // [order][count] conj-stored coefficients
+     __complex double * __nonnull const h; // [order][count] regressor history, h[0] = newest
+     __complex double * __nonnull const p; // [order(order+1)/2][count] upper triangle of P
+     __complex double * __nonnull const k; // [order][count] gain workspace (v)
+     __complex double * __nonnull const t; // [count] product workspace
+     __complex double * __nonnull const u; // [count] update workspace
+     double * __nonnull const q;           // [count] x^H P x
+     double * __nonnull const r;           // [count] rsqrt(lambda + q)
+ } rls_complex_soa_t;
+
+// MARK: - Lifecycle
+__attribute__((overloadable))
+rls_complex_soa_t*__nonnull const rls_complex_soa_create(intptr_t const order, intptr_t const count);
+__attribute__((overloadable))
+void rls_filter_destroy(rls_complex_soa_t*__nonnull const object);
+__attribute__((overloadable))
+void rls_filter_reset(rls_complex_soa_t*__nonnull const object);
+__attribute__((overloadable))
+void rls_filter_lambda(rls_complex_soa_t*__nonnull const object, double const lambda);
+// MARK: - Update
+__attribute__((overloadable))
+void rls_filter_error(rls_complex_soa_t*__nonnull const object,
+                      __complex double const * __nonnull x, intptr_t const ldx,
+                      __complex double const * __nonnull y, intptr_t const ldy,
+                      __complex double       * _Nullable e, intptr_t const lde,
+                      intptr_t const length);
+// MARK: - Export
+__attribute__((overloadable))
+void rls_filter_coefficients(rls_complex_soa_t*__nonnull const object,
+                             __complex double * __nonnull const c, intptr_t const ldc);
