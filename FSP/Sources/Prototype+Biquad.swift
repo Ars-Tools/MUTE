@@ -16,9 +16,9 @@
 //import protocol DSP.Frequency
 //import typealias DSP.Instance
 //import typealias Auxiliary.Autorelease
-//import func NSP.biquad_filter_create
-//import func NSP.biquad_filter_destroy
-//import func NSP.biquad_filter_active
+//import func KSP.biquad_filter_create
+//import func KSP.biquad_filter_destroy
+//import func KSP.biquad_filter_active
 //import simd
 //@preconcurrency import protocol Combine.Publisher
 //extension Prototype {
