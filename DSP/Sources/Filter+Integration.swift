@@ -10,7 +10,7 @@ import protocol Accelerate.AccelerateMutableBuffer
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import func Layout.broadcast
-import func NSP.calculus_integration
+import func KSP.calculus_integration
 @usableFromInline
 enum Integration {
 	@usableFromInline
