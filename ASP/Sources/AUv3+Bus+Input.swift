@@ -29,7 +29,7 @@ import typealias Synchronization.Atomic
 import typealias Synchronization.AtomicStoreOrdering
 import typealias Accelerate.vDSP
 import func CoreMedia.CMTimeMultiplyByFloat64
-import func NSP.utility_clear
+import func KSP.utility_clear
 import os.log
 public enum Input {
 	protocol `Protocol`: AUAudioUnitBus {
