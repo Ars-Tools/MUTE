@@ -30,14 +30,15 @@ module KSP {
 	export *
 }
 module Acoustica {
+//    use ComplexSolvers
     header "bem.h"
     export *
 }
-module ComplexSolvers {
-    header "lu_solver.h"
-    header "gl_quadrature.h"
-    export *
-}
+//module ComplexSolvers {
+//    header "lu_solver.h"
+//    header "gl_quadrature.h"
+//    export *
+//}
 module AUExtension {
 	header "AUParameterNode+.h"
 	export *
