@@ -15,6 +15,10 @@ import func KSP.rls_filter_destroy
 import func KSP.rls_filter_reset
 import func KSP.rls_filter_lambda
 import func KSP.rls_filter_error
+
+import typealias KSP.rls_complex_soa_t
+import func KSP.rls_complex_soa_create
+
 import typealias ESP.DFT
 import AltVec
 extension CTF {
@@ -67,14 +71,14 @@ extension CTF.SISO.FrequencyDomain {
 extension CTF.SISO {
     public final class RLS<DFT: ESP.DFT.`Protocol`>: FrequencyDomain, @unchecked Sendable {
         @usableFromInline
-        let core: UnsafeMutablePointer<rls_complex_filterbank_t>
+        let core: UnsafeMutablePointer<rls_complex_soa_t>
         public let dft: DFT
         public let statistics: Mutex<CTF.Snapshot>
         public let average: Atomic<Float64>
         @inlinable
         public init(dft transformer: DFT, count: Int, λ: Float64) { // count = filter order
             dft = transformer
-            core = rls_complex_filter_create(count, dft.count / 2 + 1) // 0 ~ Nyquist
+            core = rls_complex_soa_create(count, dft.count / 2 + 1) // 0 ~ Nyquist
             statistics = .init(.init(angular: .init(unsafeUninitializedCapacity: dft.count / 2 + 1) { [dft] in
                 $1 = $0.count
                 vDSP.formRamp(withInitialValue: 0, increment: 1, result: &$0)
