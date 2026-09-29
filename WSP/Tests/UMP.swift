@@ -6,7 +6,7 @@
 //
 import Testing
 import CoreMIDI
-import MIDI
+import WSP
 @Suite
 struct UMPTestCase {
 	@Test
@@ -15,7 +15,7 @@ struct UMPTestCase {
 			.init(note: 80, velocity: 80, channel: 0),
 			.init(note: 80, velocity: 0, channel: 0)
 		] as [MSG_1_0]
-		let enc = MIDI.Buffer(msg: raw, as: ._1_0, at: 0)
+		let enc = WSP.Buffer(msg: raw, as: ._1_0, at: 0)
 		let dec = enc.withUnsafeEventListPointer(Array.init)
 		#expect(dec.count == 2)
 		let msg = Array(dec.noteIn_1_0)
@@ -29,7 +29,7 @@ struct UMPTestCase {
 			.init(note: 80, velocity: 80, channel: 0),
 			.init(note: 80, velocity: 0, channel: 0)
 		] as [MSG_1_0]
-		let enc = MIDI.Buffer(msg: raw, as: ._2_0, at: 0)
+		let enc = WSP.Buffer(msg: raw, as: ._2_0, at: 0)
 		let dec = enc.withUnsafeEventListPointer(Array.init)
 		#expect(dec.count == 2)
 		let msg = Array(dec.noteIn_1_0)
@@ -43,7 +43,7 @@ struct UMPTestCase {
 			.init(note: 80, velocity: 0x7fff, channel: 0),
 			.init(note: 80, velocity: 0x0000, channel: 0)
 		] as [MSG_2_0]
-		let enc = MIDI.Buffer(msg: raw, as: ._2_0, at: 0)
+		let enc = WSP.Buffer(msg: raw, as: ._2_0, at: 0)
 		let dec = enc.withUnsafeEventListPointer(Array.init)
 		#expect(dec.count == 2)
 		let msg = Array(dec.noteIn_2_0)
