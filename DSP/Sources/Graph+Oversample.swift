@@ -9,8 +9,8 @@ import func CoreMedia.CMTimeMultiplyByRatio
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import typealias Synchronization.Mutex
-import func NSP.vvi0
-import func NSP.i0
+import func KSP.vvi0
+import func KSP.i0
 public enum Oversample {
 	@usableFromInline
 	struct Ne {
