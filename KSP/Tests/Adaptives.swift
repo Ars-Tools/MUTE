@@ -9,7 +9,7 @@ import Testing
 import Accelerate
 import typealias Numerics.Complex128
 import typealias Complex.complex128_t
-@testable import NSP
+@testable import KSP
 @Suite
 struct ARTestCase {
 	func parcor(ar c: Array<Float64>) -> Array<Float64> {
