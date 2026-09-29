@@ -6,7 +6,7 @@
 //
 import Testing
 import simd
-@testable import NSP
+@testable import KSP
 @Suite
 struct SSMTestCases {
     @Test
