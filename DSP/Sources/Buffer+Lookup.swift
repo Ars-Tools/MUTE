@@ -6,7 +6,7 @@
 //
 import func Layout.broadcast
 import func Layout.zip
-import func NSP.periodic_lookup_with_static
+import func KSP.periodic_lookup_with_static
 import func Accelerate.vDSP_vsmulD
 import typealias Accelerate.vDSP
 extension Buffer {
