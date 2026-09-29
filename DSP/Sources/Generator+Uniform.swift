@@ -7,7 +7,7 @@
 @preconcurrency import protocol Combine.Publisher
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
-import func NSP.uniform_rng
+import func KSP.uniform_rng
 @usableFromInline
 enum Uniform {
 	@usableFromInline
