@@ -20,7 +20,7 @@ import func CoreMedia.CMTimeMultiplyByFloat64
 import protocol DSP.Stream
 import typealias DSP.Instance
 import typealias Accelerate.vDSP
-import func NSP.utility_clear
+import func KSP.utility_clear
 import os.log
 public struct Playback: Sendable {
 	@usableFromInline let rawValue: AVAudioFile
