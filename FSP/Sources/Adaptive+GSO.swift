@@ -7,10 +7,10 @@
 import typealias CoreMedia.CMTime
 import protocol DSP.Stream
 import typealias DSP.Instance
-import func NSP.gso_create
-import func NSP.gso_destroy
-import func NSP.gso_lambda
-import func NSP.gso_residual
+import func KSP.gso_create
+import func KSP.gso_destroy
+import func KSP.gso_lambda
+import func KSP.gso_residual
 import typealias Auxiliary.Autorelease
 @preconcurrency import Combine
 @usableFromInline
