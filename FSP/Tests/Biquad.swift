@@ -10,7 +10,7 @@ import Testing
 import simd
 import DSP
 import CoreMedia
-import NSP
+import KSP
 import ESP
 import MetalPerformanceShadersGraph
 @testable import FSP
