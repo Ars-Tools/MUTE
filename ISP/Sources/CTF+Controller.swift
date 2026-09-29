@@ -45,7 +45,7 @@ extension CTF {
             self.estimator = estimator
             snapshot = .init(estimator.snapshot)
             buffer = .init(.init(stream: 2, period: (window.count + capacity).align(up: stride)))
-            signal = DispatchSource.makeUserDataReplaceSource(queue: .init(label: "tools.ars.mute.isp.ctf.siso.controller")) // serial queue
+            signal = DispatchSource.makeUserDataReplaceSource(queue: .init(label: "tools.ars.mute.isp.ctf.siso.controller", qos: .userInitiated)) // serial queue
             signal.setEventHandler { [unowned self] in
                 self.process(cursor: .init(self.signal.data))
             }
