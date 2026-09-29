@@ -8,8 +8,8 @@ import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import typealias Accelerate.Quadrature
 import typealias Numerics.Rational64
-import func NSP.vvi0
-import func NSP.i0
+import func KSP.vvi0
+import func KSP.i0
 public enum Framewise {
 	public enum Window: Sendable {
 		case rectangular(Duration)
