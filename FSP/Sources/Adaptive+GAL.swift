@@ -10,12 +10,12 @@ import typealias DSP.Instance
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import typealias Auxiliary.Autorelease
-import func NSP.gal_create
-import func NSP.gal_destroy
-import func NSP.gal_mu
-import func NSP.gal_p
-import func NSP.gal_r
-import func NSP.gal_e
+import func KSP.gal_create
+import func KSP.gal_destroy
+import func KSP.gal_mu
+import func KSP.gal_p
+import func KSP.gal_r
+import func KSP.gal_e
 import func Layout.broadcast
 @preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Just
