@@ -9,7 +9,7 @@ import ASP
 import PSP
 import Acoustica
 import Numerics
-import NSP
+import KSP
 
 func elapse(count: Int) {
     let x = repeatElement(-1.0 ... 1.0, count: count).map(Float64.random(in:)).map(Complex128.init)
