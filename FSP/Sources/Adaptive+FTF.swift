@@ -8,10 +8,10 @@ import typealias CoreMedia.CMTime
 @preconcurrency import protocol Combine.Publisher
 import protocol DSP.Stream
 import typealias DSP.Instance
-import func NSP.tfo_filter_create
-import func NSP.tfo_filter_destroy
-import func NSP.tfo_filter_error
-import func NSP.tfo_filter_lambda
+import func KSP.tfo_filter_create
+import func KSP.tfo_filter_destroy
+import func KSP.tfo_filter_error
+import func KSP.tfo_filter_lambda
 import func Layout.broadcast
 import typealias Auxiliary.Autorelease
 @usableFromInline
