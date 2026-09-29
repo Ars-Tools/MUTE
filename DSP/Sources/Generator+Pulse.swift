@@ -8,7 +8,7 @@
 import protocol Accelerate.AccelerateBuffer
 import protocol Accelerate.AccelerateMutableBuffer
 import typealias Accelerate.vDSP
-import func NSP.calculus_differentiation
+import func KSP.calculus_differentiation
 @usableFromInline
 enum Pulse {
 	@usableFromInline
