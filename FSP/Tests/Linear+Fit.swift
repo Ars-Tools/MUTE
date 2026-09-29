@@ -13,7 +13,7 @@ import typealias Numerics.Complex128
 import Testing
 import ESP
 import DSP
-import NSP
+import KSP
 import MKL
 import AltVec
 @Suite(.serialized)
