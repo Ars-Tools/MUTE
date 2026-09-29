@@ -15,7 +15,7 @@ import protocol DSP.Stream
 import typealias Synchronization.Mutex
 import typealias Auxiliary.Autorelease
 
-import NSP
+import KSP
 extension Special {
     @usableFromInline
     enum StateSparse {
