@@ -7,8 +7,8 @@
 @preconcurrency import protocol Combine.Publisher
 import Accelerate.vecLib
 import struct Synchronization.Mutex
-import typealias NSP.spline_anchor_t
-import func NSP.spline_interpolation
+import typealias KSP.spline_anchor_t
+import func KSP.spline_interpolation
 import func simd.fma
 import func Layout.concat
 public enum Spline {
