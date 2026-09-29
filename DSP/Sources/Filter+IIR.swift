@@ -6,10 +6,10 @@
 //
 @preconcurrency import protocol Accelerate.AccelerateBuffer
 @preconcurrency import protocol Combine.Publisher
-import func NSP.transversal_filter_create
-import func NSP.transversal_filter_destroy
-import func NSP.transversal_filter_active
-import func NSP.transversal_filter_static
+import func KSP.transversal_filter_create
+import func KSP.transversal_filter_destroy
+import func KSP.transversal_filter_active
+import func KSP.transversal_filter_static
 import typealias Synchronization.Mutex
 import func simd.simd_max
 import typealias Auxiliary.Autorelease
