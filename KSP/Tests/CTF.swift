@@ -6,7 +6,7 @@
 //
 import Testing
 import typealias Numerics.Complex128
-@testable import NSP
+@testable import KSP
 
 @Suite(.serialized)
 struct CTFTestCases {
