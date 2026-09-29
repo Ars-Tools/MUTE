@@ -19,7 +19,7 @@ import func vFORCE.vvpows
 import func vFORCE.vvpow
 import func vFORCE.vvcopysign
 import func Layout.broadcast
-import func NSP.vvexp10
+import func KSP.vvexp10
 // MARK: Pow
 @usableFromInline
 enum Pow {
