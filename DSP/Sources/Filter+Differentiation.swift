@@ -6,7 +6,7 @@
 //
 import struct Synchronization.Mutex
 import func Layout.broadcast
-import func NSP.calculus_differentiation
+import func KSP.calculus_differentiation
 @usableFromInline
 enum Differentiation {
 	@usableFromInline
