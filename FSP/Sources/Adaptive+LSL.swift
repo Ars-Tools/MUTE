@@ -10,12 +10,12 @@ import typealias DSP.Instance
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import typealias Auxiliary.Autorelease
-import func NSP.lsl_create
-import func NSP.lsl_destroy
-import func NSP.lsl_lambda
-import func NSP.lsl_p
-import func NSP.lsl_r
-import func NSP.lsl_e
+import func KSP.lsl_create
+import func KSP.lsl_destroy
+import func KSP.lsl_lambda
+import func KSP.lsl_p
+import func KSP.lsl_r
+import func KSP.lsl_e
 import func Layout.broadcast
 @preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Just
