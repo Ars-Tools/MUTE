@@ -67,8 +67,8 @@ extension Linear.Direct {
                   .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         ) // extra workspace
         assert(0 < t.min())
-        let m = n.max()
-        let l = t.max()
+        let m = n.max() as Int
+        let l = t.max() as Int
         var zc = Array<Complex128>()
         var zr = Array<Float64>()
         var pc = Array<Complex128>()
@@ -120,9 +120,10 @@ extension Linear.Direct {
                 while let (r, i) = iter.next() {
                     if i.isZero {
                         pr.append(r)
-                    } else if let c = iter.next() { // sweep conj
-                        assert(c == (r, -i))
+                    } else if case.some((r, -i)) = iter.next() { // sweep conj
                         pc.append(.init(real: r, imag: i.magnitude))
+                    } else {
+                        assertionFailure()
                     }
                 }
             }

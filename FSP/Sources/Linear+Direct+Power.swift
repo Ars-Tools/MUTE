@@ -293,8 +293,8 @@ extension Linear.Direct.ChebyshevPowerRational {
                   .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         ) // extra workspace
         assert(0 < t.min())
-        let m = n.max()
-        let l = t.max()
+        let m = n.max() as Int
+        let l = t.max() as Int
         var zc = Array<Complex128>()
         var zr = Array<Float64>()
         var pc = Array<Complex128>()
