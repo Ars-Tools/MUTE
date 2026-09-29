@@ -6,7 +6,7 @@
 //
 import Accelerate
 import Testing
-import NSP
+import KSP
 @Suite
 struct Spline {
 	
