@@ -9,7 +9,7 @@ import typealias Auxiliary.Autorelease
 import protocol DSP.Stream
 import typealias DSP.Instance
 @preconcurrency import typealias Combine.Just
-import NSP
+import KSP
 @usableFromInline
 enum VAR {
     @usableFromInline
