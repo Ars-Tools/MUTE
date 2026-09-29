@@ -5,7 +5,7 @@
 //  Created by Kota on 11/22/R6.
 //
 import Testing
-import NSP
+import KSP
 @Suite
 struct Calculus {
 	@Test
