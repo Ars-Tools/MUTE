@@ -6,7 +6,7 @@
 //
 import typealias Synchronization.Mutex
 import func Layout.broadcast
-import func NSP.edge_hold
+import func KSP.edge_hold
 import typealias Auxiliary.Autorelease
 @usableFromInline
 enum Edge {
