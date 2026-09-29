@@ -6,7 +6,7 @@
 //
 import CoreFoundation
 import Testing
-import MIDI
+import WSP
 import Synchronization
 @Suite(.timeLimit(.minutes(1)))
 struct PR {
@@ -51,7 +51,7 @@ struct PR {
 		}
 		#expect(signal.load(ordering: .relaxed) == true)
 	}
-	var payload: MIDI.Buffer {
+	var payload: WSP.Buffer {
 		.init(msg: [MSG_1_0(note: 0x40, velocity: 0x60, channel: 0)], as: ._1_0, at: 0)
 	}
 }
