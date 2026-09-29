@@ -37,19 +37,51 @@ extension Processor {
 }
 public typealias Source = Combine.Publisher<(MIDITimeStamp, MIDIUniversalMessage), Never>
 public typealias Proxy = PassthroughSubject<(MIDITimeStamp, MIDIUniversalMessage), Never>
+@usableFromInline
+func sendMIDI1Chunk(_ payload: some Collection<UInt8>, at timestamp: MIDITimeStamp, to target: Proxy) {
+    var fetch = payload[...]
+    while !fetch.isEmpty {
+        switch fetch.first {
+        case.some(0x80 ... 0xBF), .some(0xE0 ... 0xEF), .some(0xF2):
+            let count = 3
+            defer {
+                fetch.removeFirst(count)
+            }
+            if case.some(let msg) = MSG_1_0(buffer: fetch.prefix(count)).map(\.rawValue) {
+                target.send((timestamp, msg))
+            }
+        case.some(0xC0 ... 0xDF), .some(0xF1), .some(0xF3):
+            let count = 2
+            defer {
+                fetch.removeFirst(count)
+            }
+            if case.some(let msg) = MSG_1_0(buffer: fetch.prefix(count)).map(\.rawValue) {
+                target.send((timestamp, msg))
+            }
+        case.some(0xF6), .some(0xF8 ... 0xFF):
+            let count = 1
+            defer {
+                fetch.removeFirst(count)
+            }
+            if case.some(let msg) = MSG_1_0(buffer: fetch.prefix(count)).map(\.rawValue) {
+                target.send((timestamp, msg))
+            }
+        case.some(0xF0):
+            while fetch.popFirst() != .some(0xF7) {}
+        default:
+            break
+        }
+    }
+}
 extension Proxy {
 	@inlinable
-	public func send(payload: UnsafeBufferPointer<UInt8>) {
-		if case.some(let ump) = MSG_1_0(buffer: payload).map(\.rawValue) {
-			send((0, ump))
-		} else {} // ignore sysex, et al
+	public func send(payload: UnsafeBufferPointer<UInt8>, at timestamp: MIDITimeStamp = 0) {
+		sendMIDI1Chunk(payload, at: timestamp, to: self)
 	}
 	@_disfavoredOverload
 	@inlinable
-	public func send(payload: some Collection<UInt8>) {
-		if case.some(let ump) = MSG_1_0(buffer: payload).map(\.rawValue) {
-			send((0, ump))
-		} else {} // ignore sysex, et al
+	public func send(payload: some Collection<UInt8>, at timestamp: MIDITimeStamp = 0) {
+		sendMIDI1Chunk(payload, at: timestamp, to: self)
 	}
 	@inlinable
 	public func send(payload: UnsafePointer<MIDIEventList>) {
