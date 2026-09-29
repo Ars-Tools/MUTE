@@ -75,7 +75,7 @@ func fold(target: Buffer) -> Array<UnsafeMutableBufferPointer<Float64>> {
 	fold(start: target.start, count: target.period, stream: target.stream, period: target.period)
 }
 @inlinable@inline(__always)@_transparent
-func fold(target: Buffer) -> LazyMapSequence<Zip2Sequence<StrideTo<UnsafePointer<Float64>>, Repeated<Int>>, UnsafeBufferPointer<Float64>> {
+func fold(target: Buffer) -> LazyMapSequence<Zip2Sequence<StrideTo<UnsafeMutablePointer<Float64>>, Repeated<Int>>, UnsafeMutableBufferPointer<Float64>> {
     fold(start: target.start, count: target.period, stream: target.stream, period: target.period)
 }
 @usableFromInline
