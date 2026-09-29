@@ -54,18 +54,19 @@ extension DFT.DFS {
     public static let shared: Mutex<Dictionary<Int, DFT.DFS>> = .init(.init())
 }
 extension DFT {
-    public final class PWT: @unchecked Sendable {
+    public final class PWT: DFT.`Protocol`, @unchecked Sendable {
         @usableFromInline
         let setup: UnsafePointer<pdft_t>
         @inlinable
-        public init(count: Int) throws (Error) {
+        public init(count: Int) {
             precondition(count.nonzeroBitCount == 1, "Power-of-Two DFT supports only 2ⁿ length")
-            setup = switch pdft_create(count) {
-            case.some(let table):
-                table
-            case.none:
-                throw Error.internal
-            }
+//            setup = switch pdft_create(count) {
+//            case.some(let table):
+//                table
+//            case.none:
+//                throw Error.internal
+//            }
+            setup = pdft_create(count).unsafelyUnwrapped
         }
         @inlinable
         deinit {
