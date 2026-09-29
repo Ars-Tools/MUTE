@@ -9,8 +9,8 @@
 import typealias Numerics.Quaternion256
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
-import func NSP.slerp_shortest
-import func NSP.slerp_longest
+import func KSP.slerp_shortest
+import func KSP.slerp_longest
 @usableFromInline
 enum Slerp {
 	@usableFromInline
