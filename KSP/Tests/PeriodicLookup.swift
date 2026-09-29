@@ -6,7 +6,7 @@
 //
 import typealias Accelerate.vDSP
 import Testing
-import NSP
+import KSP
 @Suite
 struct LookupTests {
 	@Test
