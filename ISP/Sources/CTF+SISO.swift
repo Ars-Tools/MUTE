@@ -43,19 +43,19 @@ extension CTF.SISO.FrequencyDomain {
         withUnsafeTemporaryAllocation(of: Complex128.self, capacity: 2 * count + workspace) {
             let X = UnsafeMutableBufferPointer(rebasing: $0[0 * count ..< 1 * count])
             let Y = UnsafeMutableBufferPointer(rebasing: $0[1 * count ..< 2 * count])
-            x.withUnsafeBufferPointer { x in
-                X.withMemoryRebound(to: Float64.self) {
+            X.withMemoryRebound(to: Float64.self) { X in
+                x.withUnsafeBufferPointer { x in
                     Float64.Copy(x: x.baseAddress.unsafelyUnwrapped, inc: 1,
-                                 y: $0.baseAddress.unsafelyUnwrapped.advanced(by: 0), inc: 2, length: count)
-                    Float64.Zero(x: $0.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2, length: count)
+                                 y: X.baseAddress.unsafelyUnwrapped.advanced(by: 0), inc: 2, length: count)
                 }
+                Float64.Zero(x: X.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2, length: count)
             }
-            y.withUnsafeBufferPointer { y in
-                Y.withMemoryRebound(to: Float64.self) {
+            Y.withMemoryRebound(to: Float64.self) { Y in
+                y.withUnsafeBufferPointer { y in
                     Float64.Copy(x: y.baseAddress.unsafelyUnwrapped, inc: 1,
-                                 y: $0.baseAddress.unsafelyUnwrapped.advanced(by: 0), inc: 2, length: count)
-                    Float64.Zero(x: $0.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2, length: count)
+                                 y: Y.baseAddress.unsafelyUnwrapped.advanced(by: 0), inc: 2, length: count)
                 }
+                Float64.Zero(x: Y.baseAddress.unsafelyUnwrapped.advanced(by: 1), inc: 2, length: count)
             }
             dft.forward(x: X.baseAddress.unsafelyUnwrapped, ld: count,
                         y: X.baseAddress.unsafelyUnwrapped, ld: count,

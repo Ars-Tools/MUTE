@@ -73,8 +73,8 @@ extension CTF.SISOController {
         }
         do {
             try estimator.update(sample: cursor,
-                                 x: oi.suffix(window.count),
-                                 y: oi.prefix(window.count))
+                                 x: oi.prefix(window.count)/* Loudspeaker output */,
+                                 y: oi.suffix(window.count)/* Microphone Input */)
             snapshot.withLock {
                 $0 = estimator.snapshot
             }
@@ -104,16 +104,15 @@ extension CTF.SISOController {
                  target: memory)
         assert(memory == memory.advanced(by: 0 * stride))
         assert(0 <= sample)
-        let cursor = sample + window.count
         defer {
-            let lower = (cursor         ).align(up: stride)
-            let upper = (cursor + length).align(up: stride)
+            let lower = (sample + 1         ).align(up: stride)
+            let upper = (sample + 1 + length).align(up: stride)
             for cursor in Swift.stride(from: lower, to: upper, by: stride).suffix(1) {
                 signal.replace(data: .init(cursor))
             }
         }
         buffer.withLock {
-            $0.copy(cursor: cursor,
+            $0.copy(cursor: sample + window.count,
                     length: length,
                     source: memory,
                     stride: stride)
