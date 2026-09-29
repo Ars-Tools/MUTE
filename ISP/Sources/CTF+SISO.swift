@@ -72,7 +72,7 @@ extension CTF.SISO {
         public let statistics: Mutex<CTF.Snapshot>
         public let average: Atomic<Float64>
         @inlinable
-        init(dft transformer: DFT, count: Int, λ: Float64) { // count = filter order
+        public init(dft transformer: DFT, count: Int, λ: Float64) { // count = filter order
             dft = transformer
             core = rls_complex_filter_create(count, dft.count / 2 + 1) // 0 ~ Nyquist
             statistics = .init(.init(angular: .init(unsafeUninitializedCapacity: dft.count / 2 + 1) { [dft] in
