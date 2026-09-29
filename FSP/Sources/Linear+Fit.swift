@@ -17,7 +17,7 @@ import func LAPACK.gels
 import func LAPACK.gesvd
 import func LAPACK.gglse
 import func MKL.vDSP_ctoz
-import func NSP.wiener
+import func KSP.wiener
 import func Layout.concat
 // MARK: Complex Fit
 extension Linear {
