@@ -10,8 +10,8 @@ import typealias Synchronization.Mutex
 import typealias Accelerate.vDSP
 import typealias CoreMedia.CMTime
 import func Layout.broadcast
-import func NSP.state_variable_filter_static
-import func NSP.state_variable_filter_active
+import func KSP.state_variable_filter_static
+import func KSP.state_variable_filter_active
 import protocol DSP.Frequency
 import protocol DSP.Stream
 import typealias DSP.Instance
