@@ -5,7 +5,7 @@
 //  Created by Kota on 9/2/26.
 //
 import Testing
-import NSP
+import KSP
 @testable import typealias ESP.Filter
 @Suite
 struct FilterTestCases {
