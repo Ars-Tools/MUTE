@@ -5,9 +5,9 @@
 //  Created by Kota on 7/14/R7.
 //
 @preconcurrency import protocol Combine.Publisher
-import func NSP.folding_sup
-import func NSP.folding_inf
-import func NSP.folding_bounds
+import func KSP.folding_sup
+import func KSP.folding_inf
+import func KSP.folding_bounds
 @usableFromInline
 enum Foldings {}
 // Sup
