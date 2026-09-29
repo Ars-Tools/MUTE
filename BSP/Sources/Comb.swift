@@ -10,7 +10,7 @@
 import typealias CoreMedia.CMTime
 import typealias Synchronization.Atomic
 import DSP
-import NSP
+import KSP
 import protocol DSP.Stream
 @usableFromInline
 enum Echo {
