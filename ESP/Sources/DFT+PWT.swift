@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 8/18/26.
 //
+import typealias Synchronization.Mutex
 import typealias Numerics.Complex128
 import typealias KSP.pdft_t
 import func KSP.pdft_create
@@ -11,6 +12,47 @@ import func KSP.dft_destroy
 import func KSP.dft_count
 import func KSP.dft_forward
 import func KSP.dft_inverse
+extension DFT {
+    public protocol Container<Value> {
+        associatedtype Value: DFT.`Protocol`
+        @inlinable
+        subscript(_: Int) -> Optional<Value> { get }
+        @inlinable
+        mutating func updateValue(_: Value, forKey: Int) -> Optional<Value>
+        @inlinable
+        mutating func removeAll(keepingCapacity: Bool)
+    }
+}
+extension Dictionary: DFT.Container<Value> where Key == Int, Value: DFT.`Protocol` {}
+extension Mutex where Value: DFT.Container {
+    @inlinable
+    public subscript(_ count: Int) -> Value.Value {
+        withLock {
+            switch $0[count] {
+            case.some(let dft):
+                dft
+            case.none:
+                switch Value.Value(count: count) {
+                case let dft:
+                    $0.updateValue(dft, forKey: count) ?? dft
+                }
+            }
+        }
+    }
+    @inlinable
+    public func flush() {
+        withLock {
+            $0.removeAll(keepingCapacity: false)
+        }
+    }
+}
+// MARK: Shared Instance
+extension DFT.BFS {
+    public static let shared: Mutex<Dictionary<Int, DFT.BFS>> = .init(.init())
+}
+extension DFT.DFS {
+    public static let shared: Mutex<Dictionary<Int, DFT.DFS>> = .init(.init())
+}
 extension DFT {
     public final class PWT: @unchecked Sendable {
         @usableFromInline
@@ -36,7 +78,7 @@ extension DFT.PWT {
         case `internal`
     }
 }
-extension DFT.PWT: DFT.`Protocol` {
+extension DFT.PWT {
     @inlinable@_transparent
     public var count: Int {
         dft_count(setup)
@@ -73,6 +115,42 @@ extension DFT.PWT: DFT.`Protocol` {
         dft_inverse(setup, .DFT_SCALE_ONE_OVER_N, nrhs,
                     .init(x), ldx,
                     .init(y), ldy,
+                    .none)
+    }
+}
+extension DFT.PWT {
+    @inlinable
+    public func forward(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, inc incx: Int = 1,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, inc incy: Int = 1) {
+        dft_forward(setup, .DFT_SCALE_ONE,
+                    xr, xi, incx,
+                    yr, yi, incy,
+                    .none)
+    }
+    @inlinable
+    public func inverse(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, inc incx: Int = 1,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, inc incy: Int = 1) {
+        dft_inverse(setup, .DFT_SCALE_ONE_OVER_N,
+                    xr, xi, incx,
+                    yr, yi, incy,
+                    .none)
+    }
+    @inlinable
+    public func forward(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, ld ldx: Int,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, ld ldy: Int,
+                        nrhs: Int) {
+        dft_forward(setup, .DFT_SCALE_ONE, nrhs,
+                    xr, xi, ldx,
+                    yr, yi, ldy,
+                    .none)
+    }
+    @inlinable
+    public func inverse(xr: UnsafePointer<Float64>, xi: UnsafePointer<Float64>, ld ldx: Int,
+                        yr: UnsafeMutablePointer<Float64>, yi: UnsafeMutablePointer<Float64>, ld ldy: Int,
+                        nrhs: Int) {
+        dft_inverse(setup, .DFT_SCALE_ONE_OVER_N, nrhs,
+                    xr, xi, ldx,
+                    yr, yi, ldy,
                     .none)
     }
 }
