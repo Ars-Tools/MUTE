@@ -5,7 +5,7 @@
 //  Created by Kota on 8/14/26.
 //
 import Testing
-@testable import NSP
+@testable import KSP
 import Complex
 import Numerics
 @Suite
