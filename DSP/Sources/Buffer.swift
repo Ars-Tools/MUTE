@@ -14,9 +14,9 @@ import func Accelerate.vDSP_vmulD
 import func Accelerate.vDSP_vsbmD
 import func Accelerate.vDSP_vmaD
 import func Accelerate.vDSP_vmsbD
-import func NSP.periodic_lookup_with_static
-import func NSP.periodic_lookup_with_active
-import func NSP.mix_linear
+import func KSP.periodic_lookup_with_static
+import func KSP.periodic_lookup_with_active
+import func KSP.mix_linear
 public struct Buffer: Sendable {
 	public let stream: Int
 	public let period: Int
