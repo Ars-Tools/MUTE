@@ -324,21 +324,7 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
     intptr_t const m = object->count;
     intptr_t const n = object->order;
     if ( e )
-//        dispatch_apply(m, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t const k) {
-//            __complex double       * __nonnull const w = object->w + k * n;
-//            __complex double       * __nonnull const h = object->h + k * n;
-//            __complex double const * __nonnull X = x + k * ldx;
-//            __complex double const * __nonnull Y = y + k * ldy;
-//            __complex double       * __nonnull E = e + k * lde;
-//            rls_complex_t * __nonnull const core = object->rls + k;
-//            assert(core->n == n);
-//            for ( register intptr_t t = 0 ; t < length ; ++ t ) {
-//                memmove(h + 1, h, ( n - 1 ) * sizeof(__complex double const));
-//                *h = *X++;
-//                *E++ = rls(core, *Y++, h, 1, w, 1);
-//            }
-//        });
-        for ( register intptr_t k = 0 ; k < m ; ++ k ) {
+        dispatch_apply(m, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t const k) {
             __complex double       * __nonnull const w = object->w + k * n;
             __complex double       * __nonnull const h = object->h + k * n;
             __complex double const * __nonnull X = x + k * ldx;
@@ -351,21 +337,23 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
                 *h = *X++;
                 *E++ = rls(core, *Y++, h, 1, w, 1);
             }
-        }
-    else
-//        dispatch_apply(m, DISPATCH_QUEUE_PRIORITY_HIGH, ^(size_t const k) {
+        });
+//        for ( register intptr_t k = 0 ; k < m ; ++ k ) {
 //            __complex double       * __nonnull const w = object->w + k * n;
 //            __complex double       * __nonnull const h = object->h + k * n;
 //            __complex double const * __nonnull X = x + k * ldx;
 //            __complex double const * __nonnull Y = y + k * ldy;
+//            __complex double       * __nonnull E = e + k * lde;
 //            rls_complex_t * __nonnull const core = object->rls + k;
+//            assert(core->n == n);
 //            for ( register intptr_t t = 0 ; t < length ; ++ t ) {
 //                memmove(h + 1, h, ( n - 1 ) * sizeof(__complex double const));
 //                *h = *X++;
-//                rls(core, *Y++, h, 1, w, 1);
+//                *E++ = rls(core, *Y++, h, 1, w, 1);
 //            }
-//        });
-        for ( register intptr_t k = 0 ; k < m ; ++ k ) {
+//        }
+    else
+        dispatch_apply(m, DISPATCH_QUEUE_PRIORITY_HIGH, ^(size_t const k) {
             __complex double       * __nonnull const w = object->w + k * n;
             __complex double       * __nonnull const h = object->h + k * n;
             __complex double const * __nonnull X = x + k * ldx;
@@ -376,7 +364,19 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
                 *h = *X++;
                 rls(core, *Y++, h, 1, w, 1);
             }
-        }
+        });
+//        for ( register intptr_t k = 0 ; k < m ; ++ k ) {
+//            __complex double       * __nonnull const w = object->w + k * n;
+//            __complex double       * __nonnull const h = object->h + k * n;
+//            __complex double const * __nonnull X = x + k * ldx;
+//            __complex double const * __nonnull Y = y + k * ldy;
+//            rls_complex_t * __nonnull const core = object->rls + k;
+//            for ( register intptr_t t = 0 ; t < length ; ++ t ) {
+//                memmove(h + 1, h, ( n - 1 ) * sizeof(__complex double const));
+//                *h = *X++;
+//                rls(core, *Y++, h, 1, w, 1);
+//            }
+//        }
 }
 __attribute__((overloadable))
 void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const object,
