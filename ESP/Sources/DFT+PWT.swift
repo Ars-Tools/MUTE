@@ -5,12 +5,12 @@
 //  Created by Kota on 8/18/26.
 //
 import typealias Numerics.Complex128
-import typealias NSP.pdft_t
-import func NSP.pdft_create
-import func NSP.dft_destroy
-import func NSP.dft_count
-import func NSP.dft_forward
-import func NSP.dft_inverse
+import typealias KSP.pdft_t
+import func KSP.pdft_create
+import func KSP.dft_destroy
+import func KSP.dft_count
+import func KSP.dft_forward
+import func KSP.dft_inverse
 extension DFT {
     public final class PWT: @unchecked Sendable {
         @usableFromInline
