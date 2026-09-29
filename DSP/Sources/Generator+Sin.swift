@@ -11,9 +11,9 @@ import protocol Accelerate.AccelerateBuffer
 import protocol Accelerate.AccelerateMutableBuffer
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
-import func NSP.sinosc_bundle_create
-import func NSP.sinosc_bundle_execute
-import func NSP.sinosc_bundle_destroy
+import func KSP.sinosc_bundle_create
+import func KSP.sinosc_bundle_execute
+import func KSP.sinosc_bundle_destroy
 import func Layout.zip
 import func Layout.broadcast
 import func simd.__sincospi_stret
