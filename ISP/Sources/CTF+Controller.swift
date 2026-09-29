@@ -47,7 +47,7 @@ extension CTF {
             buffer = .init(.init(stream: 2, period: (window.count + capacity).align(up: stride)))
             signal = DispatchSource.makeUserDataReplaceSource(queue: .init(label: "tools.ars.mute.isp.ctf.siso.controller")) // serial queue
             signal.setEventHandler { [unowned self] in
-                self.process(index: .init(self.signal.data))
+                self.process(cursor: .init(self.signal.data))
             }
             signal.resume()
         }
@@ -58,13 +58,13 @@ extension CTF {
 }
 extension CTF.SISOController {
     @inlinable
-    func process(index: Int) { // pass endIndex of written buffer
-        let cursor = index - window.count
+    func process(cursor pos: Int) { // pass endIndex of written buffer
+        let cursor = pos - window.count
         let oi = Array<Float64>(unsafeUninitializedCapacity: 2 * window.count) {
             guard case.some(let target) = $0.baseAddress else { return }
             $1 = $0.count
             buffer.withLock {
-                $0.fetch(cursor: index,
+                $0.fetch(cursor: cursor,
                          length: window.count,
                          window: window,
                          target: target,
@@ -107,8 +107,11 @@ extension CTF.SISOController {
         defer {
             let lower = (sample + 1         ).align(up: stride)
             let upper = (sample + 1 + length).align(up: stride)
-            for cursor in Swift.stride(from: lower, to: upper, by: stride).suffix(1) {
-                signal.replace(data: .init(cursor))
+//            for cursor in Swift.stride(from: lower, to: upper, by: stride).suffix(1) {
+//                signal.replace(data: .init(cursor))
+//            }
+            for cursor in Swift.stride(from: lower, to: upper, by: stride) {
+                process(cursor: cursor)
             }
         }
         buffer.withLock {
