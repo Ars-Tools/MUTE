@@ -12,7 +12,7 @@
 @preconcurrency import typealias Dispatch.dispatch_source_t
 import typealias Synchronization.Mutex
 import func CoreMedia.CMTimeMultiply
-import func NSP.edge_rise
+import func KSP.edge_rise
 extension Edge {
 	@usableFromInline
 	enum Rise {
