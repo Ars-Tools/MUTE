@@ -37,14 +37,15 @@ extension CTF {
         let estimator: Estimator
         @usableFromInline
         let snapshot: Mutex<CTF.Snapshot>
-        init(window: Array<Float64>, stride: Int, capacity: Int, exciter: Exciter, estimator: Estimator) {
+        @inlinable
+        public init(window: Array<Float64>, stride: Int, capacity: Int, exciter: Exciter, estimator: Estimator) {
             self.window = window
             self.stride = stride
             self.exciter = exciter
             self.estimator = estimator
             snapshot = .init(estimator.snapshot)
             buffer = .init(.init(stream: 2, period: (window.count + capacity).align(up: stride)))
-            signal = DispatchSource.makeUserDataReplaceSource(queue: .init(label: "tools.ars.mute.isp.ctf.controller")) // serial queue
+            signal = DispatchSource.makeUserDataReplaceSource(queue: .init(label: "tools.ars.mute.isp.ctf.siso.controller")) // serial queue
             signal.setEventHandler { [unowned self] in
                 self.process(index: .init(self.signal.data))
             }
