@@ -6,12 +6,12 @@
 //
 import typealias Synchronization.Mutex
 import typealias Numerics.Complex128
-import typealias NSP.ddft_t
-import func NSP.ddft_create
-import func NSP.dft_destroy
-import func NSP.dft_count
-import func NSP.dft_forward
-import func NSP.dft_inverse
+import typealias KSP.ddft_t
+import func KSP.ddft_create
+import func KSP.dft_destroy
+import func KSP.dft_count
+import func KSP.dft_forward
+import func KSP.dft_inverse
 extension DFT {
     public final class DFS: `Protocol`, @unchecked Sendable {
         @usableFromInline
