@@ -6,8 +6,8 @@
 //
 @preconcurrency import protocol Combine.Publisher
 import typealias Synchronization.Mutex
-import func NSP.periodic_lookup_with_static
-import func NSP.periodic_lookup_with_active
+import func KSP.periodic_lookup_with_static
+import func KSP.periodic_lookup_with_active
 @usableFromInline
 enum Table {
 	@usableFromInline
