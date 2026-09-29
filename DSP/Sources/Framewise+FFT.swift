@@ -68,7 +68,7 @@ extension Framewise.FFT.Ne: Stream {
 											  imagp: memory.advanced(by: (2 * stream.i + 1 * stream.o + 0) * frame))
 				var b = DSPDoubleSplitComplex(realp: memory.advanced(by: (2 * stream.i + 2 * stream.o + 0) * frame),
 											  imagp: memory.advanced(by: (2 * stream.i + 2 * stream.o + 1) * frame))
-				let d = fold(start: memory, count: frame, stream: (stream.i * stream.o) * 2, period: frame)
+				let d = fold(start: memory, count: frame, stream: (stream.i * stream.o) * 2, period: frame) as Array
 				let i = (r: d[(stream.i * 0 + stream.o * 0)..<(stream.i * 1 + stream.o * 0)],
 						 i: d[(stream.i * 1 + stream.o * 0)..<(stream.i * 2 + stream.o * 0)])
 				var o = (r: d[(stream.i * 2 + stream.o * 0)..<(stream.i * 2 + stream.o * 1)],

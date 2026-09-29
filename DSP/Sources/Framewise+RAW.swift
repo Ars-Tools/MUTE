@@ -44,7 +44,7 @@ extension Framewise.RAW.Ne: Stream {
 			withUnsafeTemporaryAllocation(of: Float64.self, capacity: max((stream.o + stream.i) * window.count, stream.i * length)) {
 				guard let source = $0.baseAddress else { return }
 				let layout = fold(start: source, count: window.count, stream: stream.o + stream.i, period: window.count) as Array
-                let memory = (o: layout[layout.startIndex..<stream.o], i: layout[stream.o..<layout.endIndex])
+				let memory = (o: layout[..<stream.o], i: layout[stream.o...])
 				let cursor = moment.samples(for: interval)
 				let lower = ( ( cursor          - 1 ) / stride + 1 ) * stride
 				let upper = ( ( cursor + length - 1 ) / stride + 1 ) * stride

@@ -78,8 +78,8 @@ extension Framewise.DCT.Ne: Stream {
 					i: UnsafeMutableBufferPointer(start: f64.i, count: window.count),
 					o: UnsafeMutableBufferPointer(start: f64.o, count: window.count)
 				)
-				let i = fold(start: f32.i, count: frame, stream: stream.i, period: frame)
-				var o = fold(start: f32.o, count: frame, stream: stream.o, period: frame)
+				let i = fold(start: f32.i, count: frame, stream: stream.i, period: frame) as Array
+				var o = fold(start: f32.o, count: frame, stream: stream.o, period: frame) as Array
 				let ic = switch ( cursor + window.count ) % period {
 				case let index: (
 					head: index..<min(index + length, period),
@@ -127,7 +127,7 @@ extension Framewise.DCT.Ne: Stream {
 				copy(x: ob, ldx: period,
 					 y: target.advanced(by: oc.head.count), ldy: bounds,
 					 rows: stream.o, cols: oc.tail.count)
-				for target in fold(target: buffer) {
+				for target in fold(target: buffer) as Array {
 					vDSP.clear(&target[oc.head])
 					vDSP.clear(&target[oc.tail])
 				}
