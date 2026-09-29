@@ -42,6 +42,6 @@ extension CTF.Exciters {
     }
     public static let uniform: some `Protocol` = Uniform(for: 1)
     public static func uniform(for count: Int, in range: ClosedRange<Float64> = -1...1) -> some `Protocol` {
-        Uniform(for: count)
+        Uniform(for: count, in: range)
     }
 }
