@@ -19,9 +19,9 @@ import func Accelerate.vDSP_zvmulD
 import let Accelerate.kFFTRadix2
 import let Accelerate.kFFTDirection_Forward
 import let Accelerate.kFFTDirection_Inverse
-import func NSP.transversal_filter_create
-import func NSP.transversal_filter_destroy
-import func NSP.transversal_filter_active
+import func KSP.transversal_filter_create
+import func KSP.transversal_filter_destroy
+import func KSP.transversal_filter_active
 import typealias Auxiliary.Autorelease
 extension Filter {
     public enum FIR {
