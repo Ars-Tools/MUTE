@@ -198,10 +198,10 @@ extension MSG_1_0 {
 		switch status & 0b1111_0000 {
 		case 0b1000_0000:
 			guard let msb = parser.popFirst(), let lsb = parser.popFirst() else { fallthrough }
-			self = .init(group: 0, channel: channel, message: .noteOn(number: msb, velocity: lsb))
+			self = .init(group: 0, channel: channel, message: .noteOff(number: msb, velocity: lsb))
 		case 0b1001_0000:
 			guard let msb = parser.popFirst(), let lsb = parser.popFirst() else { fallthrough }
-			self = .init(group: 0, channel: channel, message: .noteOff(number: msb, velocity: lsb))
+			self = .init(group: 0, channel: channel, message: .noteOn(number: msb, velocity: lsb))
 		case 0b1010_0000:
 			guard let msb = parser.popFirst(), let lsb = parser.popFirst() else { fallthrough }
 			self = .init(group: 0, channel: channel, message: .polyPressure(number: msb, value: lsb))
