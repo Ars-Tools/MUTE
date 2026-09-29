@@ -18,11 +18,11 @@ import func Accelerate.vecLib.vDSP_biquadmD
 import func Accelerate.vecLib.vDSP_biquad_CreateSetupD
 import func Accelerate.vecLib.vDSP_biquad_DestroySetupD
 import func Accelerate.vecLib.vDSP_biquadD
-import func NSP.biquad_filter_create
-import func NSP.biquad_filter_destroy
-import func NSP.biquad_filter_active
-import func NSP.biquad_filter_convolve_static
-import func NSP.biquad_filter_convolve_active
+import func KSP.biquad_filter_create
+import func KSP.biquad_filter_destroy
+import func KSP.biquad_filter_active
+import func KSP.biquad_filter_convolve_static
+import func KSP.biquad_filter_convolve_active
 import typealias Auxiliary.Autorelease
 extension SIMD2: @retroactive RandomAccessCollection<Scalar> {
     @inlinable
