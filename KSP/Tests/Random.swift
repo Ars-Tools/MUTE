@@ -6,7 +6,7 @@
 //
 import Accelerate
 import Testing
-@testable import NSP
+@testable import KSP
 @Suite
 struct RNG {
 	@Test
