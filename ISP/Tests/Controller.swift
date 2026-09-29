@@ -7,7 +7,7 @@
 import Testing
 @testable import ISP
 import ESP
-import NSP
+import KSP
 import typealias CoreMedia.CMTime
 import func CoreMedia.CMTimeCompare
 import typealias Numerics.Complex128
