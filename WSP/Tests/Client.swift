@@ -6,7 +6,7 @@
 //
 import Foundation
 import Testing
-import MIDI
+import WSP
 import CoreMIDI
 import Combine
 @Suite
