@@ -1,4 +1,4 @@
-module NSP {
+module KSP {
 	header "comparison.h"
 	header "logical.h"
 	header "folding.h"
