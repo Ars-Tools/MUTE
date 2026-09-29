@@ -134,7 +134,7 @@ extension CTF.SISO.RLS {
                 $0.withMemoryRebound(to: Float64.self) { t in
                     assert(t.count == 2 * count)
                     Ε.withMemoryRebound(to: Float64.self) {
-                        vDSP.linearInterpolate($0[0..<count], t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                        vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                     }
                 }
             }
