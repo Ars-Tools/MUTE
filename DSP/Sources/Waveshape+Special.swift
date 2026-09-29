@@ -5,16 +5,16 @@
 //  Created by Kota on 7/14/R7.
 //
 @preconcurrency import protocol Combine.Publisher
-import func NSP.vvj0
-import func NSP.vvj1
-import func NSP.vvjn
-import func NSP.vvy0
-import func NSP.vvy1
-import func NSP.vvyn
-import func NSP.vverf
-import func NSP.vverfc
-import func NSP.vvtgamma
-import func NSP.vvlgamma
+import func KSP.vvj0
+import func KSP.vvj1
+import func KSP.vvjn
+import func KSP.vvy0
+import func KSP.vvy1
+import func KSP.vvyn
+import func KSP.vverf
+import func KSP.vverfc
+import func KSP.vvtgamma
+import func KSP.vvlgamma
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 // MARK: J₀
