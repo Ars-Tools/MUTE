@@ -134,7 +134,7 @@ extension CTF.SISO.RLS {
                 $0.withMemoryRebound(to: Float64.self) { t in
                     assert(t.count == 2 * count)
                     Ε.withMemoryRebound(to: Float64.self) {
-                        vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                        vDSP.linearInterpolate($0[0..<count], t, using: λ, result: &t[t.startIndex..<t.endIndex])
                     }
                 }
             }
@@ -143,7 +143,7 @@ extension CTF.SISO.RLS {
                 assert(t.count == count)
                 Ŷ.withMemoryRebound(to: Float64.self) {
                     Complex128.mags(Ε.baseAddress.unsafelyUnwrapped, 1, $0.baseAddress.unsafelyUnwrapped, 1, count)
-                    vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                    vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                 }
             }
             // Ŷ_k ← Y - Ε
@@ -156,7 +156,7 @@ extension CTF.SISO.RLS {
                 $0.withMemoryRebound(to: Float64.self) { t in
                     assert(t.count == 2 * count)
                     X.withMemoryRebound(to: Float64.self) {
-                        vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                        vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                     }
                 }
             }
@@ -165,7 +165,7 @@ extension CTF.SISO.RLS {
                 assert(t.count == count)
                 Ε.withMemoryRebound(to: Float64.self) {
                     Complex128.mags(X.baseAddress.unsafelyUnwrapped, 1, $0.baseAddress.unsafelyUnwrapped, 1, X.count)
-                    vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                    vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                 }
             }
             // E[y]
@@ -174,7 +174,7 @@ extension CTF.SISO.RLS {
                     assert(t.count == 2 * count)
                     Ŷ.withMemoryRebound(to: Float64.self) {
                         assert($0.count == 2 * count)
-                        vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                        vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                     }
                 }
             }
@@ -184,7 +184,7 @@ extension CTF.SISO.RLS {
                 Ε.withMemoryRebound(to: Float64.self) {
                     assert($0.count == 2 * count)
                     Complex128.mags(Ŷ.baseAddress.unsafelyUnwrapped, 1, $0.baseAddress.unsafelyUnwrapped, 1, Ŷ.count)
-                    vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                    vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                 }
             }
             // E[yx^H]
@@ -197,7 +197,7 @@ extension CTF.SISO.RLS {
                     assert(t.count == 2 * count)
                     Ε.withMemoryRebound(to: Float64.self) {
                         assert($0.count == 2 * count)
-                        vDSP.linearInterpolate($0, t, using: λ, result: &t[t.startIndex..<t.endIndex])
+                        vDSP.linearInterpolate($0.prefix(t.count), t, using: λ, result: &t[t.startIndex..<t.endIndex])
                     }
                 }
             }
