@@ -8,7 +8,7 @@ import typealias Accelerate.vDSP
 import Accelerate.vecLib
 import Testing
 import simd
-import NSP
+import KSP
 @testable import FSP
 @Suite
 struct Lattice {
