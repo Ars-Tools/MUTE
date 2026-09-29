@@ -554,7 +554,7 @@ void dft_forward(intptr_t const count, intptr_t const nrhs,
     __complex double * __nonnull const cache = table + count;
     __ramp__(0, -2.0 * M_PI / count, &__real(*cache), 1, count);
     vvcosisin(&__real(*cache), table, count);
-    if ( x != y );
+    if ( x != y )
         __mcopy__(x, ldx, y, ldy, nrhs, count);
     dif(y, 1, ldy,
         table, 1,
@@ -577,7 +577,7 @@ void dft_inverse(intptr_t const count, intptr_t const nrhs,
     __complex double * __nonnull const cache = table + count;
     __ramp__(0,  2.0 * M_PI / count, &__real(*cache), 1, count);
     vvcosisin(&__real(*cache), table, count);
-    if ( x != y );
+    if ( x != y )
         __mcopy__(x, ldx, y, ldy, nrhs, count);
     dif(y, 1, ldy,
         table, 1,
@@ -998,12 +998,16 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            zscal_(object->prime, (__complex double const[]){simd_recip((double const)object->prime[0])}, y, &incy);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_(object->prime, (__complex double const[]){simd_rsqrt((double const)object->prime[0])}, y, &incy);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = simd_recip((double const)object->prime[0]);
+            vDSP_mul(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, object->prime[0]);
+            vDSP_mul(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, object->prime[0]);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_rsqrt((double const)object->prime[0]);
+            vDSP_mul(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, object->prime[0]);
+            vDSP_mul(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, object->prime[0]);
+        } break;
     }
 }
 __attribute__((always_inline, overloadable))
@@ -1062,12 +1066,16 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            zscal_(object->prime, (__complex double const[]){simd_recip((double const)object->prime[0])}, y, &incy);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_(object->prime, (__complex double const[]){simd_rsqrt((double const)object->prime[0])}, y, &incy);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = simd_recip((double const)object->prime[0]);
+            vDSP_mul(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, object->prime[0]);
+            vDSP_mul(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, object->prime[0]);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_rsqrt((double const)object->prime[0]);
+            vDSP_mul(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, object->prime[0]);
+            vDSP_mul(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, object->prime[0]);
+        } break;
     }
 }
 __attribute__((always_inline, overloadable))
@@ -1139,14 +1147,16 @@ void dft_forward(ddft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = simd_recip((double const)object->prime[0]);
             for ( register intptr_t k = 0 ; k < nrhs ; ++ k )
-                zscal_(object->prime, (__complex double const[]){simd_recip((double const)object->prime[0])}, y + k * ldy, &1[_]);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
+                vDSP_mul(&__real(*(y + k * ldy)), 1, factor, &__real(*(y + k * ldy)), 1, 2 * object->prime[0]);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_rsqrt((double const)object->prime[0]);
             for ( register intptr_t k = 0 ; k < nrhs ; ++ k )
-                zscal_(object->prime, (__complex double const[]){simd_rsqrt((double const)object->prime[0])}, y + k * ldy, &1[_]);
-            break;
+                vDSP_mul(&__real(*(y + k * ldy)), 1, factor, &__real(*(y + k * ldy)), 1, 2 * object->prime[0]);
+        } break;
     }
 }
 __attribute__((always_inline, overloadable))
@@ -1218,14 +1228,16 @@ void dft_inverse(ddft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = simd_recip((double const)object->prime[0]);
             for ( register intptr_t k = 0 ; k < nrhs ; ++ k )
-                zscal_(object->prime, (__complex double const[]){simd_recip((double const)object->prime[0])}, y + k * ldy, &1[_]);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
+                vDSP_mul(&__real(*(y + k * ldy)), 1, factor, &__real(*(y + k * ldy)), 1, 2 * object->prime[0]);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_rsqrt((double const)object->prime[0]);
             for ( register intptr_t k = 0 ; k < nrhs ; ++ k )
-                zscal_(object->prime, (__complex double const[]){simd_rsqrt((double const)object->prime[0])}, y + k * ldy, &1[_]);
-            break;
+                vDSP_mul(&__real(*(y + k * ldy)), 1, factor, &__real(*(y + k * ldy)), 1, 2 * object->prime[0]);
+        } break;
     }
 }
 
@@ -1369,12 +1381,14 @@ void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            vDSP_div(&__real(*z[0]), 1, factor, &__real(*z[0]), 1, 2 * count);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(&__real(*z[0]), 1, factor, &__real(*z[0]), 1, 2 * count);
+        } break;
     }
     __copy__(z[0], 1, y, incy, count);
 }
@@ -1396,12 +1410,14 @@ void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_recip((double const)count)}, z[object->count&1], _ + 1);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_rsqrt((double const)count)}, z[object->count&1], _ + 1);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            vDSP_div(&__real(*z[object->count&1]), 1, factor, &__real(*z[object->count&1]), 1, 2 * count);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(&__real(*z[object->count&1]), 1, factor, &__real(*z[object->count&1]), 1, 2 * count);
+        } break;
     }
     __copy__(z[object->count&1], 1, y, incy, count);
 }
@@ -1423,12 +1439,14 @@ void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            vDSP_div(&__real(*z[0]), 1, factor, &__real(*z[0]), 1, 2 * n * count);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(&__real(*z[0]), 1, factor, &__real(*z[0]), 1, 2 * n * count);
+        } break;
     }
     __mcopy__(z[0], count, y, ldy, n, count);
 }
@@ -1450,16 +1468,18 @@ void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            vDSP_div(&__real(*z[0]), 1, factor, &__real(*z[0]), 1, 2 * n * count);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(&__real(*z[0]), 1, factor, &__real(*z[0]), 1, 2 * n * count);
+        } break;
     }
     __conj__(z[0], 1, z[0], 1, n * count);
     __mcopy__(z[0], count, y, ldy, n, count);
-//  CblasConjTrans isn't available for sparse_matrix_product_dense_double_complex
+//  CblasConjTrans isn't available for sparse_matrix_product_dense_double_complex, might be a bug
 //    __mcopy__(x, ldx, z[0], count, n, count);
 //    for ( register intptr_t k = 0 ; k < object->count ; ++ k )
 //        sparse_matrix_product_dense_double_complex(CblasColMajor, CblasConjTrans, n, 1, object->prime[k],
@@ -1506,10 +1526,10 @@ void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
         case DFT_SCALE_ONE:
             break;
         case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
+            vDSP_mul(&__real(*z[0]), 1, simd_recip((double const)count), &__real(*z[0]), 1, 2 * count);
             break;
         case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
+            vDSP_mul(&__real(*z[0]), 1, simd_rsqrt((double const)count), &__real(*z[0]), 1, 2 * count);
             break;
     }
     __copy__(&__real(*z[0]), 2, yr, incy, count);
@@ -1535,10 +1555,10 @@ void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
         case DFT_SCALE_ONE:
             break;
         case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_recip((double const)count)}, z[object->count&1], _ + 1);
+            vDSP_mul(&__real(*z[object->count&1]), 1, simd_recip((double const)count), &__real(*z[object->count&1]), 1, 2 * count);
             break;
         case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count}, (__complex double const[]){simd_rsqrt((double const)count)}, z[object->count&1], _ + 1);
+            vDSP_mul(&__real(*z[object->count&1]), 1, simd_rsqrt((double const)count), &__real(*z[object->count&1]), 1, 2 * count);
             break;
     }
     __copy__(&__real(*z[object->count&1]), 2, yr, incy, count);
@@ -1565,10 +1585,10 @@ void dft_forward(bdft_t const * __nonnull const object, dft_scale_t const scale,
         case DFT_SCALE_ONE:
             break;
         case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
+            vDSP_mul(&__real(*z[0]), 1, simd_recip((double const)count), &__real(*z[0]), 1, 2 * count * n);
             break;
         case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
+            vDSP_mul(&__real(*z[0]), 1, simd_rsqrt((double const)count), &__real(*z[0]), 1, 2 * count * n);
             break;
     }
     for ( register intptr_t k = 0 ; k < n ; ++ k )
@@ -1600,10 +1620,10 @@ void dft_inverse(bdft_t const * __nonnull const object, dft_scale_t const scale,
         case DFT_SCALE_ONE:
             break;
         case DFT_SCALE_ONE_OVER_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_recip((double const)count)}, z[0], _ + 1);
+            vDSP_mul(&__real(*z[0]), 1, simd_recip((double const)count), &__real(*z[0]), 1, 2 * count * n);
             break;
         case DFT_SCALE_ONE_OVER_SQRT_N:
-            zscal_((intptr_t const[]){count*n}, (__complex double const[]){simd_rsqrt((double const)count)}, z[0], _ + 1);
+            vDSP_mul(&__real(*z[0]), 1, simd_rsqrt((double const)count), &__real(*z[0]), 1, 2 * count * n);
             break;
     }
     for ( register intptr_t k = 0 ; k < n ; ++ k )
@@ -1819,56 +1839,58 @@ void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double const * __nonnull const x, intptr_t const incx,
                  __complex double       * __nonnull const y, intptr_t const incy,
                  __complex double       * __nullable const w) {
-    if ( x != y ) {
-        if ( w )
-            vDSP_fft_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*x),
-                .imagp = &__imag(*x)
-            }, 2, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
-            }, object->log2n, FFT_FORWARD);
-        else
-            vDSP_fft_zopD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*x),
-                .imagp = &__imag(*x)
-            }, 2, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2, object->log2n, FFT_FORWARD);
-    } else if ( incx != incy ) {
-        abort();
-    } else {
+    static FFTDirection const direction = FFT_FORWARD;
+    intptr_t const count = dft_count(object);
+    if ( x == y ) {
+        assert(incx == incy);
         if ( w )
             vDSP_fft_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
-            }, 2, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
-            }, object->log2n, FFT_FORWARD);
+            }, 2 * incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, direction);
         else
             vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
-            }, 2, object->log2n, FFT_FORWARD);
+            }, 2 * incy, object->log2n, direction);
+    } else {
+        if ( w )
+            vDSP_fft_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*x),
+                .imagp = &__imag(*x)
+            }, 2 * incx, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2 * incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, direction);
+        else
+            vDSP_fft_zopD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*x),
+                .imagp = &__imag(*x)
+            }, 2 * incx, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2 * incy, object->log2n, direction);
     }
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
         case DFT_SCALE_ONE_OVER_N: {
-            intptr_t const count = dft_count(object);
-            zscal_(&count, (__complex double[]){simd_recip((double const)count)}, y, &incy);
-            break;
-        }
+            double const factor = (double const)count;
+            vDSP_div(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, count);
+            vDSP_div(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, count);
+            
+        } break;
         case DFT_SCALE_ONE_OVER_SQRT_N: {
-            intptr_t const count = dft_count(object);
-            zscal_(&count, (__complex double[]){simd_rsqrt((double const)count)}, y, &incy);
-            break;
-        }
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, count);
+            vDSP_mul(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, count);
+        } break;
     }
 }
 __attribute__((overloadable))
@@ -1876,7 +1898,24 @@ void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double const * __nonnull const x, intptr_t const incx,
                  __complex double       * __nonnull const y, intptr_t const incy,
                  __complex double       * __nullable const w) {
-    if ( x != y ) {
+    static FFTDirection const direction = FFT_INVERSE;
+    intptr_t const count = dft_count(object);
+    if ( x == y ) {
+        assert(incx == incy);
+        if ( w )
+            vDSP_fft_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2 * incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, FFT_INVERSE);
+        else
+            vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2 * incy, object->log2n, FFT_INVERSE);
+    } else {
         if ( w )
             vDSP_fft_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*x),
@@ -1885,8 +1924,8 @@ void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
             }, 2 * incy, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
             }, object->log2n, FFT_INVERSE);
         else
             vDSP_fft_zopD(object->setup, &(DSPDoubleSplitComplex const) {
@@ -1896,36 +1935,21 @@ void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
             }, 2 * incy, object->log2n, FFT_INVERSE);
-    } else if ( incx != incy ) {
-        abort();
-    } else {
-        if ( w )
-            vDSP_fft_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2 * incy, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
-            }, object->log2n, FFT_INVERSE);
-        else
-            vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2 * incy, object->log2n, FFT_INVERSE);
     }
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
         case DFT_SCALE_ONE_OVER_N: {
-            intptr_t const count = dft_count(object);
-            zscal_(&count, (__complex double[]){simd_recip((double const)count)}, y, &incy);
-            break;
-        }
+            double const factor = (double const)count;
+            vDSP_div(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, count);
+            vDSP_div(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, count);
+            
+        } break;
         case DFT_SCALE_ONE_OVER_SQRT_N: {
-            intptr_t const count = dft_count(object);
-            zscal_(&count, (__complex double[]){simd_rsqrt((double const)count)}, y, &incy);
-            break;
-        }
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(&__real(*y), 2 * incy, factor, &__real(*y), 2 * incy, count);
+            vDSP_mul(&__imag(*y), 2 * incy, factor, &__imag(*y), 2 * incy, count);
+        } break;
     }
 }
 __attribute__((always_inline, overloadable))
@@ -1933,7 +1957,24 @@ void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double const * __nonnull const x, intptr_t const ldx,
                  __complex double       * __nonnull const y, intptr_t const ldy,
                  __complex double       * __nullable const w) {
-    if ( x != y ) {
+    static FFTDirection const direction = FFT_FORWARD;
+    intptr_t const count = dft_count(object);
+    if ( x == y ) {
+        assert(ldx == ldy);
+        if ( w )
+            vDSP_fftm_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2, 2 * ldy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, direction);
+        else
+            vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2, 2 * ldy, object->log2n, n, direction);
+    } else {
         if ( w )
             vDSP_fftm_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*x),
@@ -1942,9 +1983,9 @@ void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale,
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
             }, 2, 2 * ldy, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
-            }, object->log2n, n, FFT_FORWARD);
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, direction);
         else
             vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*x),
@@ -1952,35 +1993,25 @@ void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale,
             }, 2, 2 * ldx, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
-            }, 2, 2 * ldy, object->log2n, n, FFT_FORWARD);
-    } else if ( ldx != ldy ) {
-        abort();
-    } else {
-        if ( w )
-            vDSP_fftm_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2, 2 * ldy, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
-            }, object->log2n, n, FFT_FORWARD);
-        else
-            vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2, 2 * ldy, object->log2n, n, FFT_FORWARD);
+            }, 2, 2 * ldy, object->log2n, n, direction);
     }
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            for ( intptr_t count = dft_count(object), k = 0, K = n ; k < K ; ++ k )
-                zscal_(&count, (__complex double[]){simd_recip((double const)count)}, y + k * ldy, _ + 1);
-            break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            for ( intptr_t count = dft_count(object), k = 0, K = n ; k < K ; ++ k )
-                zscal_(&count, (__complex double[]){simd_rsqrt((double const)count)}, y + k * ldy, _ + 1);
-            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            for ( intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_div(&__real(*y) + k * 2 * ldy, 2, factor, &__real(*y) + k * 2 * ldy, 2, count);
+                vDSP_div(&__imag(*y) + k * 2 * ldy, 2, factor, &__imag(*y) + k * 2 * ldy, 2, count);
+            }
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            for ( intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_mul(&__real(*y) + k * 2 * ldy, 2, factor, &__real(*y) + k * 2 * ldy, 2, count);
+                vDSP_mul(&__imag(*y) + k * 2 * ldy, 2, factor, &__imag(*y) + k * 2 * ldy, 2, count);
+            }
+        } break;
     }
 }
 __attribute__((always_inline, overloadable))
@@ -1988,7 +2019,24 @@ void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
                  __complex double const * __nonnull const x, intptr_t const ldx,
                  __complex double       * __nonnull const y, intptr_t const ldy,
                  __complex double       * __nullable const w) {
-    if ( x != y ) {
+    static FFTDirection const direction = FFT_INVERSE;
+    intptr_t const count = dft_count(object);
+    if ( x == y ) {
+        assert(ldx == ldy);
+        if ( w )
+            vDSP_fftm_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2, 2 * ldy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, FFT_INVERSE);
+        else
+            vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*y),
+                .imagp = &__imag(*y)
+            }, 2, 2 * ldy, object->log2n, n, direction);
+    } else {
         if ( w )
             vDSP_fftm_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
                 .realp = &__real(*x),
@@ -1997,8 +2045,8 @@ void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
             }, 2, 2 * ldy, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
             }, object->log2n, n, FFT_INVERSE);
         else
             vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
@@ -2008,33 +2056,277 @@ void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
                 .realp = &__real(*y),
                 .imagp = &__imag(*y)
             }, 2, 2 * ldy, object->log2n, n, FFT_INVERSE);
-    } else if ( ldx != ldy ) {
-        abort();
-    } else {
-        if ( w )
-            vDSP_fftm_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2, 2 * ldy, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*w),
-                .imagp = &__imag(*w)
-            }, object->log2n, n, FFT_INVERSE);
-        else
-            vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
-                .realp = &__real(*y),
-                .imagp = &__imag(*y)
-            }, 2, 2 * ldy, object->log2n, n, FFT_INVERSE);
     }
     switch ( scale ) {
         case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_N:
-            for ( intptr_t count = dft_count(object), k = 0, K = n ; k < K ; ++ k )
-                zscal_(&count, (__complex double[]){simd_recip((double const)count)}, y + k * ldy, _ + 1);
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            for ( intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_div(&__real(*y) + k * 2 * ldy, 2, factor, &__real(*y) + k * 2 * ldy, 2, count);
+                vDSP_div(&__imag(*y) + k * 2 * ldy, 2, factor, &__imag(*y) + k * 2 * ldy, 2, count);
+            }
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            for ( intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_mul(&__real(*y) + k * 2 * ldy, 2, factor, &__real(*y) + k * 2 * ldy, 2, count);
+                vDSP_mul(&__imag(*y) + k * 2 * ldy, 2, factor, &__imag(*y) + k * 2 * ldy, 2, count);
+            }
+        } break;
+    }
+}
+__attribute__((always_inline, overloadable))
+void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr, double const * __nonnull const xi,
+                 double       * __nonnull const yr, double       * __nonnull const yi,
+                 __complex double       * __nullable const w) {
+    dft_forward(object, scale, xr, xi, 1, yr, yi, 1, w);
+}
+__attribute__((always_inline, overloadable))
+void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr, double const * __nonnull const xi,
+                 double       * __nonnull const yr, double       * __nonnull const yi,
+                 __complex double       * __nullable const w) {
+    dft_inverse(object, scale, xr, xi, 1, yr, yi, 1, w);
+}
+__attribute__((always_inline, overloadable))
+void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const incx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const incy,
+                 __complex double       * __nullable const w) {
+    static FFTDirection const direction = FFT_FORWARD;
+    intptr_t const count = dft_count(object);
+    if ( xr == yr && xi == yi ) {
+        assert(incx == incy);
+        if ( w )
+            vDSP_fft_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, direction);
+        else
+            vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, object->log2n, direction);
+    } else {
+        if ( w )
+            vDSP_fft_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, incx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, direction);
+        else
+            vDSP_fft_zopD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, incx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, object->log2n, direction);
+    }
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
             break;
-        case DFT_SCALE_ONE_OVER_SQRT_N:
-            for ( intptr_t count = dft_count(object), k = 0, K = n ; k < K ; ++ k )
-                zscal_(&count, (__complex double[]){simd_rsqrt((double const)count)}, y + k * ldy, _ + 1);
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            vDSP_div(yr, incy, factor, yr, incy, count);
+            vDSP_div(yi, incy, factor, yi, incy, count);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(yr, incy, factor, yr, incy, count);
+            vDSP_mul(yi, incy, factor, yi, incy, count);
+        } break;
+    }
+}
+__attribute__((always_inline, overloadable))
+void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const incx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const incy,
+                 __complex double       * __nullable const w) {
+    static FFTDirection const direction = FFT_INVERSE;
+    intptr_t const count = dft_count(object);
+    if ( xr == yr && xi == yi ) {
+        assert(incx == incy);
+        if ( w )
+            vDSP_fft_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, direction);
+        else
+            vDSP_fft_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, object->log2n, direction);
+    } else {
+        if ( w )
+            vDSP_fft_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, incx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, direction);
+        else
+            vDSP_fft_zopD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, incx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, incy, object->log2n, direction);
+    }
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
             break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            vDSP_div(yr, incy, factor, yr, incy, count);
+            vDSP_div(yi, incy, factor, yi, incy, count);
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            vDSP_mul(yr, incy, factor, yr, incy, count);
+            vDSP_mul(yi, incy, factor, yi, incy, count);
+        } break;
+    }
+}
+__attribute__((always_inline, overloadable))
+void dft_forward(pdft_t const * __nonnull const object, dft_scale_t const scale, intptr_t const n,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const ldx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const ldy,
+                 __complex double       * __nullable const w) {
+    static FFTDirection const direction = FFT_FORWARD;
+    intptr_t const count = dft_count(object);
+    if ( xr == yr && xi == yi ) {
+        assert(ldx == ldy);
+        if ( w )
+            vDSP_fftm_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, direction);
+        else
+            vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, object->log2n, n, direction);
+    } else {
+        if ( w )
+            vDSP_fftm_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, 1, ldx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, direction);
+        else
+            vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, 1, ldx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, object->log2n, n, direction);
+    }
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
+            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            for ( register intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_div(yr + k * ldy, 1, factor, yr + k * ldy, 1, count);
+                vDSP_div(yi + k * ldy, 1, factor, yi + k * ldy, 1, count);
+            }
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            for ( register intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_mul(yr + k * ldy, 1, factor, yr + k * ldy, 1, count);
+                vDSP_mul(yi + k * ldy, 1, factor, yi + k * ldy, 1, count);
+            }
+        } break;
+    }
+}
+__attribute__((always_inline, overloadable))
+void dft_inverse(pdft_t const * __nonnull const object, dft_scale_t const scale, intptr_t const n,
+                 double const * __nonnull const xr, double const * __nonnull const xi, intptr_t const ldx,
+                 double       * __nonnull const yr, double       * __nonnull const yi, intptr_t const ldy,
+                 __complex double       * __nullable const w) {
+    static FFTDirection const direction = FFT_INVERSE;
+    intptr_t const count = dft_count(object);
+    if ( xr == yr && xi == yi ) {
+        assert(ldx == ldy);
+        if ( w )
+            vDSP_fftm_ziptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, direction);
+        else
+            vDSP_fftm_zipD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, object->log2n, n, direction);
+    } else {
+        if ( w )
+            vDSP_fftm_zoptD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, 1, ldx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, &(DSPDoubleSplitComplex const) {
+                .realp = &__real(*w) + 0 * count,
+                .imagp = &__real(*w) + 1 * count
+            }, object->log2n, n, direction);
+        else
+            vDSP_fftm_zopD(object->setup, &(DSPDoubleSplitComplex const) {
+                .realp = xr,
+                .imagp = xi
+            }, 1, ldx, &(DSPDoubleSplitComplex const) {
+                .realp = yr,
+                .imagp = yi
+            }, 1, ldy, object->log2n, n, direction);
+    }
+    switch ( scale ) {
+        case DFT_SCALE_ONE:
+            break;
+        case DFT_SCALE_ONE_OVER_N: {
+            double const factor = (double const)count;
+            for ( register intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_div(yr + k * ldy, 1, factor, yr + k * ldy, 1, count);
+                vDSP_div(yi + k * ldy, 1, factor, yi + k * ldy, 1, count);
+            }
+        } break;
+        case DFT_SCALE_ONE_OVER_SQRT_N: {
+            double const factor = simd_precise_rsqrt((double const)count);
+            for ( register intptr_t k = 0 ; k < n ; ++ k ) {
+                vDSP_mul(yr + k * ldy, 1, factor, yr + k * ldy, 1, count);
+                vDSP_mul(yi + k * ldy, 1, factor, yi + k * ldy, 1, count);
+            }
+        } break;
     }
 }
