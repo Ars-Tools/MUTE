@@ -11,7 +11,7 @@
 import Synchronization
 import Accelerate
 import DSP
-import NSP
+import KSP
 @usableFromInline
 enum TextureTable {
     @usableFromInline
