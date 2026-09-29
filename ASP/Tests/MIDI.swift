@@ -76,8 +76,8 @@ struct MIDITestCase {
 		engine.attach(pub)
 		engine.attach(dsp)
 		
-		engine.connectMIDI(sub, to: pub, format: .init(sampleRate: 44100, monoChannels: 1))
-		engine.connectMIDI(pub, to: dsp, format: .init(sampleRate: 44100, monoChannels: 1))
+		engine.connectMIDI(sub, to: pub, format: .init(sampleRate: 44100, discreteChannels: 1))
+		engine.connectMIDI(pub, to: dsp, format: .init(sampleRate: 44100, discreteChannels: 1))
 		engine.connect(dsp, to: engine.mainMixerNode, format: dsp.outputFormat(forBus: 0))
 		engine.connect(engine.mainMixerNode, to: engine.outputNode, format: engine.outputNode.inputFormat(forBus: 0))
 		

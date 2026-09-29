@@ -18,6 +18,18 @@ struct PrototypeTestCase {
 			return b + a
 		}
 	}
+    @Test
+    func krawtchouk() {
+        #expect(Prototype.TransferFunction.Krawtchouk(size: 1) == [1])
+        #expect(Prototype.TransferFunction.Krawtchouk(size: 2) == [1, -1, 1, 1])
+        let quad = Prototype.BiquadSeries.Krawtchouk
+        let third = Prototype.TransferFunction.Krawtchouk(size: 3)
+        #expect(third.count == 9)
+        for col in 0..<3 {
+            let refer = quad[col].withUnsafeBufferPointer(Array.init)
+            #expect(zip(third[col*3..<col*3+3], refer).allSatisfy(==))
+        }
+    }
 	@Test
 	func blt() {
 		let p = legendre(count: 4)

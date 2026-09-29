@@ -372,6 +372,195 @@ struct DFTTestCase {
             })
         }
     }
+    @Test(
+        arguments: [64, 105, 127]
+    )
+    func bdft_split_vec_acc(count: Int) {
+        let x = UnsafeMutablePointer<Complex128>.allocate(capacity: count)
+        let y = UnsafeMutablePointer<Complex128>.allocate(capacity: count)
+        let xr = UnsafeMutablePointer<Float64>.allocate(capacity: count)
+        let xi = UnsafeMutablePointer<Float64>.allocate(capacity: count)
+        let yr = UnsafeMutablePointer<Float64>.allocate(capacity: count)
+        let yi = UnsafeMutablePointer<Float64>.allocate(capacity: count)
+        let w = UnsafeMutablePointer<Complex128>.allocate(capacity: 2 * count)
+        defer {
+            x.deallocate()
+            y.deallocate()
+            xr.deallocate()
+            xi.deallocate()
+            yr.deallocate()
+            yi.deallocate()
+            w.deallocate()
+        }
+        for k in 0..<count {
+            let real = Float64((17 * k + 3) % 31) / 15 - 1
+            let imag = Float64((11 * k + 5) % 29) / 14 - 1
+            x[k] = Complex128(real: real, imag: imag)
+            xr[k] = real
+            xi[k] = imag
+        }
+        let dft = bdft_create(count)
+        defer { dft_destroy(dft) }
+        do {
+            dft_forward(dft, .DFT_SCALE_ONE,
+                        .init(x),
+                        .init(y),
+                        .some(.init(w)))
+            dft_forward(dft, .DFT_SCALE_ONE,
+                        xr, xi,
+                        yr, yi,
+                        .some(.init(w)))
+            #expect((0..<count).allSatisfy {
+                (Complex128(real: yr[$0], imag: yi[$0]) - y[$0]).magnitudeSquared.isLess(than: .ulpOfOne)
+            })
+        }
+        do {
+            dft_inverse(dft, .DFT_SCALE_ONE,
+                        .init(x),
+                        .init(y),
+                        .some(.init(w)))
+            dft_inverse(dft, .DFT_SCALE_ONE,
+                        xr, xi,
+                        yr, yi,
+                        .some(.init(w)))
+            #expect((0..<count).allSatisfy {
+                (Complex128(real: yr[$0], imag: yi[$0]) - y[$0]).magnitudeSquared.isLess(than: .ulpOfOne)
+            })
+        }
+    }
+    @Test(
+        arguments: [64, 105, 127]
+    )
+    func bdft_split_strided_vec_acc(count: Int) {
+        let incx = 2
+        let incy = 3
+        let x = UnsafeMutablePointer<Complex128>.allocate(capacity: count)
+        let y = UnsafeMutablePointer<Complex128>.allocate(capacity: count)
+        let xr = UnsafeMutablePointer<Float64>.allocate(capacity: count * incx)
+        let xi = UnsafeMutablePointer<Float64>.allocate(capacity: count * incx)
+        let yr = UnsafeMutablePointer<Float64>.allocate(capacity: count * incy)
+        let yi = UnsafeMutablePointer<Float64>.allocate(capacity: count * incy)
+        let w = UnsafeMutablePointer<Complex128>.allocate(capacity: 2 * count)
+        defer {
+            x.deallocate()
+            y.deallocate()
+            xr.deallocate()
+            xi.deallocate()
+            yr.deallocate()
+            yi.deallocate()
+            w.deallocate()
+        }
+        xr.initialize(repeating: .nan, count: count * incx)
+        xi.initialize(repeating: .nan, count: count * incx)
+        yr.initialize(repeating: .nan, count: count * incy)
+        yi.initialize(repeating: .nan, count: count * incy)
+        for k in 0..<count {
+            let real = Float64((17 * k + 3) % 31) / 15 - 1
+            let imag = Float64((11 * k + 5) % 29) / 14 - 1
+            x[k] = Complex128(real: real, imag: imag)
+            xr[k * incx] = real
+            xi[k * incx] = imag
+        }
+        let dft = bdft_create(count)
+        defer { dft_destroy(dft) }
+        do {
+            dft_forward(dft, .DFT_SCALE_ONE,
+                        .init(x), 1,
+                        .init(y), 1,
+                        .some(.init(w)))
+            dft_forward(dft, .DFT_SCALE_ONE,
+                        xr, xi, incx,
+                        yr, yi, incy,
+                        .some(.init(w)))
+            #expect((0..<count).allSatisfy {
+                (Complex128(real: yr[$0 * incy], imag: yi[$0 * incy]) - y[$0]).magnitudeSquared.isLess(than: .ulpOfOne)
+            })
+        }
+        do {
+            dft_inverse(dft, .DFT_SCALE_ONE,
+                        .init(x), 1,
+                        .init(y), 1,
+                        .some(.init(w)))
+            dft_inverse(dft, .DFT_SCALE_ONE,
+                        xr, xi, incx,
+                        yr, yi, incy,
+                        .some(.init(w)))
+            #expect((0..<count).allSatisfy {
+                (Complex128(real: yr[$0 * incy], imag: yi[$0 * incy]) - y[$0]).magnitudeSquared.isLess(than: .ulpOfOne)
+            })
+        }
+    }
+    @Test(
+        arguments: [64, 105, 127]
+    )
+    func bdft_split_mat_acc(count: Int) {
+        let nrhs = 3
+        let ldx = count + 2
+        let ldy = count + 3
+        let x = UnsafeMutablePointer<Complex128>.allocate(capacity: nrhs * count)
+        let y = UnsafeMutablePointer<Complex128>.allocate(capacity: nrhs * count)
+        let xr = UnsafeMutablePointer<Float64>.allocate(capacity: nrhs * ldx)
+        let xi = UnsafeMutablePointer<Float64>.allocate(capacity: nrhs * ldx)
+        let yr = UnsafeMutablePointer<Float64>.allocate(capacity: nrhs * ldy)
+        let yi = UnsafeMutablePointer<Float64>.allocate(capacity: nrhs * ldy)
+        let w = UnsafeMutablePointer<Complex128>.allocate(capacity: 2 * nrhs * count)
+        defer {
+            x.deallocate()
+            y.deallocate()
+            xr.deallocate()
+            xi.deallocate()
+            yr.deallocate()
+            yi.deallocate()
+            w.deallocate()
+        }
+        xr.initialize(repeating: .nan, count: nrhs * ldx)
+        xi.initialize(repeating: .nan, count: nrhs * ldx)
+        yr.initialize(repeating: .nan, count: nrhs * ldy)
+        yi.initialize(repeating: .nan, count: nrhs * ldy)
+        for rhs in 0..<nrhs {
+            for k in 0..<count {
+                let real = Float64((17 * k + 7 * rhs + 3) % 31) / 15 - 1
+                let imag = Float64((11 * k + 5 * rhs + 5) % 29) / 14 - 1
+                x[rhs * count + k] = Complex128(real: real, imag: imag)
+                xr[rhs * ldx + k] = real
+                xi[rhs * ldx + k] = imag
+            }
+        }
+        let dft = bdft_create(count)
+        defer { dft_destroy(dft) }
+        do {
+            dft_forward(dft, .DFT_SCALE_ONE, nrhs,
+                        .init(x), count,
+                        .init(y), count,
+                        .some(.init(w)))
+            dft_forward(dft, .DFT_SCALE_ONE, nrhs,
+                        xr, xi, ldx,
+                        yr, yi, ldy,
+                        .some(.init(w)))
+            #expect((0..<nrhs).allSatisfy { rhs in
+                (0..<count).allSatisfy { k in
+                    let split = Complex128(real: yr[rhs * ldy + k], imag: yi[rhs * ldy + k])
+                    return (split - y[rhs * count + k]).magnitudeSquared.isLess(than: .ulpOfOne)
+                }
+            })
+        }
+        do {
+            dft_inverse(dft, .DFT_SCALE_ONE, nrhs,
+                        .init(x), count,
+                        .init(y), count,
+                        .some(.init(w)))
+            dft_inverse(dft, .DFT_SCALE_ONE, nrhs,
+                        xr, xi, ldx,
+                        yr, yi, ldy,
+                        .some(.init(w)))
+            #expect((0..<nrhs).allSatisfy { rhs in
+                (0..<count).allSatisfy { k in
+                    let split = Complex128(real: yr[rhs * ldy + k], imag: yi[rhs * ldy + k])
+                    return (split - y[rhs * count + k]).magnitudeSquared.isLess(than: .ulpOfOne)
+                }
+            })
+        }
+    }
     // Measure prepare and operation
     @Test(
 //        arguments: [1024, 1024 * 15, 5 * 7 * 11]

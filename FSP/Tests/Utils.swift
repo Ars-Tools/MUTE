@@ -6,38 +6,13 @@
 //
 import Testing
 import Numerics
+import DSP
+import ESP
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 @testable import FSP
 @Suite
 struct UtilTestCases {
-	@Test(arguments: [
-		repeatElement(0.8 ... 1.25, count: 64).map(Float64.random(in:))
-	])
-	func minimum_phase(x: Array<Float64>) {
-		let y = minimumPhase(mag: x)
-		print(y)
-		#expect(zip(x, y.map(\.magnitude)).allSatisfy { ($0 - $1).magnitude < 1e-6 })
-	}
-	
-	@Test
-	func hilbert_time() {
-		let x = repeatElement(-1.0 ... 1.0, count: 65).map {
-			Complex128(real: .random(in: $0), imag: .zero)
-		}
-		let y = hilbert(time: x)
-		print("x=", x)
-		print("y=", y)
-	}
-	@Test
-	func hilbert_freq() {
-		let x = repeatElement(-1.0 ... 1.0, count: 65).map {
-			Complex128(real: .random(in: $0), imag: .zero)
-		}
-		let y = hilbert(freq: x)
-		print("x=", x)
-		print("y=", y)
-	}
 //	@Test
 //	func ls() {
 //		let x = solve(m: 5, n: 4, A: [
@@ -65,15 +40,27 @@ struct UtilTestCases {
 //		print("mp=", exp(hilbert(freq: vForce.log(response))))
 		
 	}
-	@Test
-	func complex_exp() {
-		let x = vDSP.ramp(withInitialValue: 0, increment: Float64.pi / 8.0, count: 16).map {
-			Complex128(r: 1, θ: $0)
-		}
-		print(x)
-		let y = log(x)
-		print(y)
-		let z = exp(y)
-		print(z)
-	}
+    @Test
+    func response() {
+        let sos = BiquadFilter.Design.hpf(ω₀: AngularFrequency(rawValue: .init(numerator: 1, denominator: 16)), quality: 6).coefficients(for: .zero)
+//        let response = Utils.Response(frequency: Ramp.arange(in: 0...1, count: 256),
+//                                      b: [sos.b₀, sos.b₁, sos.b₂],
+//                                      a: [1, sos.a₁, sos.a₂])
+        print(sos)
+        print(response)
+    }
+    @Test
+    func response_sos() {
+        let sos = [
+            .peq(ω₀: AngularFrequency(numerator: 1, denominator: 12), quality: 2, gain: 12),
+            .peq(ω₀: AngularFrequency(numerator: 2, denominator: 12), quality: 2, gain: 12),
+            .peq(ω₀: AngularFrequency(numerator: 4, denominator: 12), quality: 2, gain: 12)
+        ] as Array<BiquadFilter.Design>
+        let response = Utils.Response(frequency: Array(unsafeUninitializedCapacity: 256) {
+            $1 = $0.count
+            vDSP.formRamp(withInitialValue: 0, increment: 1, result: &$0[0..<$1])
+            vDSP.divide($0, .init($1), result: &$0[0..<$1])
+        }, sos: sos.map { $0.coefficients(for: .zero) })
+        print(response)
+    }
 }

@@ -117,38 +117,28 @@ struct GenTest {
 		}
 	}
 	@Test
-	func testFilter() async throws {
-		let x = uniform(in: -0.5 ... 0.5)
-		let y = filter(x, with: ([1], [1, -2 * 0.1 * 0.9, 0.9 * 0.9]))
-		try await scenario(time: .seconds(30)) {
-			let bus = try Output.Direct(sampleRate: 44100, source: y)
-			$0.append(bus)
-		}
-	}
-	@Test
 	func filterPrototypes() async throws {
-		let x = try Playback(path: .init(filePath: "/tmp/brushes.aif"), loop: true)
+		let x = try Playback(path: .init(filePath: "/tmp/10100_bgm_crows2mix.wav"), loop: true)
 //		let y = filter(x, lpf: (const(234), const(0.5.squareRoot())))
 //		let y = filter(x, alt: (const(234), const(0, 0, 3), const(1, 3, 3)))
 //		let y = filter(x, sos: .lpf(ω₀: 234, quality: 0.5.squareRoot()))
-        let z = fma(tri(freqs: 0.03, ratio: 1.0), 895, 900)
+//        let z = fma(tri(freqs: 0.03, ratio: 1.0), 895, 900)
 //		let y = filter(x, lpf: 420, chebyshev1: 16000, ε: 0.05)
 //        let y = filter(x, apf: 420, butterworth: 12000)
         
-		let y = filter(x, apf: z, butterworth: 500)
-//		let y = filter(x, lpf: z, chebyshev1: 600, ε: 0.03)
+//		let y = filter(x, apf: z, butterworth: 500)
+//		let y = filter(x, ldf: z, chebyshev1: 600, ε: 0.03)
 //		let y = filter(x, lpf: 600, chebyshev1: 8000, ε: 0.03)
-//		let y = filter(x, lpf: 500, chebyshev1: 8000, ε: 0.03) // LPF!!!
+		let y = filter(x, hdf: 500, chebyshev1: 8000, ε: 0.03)
 //		let y = filter(x, alt: 440, Hₛ: (.init(1, 0, 0), .init(1, 2.0.squareRoot(), 1)))
 //		let y = filter(x, lpf: z, bessel: 7)
 //		let y = filter(x, lpf: 144, butterworth: 6)
 //		let y = filter(x, lpf: z, chebyshev1: 30, ε: 0.01)
 //		let y = filter(x, lpf: z, chebyshev2: 6, ε: 0.01)
-//		let y = filter(x, lpf: z, cauer: 12, ε: ripple(dB: 3), η: ripple(dB: 50))
+//      let y = filter(x, lpf: z, cauer: 12, ε: Utils.ripple(dB: 3), η: Utils.ripple(dB: 50))
 //		let y = filter(x, sos: .lpf(ω₀: 144, quality: 0.5.squareRoot()), .lpf(ω₀: 144, quality: 0.5.squareRoot()))
 		try await scenario(time: .seconds(420)) {
-			let bus = try Output.Direct(sampleRate: 44100, source: y)
-			$0.append(bus)
+			try $0.append(Output.Direct(sampleRate: 44100, source: y))
 		}
 	}
 	@Test

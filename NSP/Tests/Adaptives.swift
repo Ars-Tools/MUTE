@@ -7,6 +7,8 @@
 import Foundation
 import Testing
 import Accelerate
+import typealias Numerics.Complex128
+import typealias Complex.complex128_t
 @testable import NSP
 @Suite
 struct ARTestCase {
@@ -155,6 +157,51 @@ struct MATestCase {
 		}
 		print(w[target.count-1], w[target.count-1+target.count], w[target.count-1+2*target.count], w[target.count-1+3*target.count])
 		print(ma(target: y, source: x, order: 4))
+	}
+	@Test
+	func complex_rls_linear_regression() {
+		let coefficient = [
+			Complex128(real: 0.75, imag: -0.20),
+			Complex128(real: -0.35, imag: 0.45),
+			Complex128(real: 0.10, imag: 0.60),
+		]
+		let object = rls_complex_create(coefficient.count)
+		defer { rls_destroy(object) }
+		rls_lambda(object, 0.995)
+
+		var state: UInt64 = 0x243f_6a88_85a3_08d3
+		func random() -> Float64 {
+			state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+			return 2 * Float64(state >> 11) / 9_007_199_254_740_992 - 1
+		}
+
+		var estimate = Array<complex128_t>(repeating: .init(), count: coefficient.count)
+		var error = Complex128.zero
+		for _ in 0..<4_096 {
+			let input = coefficient.map { _ in
+				Complex128(real: random(), imag: random())
+			}
+			let target = zip(coefficient, input).reduce(into: Complex128.zero) {
+				$0 += $1.0 * $1.1
+			}
+			let rawInput = input.map(\.rawValue)
+			rawInput.withUnsafeBufferPointer { input in
+				estimate.withUnsafeMutableBufferPointer { estimate in
+					error = .init(rawValue: rls_complex(
+						object,
+						target.rawValue,
+						input.baseAddress.unsafelyUnwrapped, 1,
+						estimate.baseAddress.unsafelyUnwrapped, 1
+					))
+				}
+			}
+		}
+
+		let physical = estimate.map(Complex128.init(rawValue:)).map(\.conj)
+		#expect(error.magnitude < 1e-10)
+		#expect(zip(physical, coefficient).allSatisfy {
+			($0 - $1).magnitude < 1e-10
+		})
 	}
 	@Test
 	func lms_kernel_test() {
