@@ -5,7 +5,7 @@
 //  Created by Kota on 7/18/R7.
 //
 import Testing
-import MIDI
+import WSP
 import Synchronization
 import Dispatch
 @Suite
@@ -36,7 +36,7 @@ struct PT {
 		#expect(done.load(ordering: .acquiring) == true)
 		wait.cancel()
 	}
-	var payload: MIDI.Buffer {
+	var payload: WSP.Buffer {
 		.init(msg: [MSG_1_0(note: 0x40, velocity: 0x60, channel: 0)], as: ._2_0, at: 0)
 	}
 }
