@@ -15,6 +15,8 @@ import func simd.__sincospi_stret
 import typealias simd.__double2
 import let Darwin.M_LN2
 import let Darwin.M_LN10
+import typealias DSP.Filter
+import protocol DSP.Frequency
 // MARK: BPF
 extension Linear.Biquad {
     @inlinable@inline(__always)@_transparent
@@ -385,3 +387,24 @@ extension Linear.Biquad {
         )
     }
 }
+extension DSP.Filter {
+    @usableFromInline
+    enum Design {
+        @usableFromInline
+        enum Kr<Ω: Publisher<Frequency, Never>, Q: Publisher<Float64, Never>> {
+            case lpf(ω₀: Ω, Q: Q)
+            case hpf(ω₀: Ω, Q: Q)
+            case bpf(ω₀: Ω, Q: Q)
+        }
+        @usableFromInline
+        enum Ar {
+            
+        }
+    }
+}
+//extension Array: DSP.Filter.TransferFunction<Float64>, DSP.Filter.BiquadSeries<Float64> where Element == DSP.Filter.Design {
+//    public typealias Series = 
+//    public typealias Sections = Arr
+//    
+//    
+//}

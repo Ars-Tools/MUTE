@@ -32,7 +32,7 @@ extension Linear.Cascade {
             var table = MatBuf(shape: (r.count, r.count), with: 0.0)
             for (row, r₀) in r.enumerated() {
                 for (col, r₁) in r.enumerated().dropFirst(row + 1) {
-                    switch simd_abs(SIMD2<Float64>(1 - r₀, 1 + r₀) * SIMD2<Float64>(1 - r₁, 1 + r₁)).min() {
+                    switch simd_abs(SIMD2<Float64>(1 - r₀, 1 + r₀) * SIMD2<Float64>(1 - r₁, 1 + r₁)).min() as Float64 {
                     case let weight:
                         table[row, col] = weight
                         table[col, row] = weight
