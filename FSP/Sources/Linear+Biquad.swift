@@ -218,8 +218,8 @@ extension Linear.Biquad {
     var zero: (Complex128, Complex128) {
         switch fma(-4, b.x * b.z, b.y * b.y) {
         case let D where 0.isLessThanOrEqualTo(D):(
-            .init(real: -(b.y+D.squareRoot()) / b.x / 2, imag: 0),
-            .init(real: -(b.y-D.squareRoot()) / b.x / 2, imag: 0)
+            .init(real: -(b.y + D.squareRoot()) / b.x / 2, imag: 0),
+            .init(real: -(b.y - D.squareRoot()) / b.x / 2, imag: 0)
         )
         case let D:(
             .init(real: -b.y / b.x / 2, imag: -D.magnitude.squareRoot() / b.x / 2),
@@ -230,8 +230,8 @@ extension Linear.Biquad {
     var pole: (Complex128, Complex128) {
         switch fma(-4, a.x * a.z, a.y * a.y) {
         case let D where 0.isLessThanOrEqualTo(D):(
-            .init(real: -(a.y+D.squareRoot()) / a.x / 2, imag: 0),
-            .init(real: -(a.y-D.squareRoot()) / a.x / 2, imag: 0)
+            .init(real: -(a.y + D.squareRoot()) / a.x / 2, imag: 0),
+            .init(real: -(a.y - D.squareRoot()) / a.x / 2, imag: 0)
         )
         case let D:(
             .init(real: -a.y / a.x / 2, imag: -D.magnitude.squareRoot() / a.x / 2),
