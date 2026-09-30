@@ -35,9 +35,22 @@ extension CTF {
 }
 extension CTF.Snapshot {
     @inlinable
-    public func γ²(into buffer: UnsafeMutableBufferPointer<Float64>) {
+    public func`|Syx|²`(into buffer: UnsafeMutableBufferPointer<Float64>) {
         precondition(Syx.count <= buffer.count)
         Complex128.mags(Syx, 1, buffer.baseAddress.unsafelyUnwrapped, 1, buffer.count) // $0 <- |Syx|^2
+    }
+    @inlinable
+    public var`|Syx|²`: Array<Float64> {
+        .init(unsafeUninitializedCapacity: Syx.count) {
+            $1 = $0.count
+            `|Syx|²`(into: $0)
+        }
+    }
+}
+extension CTF.Snapshot {
+    @inlinable
+    public func γ²(into buffer: UnsafeMutableBufferPointer<Float64>) {
+        `|Syx|²`(into: buffer)
         assert(Sxx.count <= buffer.count)
         Float64.Div(x: buffer.baseAddress.unsafelyUnwrapped, inc: 1,
                     y: Sxx, inc: 1,
