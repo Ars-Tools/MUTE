@@ -22,11 +22,11 @@ import func Layout.concat
 // MARK: Complex Fit
 extension Linear {
     @inlinable // J = Σ w[l] / (|X[l]|² + |Y[l]|²) * |A[l]Y[l] - B[l]X[l]|²
-    static func fit(x: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>),
-                    y: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>),
-                    frequency: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
-                    weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
-                    count: (b: Int, a: Int)) -> Direct {
+    public static func fit(x: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>),
+                           y: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>),
+                           frequency: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
+                           weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
+                           count: (b: Int, a: Int)) -> Direct {
         let ω = frequency.count
         precondition(ω == x.r.count)
         precondition(ω == x.i.count)
@@ -105,12 +105,12 @@ extension Linear {
         }
     }
     @inlinable // J = Σ_l w[l] * E[|A[l]Y[l] - B[l]X[l]|²] / (E[|X[l]|²] + E[|Y[l]|²])
-    static func fit(x: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>, σ²: some AccelerateBuffer<Float64>),
-                    y: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>, σ²: some AccelerateBuffer<Float64>),
-                    σxy: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>), /* c(ω) = E[(X-E[X])*(Y-E[Y])^H] */
-                    frequency: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
-                    weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
-                    count: (b: Int, a: Int)) -> Direct {
+    public static func fit(x: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>, σ²: some AccelerateBuffer<Float64>),
+                           y: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>, σ²: some AccelerateBuffer<Float64>),
+                           σxy: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>), /* c(ω) = E[(X-E[X])*(Y-E[Y])^H] */
+                           frequency: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
+                           weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
+                           count: (b: Int, a: Int)) -> Direct {
         let ω = frequency.count
         precondition(ω == x.r.count)
         precondition(ω == x.i.count)
