@@ -25,15 +25,14 @@ extension Linear.Direct {
     }
 }
 extension Linear.Direct {
-    @inlinable
-    init(zpk: Linear.ZPK) {
-        let g = zpk.gain ?? 1
-        b = zpk.zero.0.reduce(zpk.zero.1.reduce(Array<Float64>(arrayLiteral: g)) {
+    public init(zpk: Linear.ZPK) {
+        let g = zpk.k ?? 1
+        b = zpk.z.0.reduce(zpk.z.1.reduce(Array<Float64>(arrayLiteral: g)) {
             Convolvers.convolve(x: $0, y: [1, -$1])
         }) {
             Convolvers.convolve(x: $0, y: [1, -2 * $1.real, $1.magnitudeSquared])
         }
-        a = zpk.pole.0.reduce(zpk.pole.1.reduce(Array<Float64>(arrayLiteral: 1)) {
+        a = zpk.p.0.reduce(zpk.p.1.reduce(Array<Float64>(arrayLiteral: 1)) {
             Convolvers.convolve(x: $0, y: [1, -$1])
         }) {
             Convolvers.convolve(x: $0, y: [1, -2 * $1.real, $1.magnitudeSquared])
