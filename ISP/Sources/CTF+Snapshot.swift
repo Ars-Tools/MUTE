@@ -61,6 +61,7 @@ extension CTF.Snapshot {
                     y: Syy, inc: 1,
                     z: buffer.baseAddress.unsafelyUnwrapped, inc: 1,
                     length: Syx.count)
+        vDSP.clip(buffer, to: 0...1, result: &buffer[0..<Syx.count])
     }
     @inlinable
     public var γ²: Array<Float64> {
