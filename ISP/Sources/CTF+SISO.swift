@@ -10,15 +10,13 @@ import typealias Numerics.Complex128
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import typealias KSP.rls_complex_filterbank_t
+import typealias KSP.rls_complex_soa_t
 import func KSP.rls_complex_filter_create
+import func KSP.rls_complex_soa_create
 import func KSP.rls_filter_destroy
 import func KSP.rls_filter_reset
 import func KSP.rls_filter_lambda
 import func KSP.rls_filter_error
-
-import typealias KSP.rls_complex_soa_t
-import func KSP.rls_complex_soa_create
-
 import typealias ESP.DFT
 import AltVec
 extension CTF {
@@ -34,7 +32,10 @@ extension CTF.SISO {
     }
     public protocol FrequencyDomain<DFT>: `Protocol` {
         associatedtype DFT: ESP.DFT.`Protocol`
-        func update(sample: Int, X: UnsafeMutableBufferPointer<Complex128>, Y: UnsafeMutableBufferPointer<Complex128>, W: UnsafeMutableBufferPointer<Complex128>)
+        func update(sample: Int,
+                    X: UnsafeMutableBufferPointer<Complex128>,
+                    Y: UnsafeMutableBufferPointer<Complex128>,
+                    W: UnsafeMutableBufferPointer<Complex128>)
         var dft: DFT { get }
         var workspace: Int { get }
     }
@@ -71,31 +72,48 @@ extension CTF.SISO.FrequencyDomain {
 extension CTF.SISO {
     public final class RLS<DFT: ESP.DFT.`Protocol`>: FrequencyDomain, @unchecked Sendable {
         @usableFromInline
-        let core: UnsafeMutablePointer<rls_complex_soa_t>
+        let core: Core
+        @usableFromInline
+        enum Core {
+            case AoS(UnsafeMutablePointer<rls_complex_filterbank_t>)
+            case SoA(UnsafeMutablePointer<rls_complex_soa_t>)
+        }
         public let dft: DFT
         public let statistics: Mutex<CTF.Snapshot>
         public let average: Atomic<Float64>
         @inlinable
-        public init(dft transformer: DFT, count: Int, λ: Float64) { // count = filter order
+        public init(dft transformer: DFT, count: Int, λ: Float64, soa: Bool) { // count = filter order
             dft = transformer
-            core = rls_complex_soa_create(count, dft.count / 2 + 1) // 0 ~ Nyquist
+            core = soa ?
+                .SoA(rls_complex_soa_create(count, dft.count / 2 + 1)) :
+                .AoS(rls_complex_filter_create(count, dft.count / 2 + 1))
             statistics = .init(.init(angular: .init(unsafeUninitializedCapacity: dft.count / 2 + 1) { [dft] in
                 $1 = $0.count
                 vDSP.formRamp(withInitialValue: 0, increment: 1, result: &$0)
                 vDSP.divide($0, .init(dft.count), result: &$0)
             }))
             average = .init(λ)
-            rls_filter_lambda(core, λ)
+            switch core {
+            case.AoS(let core):
+                rls_filter_lambda(core, λ)
+            case.SoA(let core):
+                rls_filter_lambda(core, λ)
+            }
         }
         deinit {
-            rls_filter_destroy(core)
+            switch core {
+            case.AoS(let core):
+                rls_filter_destroy(core)
+            case.SoA(let core):
+                rls_filter_destroy(core)
+            }
         }
     }
 }
 extension CTF.SISO.RLS {
     @inlinable
-    public convenience init(width: Int, count: Int, λ: Float64 = 1) where DFT == ESP.DFT.BFS {
-        self.init(dft: .init(count: width), count: count, λ: λ)
+    public convenience init(width: Int, count: Int, λ: Float64 = 1, soa: Bool = false) where DFT == ESP.DFT.BFS {
+        self.init(dft: .init(count: width), count: count, λ: λ, soa: soa)
     }
 }
 extension CTF.SISO.RLS {
@@ -106,7 +124,12 @@ extension CTF.SISO.RLS {
         }
         set {
             average.store(newValue, ordering: .relaxed)
-            rls_filter_lambda(core, newValue)
+            switch core {
+            case.SoA(let core):
+                rls_filter_lambda(core, newValue)
+            case.AoS(let core):
+                rls_filter_lambda(core, newValue)
+            }
         }
     }
 }
@@ -125,11 +148,20 @@ extension CTF.SISO.RLS {
         let Y = UnsafeMutableBufferPointer(rebasing: Y.prefix(count))
         let Ŷ = UnsafeMutableBufferPointer(rebasing: W[0*count..<1*count])
         let Ε = UnsafeMutableBufferPointer(rebasing: W[1*count..<2*count])
-        rls_filter_error(core,
-                         .init(X.baseAddress.unsafelyUnwrapped), 1,
-                         .init(Y.baseAddress.unsafelyUnwrapped), 1,
-                         .init(Ε.baseAddress), 1,
-                         1) // 1 timestep
+        switch core {
+        case.SoA(let core):
+            rls_filter_error(core,
+                             .init(X.baseAddress.unsafelyUnwrapped), 1,
+                             .init(Y.baseAddress.unsafelyUnwrapped), 1,
+                             .init(Ε.baseAddress), 1,
+                             1) // 1 timestep
+        case.AoS(let core):
+            rls_filter_error(core,
+                             .init(X.baseAddress.unsafelyUnwrapped), 1,
+                             .init(Y.baseAddress.unsafelyUnwrapped), 1,
+                             .init(Ε.baseAddress), 1,
+                             1) // 1 timestep
+        }
         statistics.withLock { [λ] in
             // timestamp τ
             $0.τ = sample
@@ -212,7 +244,12 @@ extension CTF.SISO.RLS {
         statistics.withLock {
             $0 = .init(angular: $0.ω)
         }
-        rls_filter_reset(core)
+        switch core {
+        case.AoS(let core):
+            rls_filter_reset(core)
+        case.SoA(let core):
+            rls_filter_reset(core)
+        }
     }
     @inlinable
     public var snapshot: CTF.Snapshot {
