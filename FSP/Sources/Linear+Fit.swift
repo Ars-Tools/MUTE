@@ -372,7 +372,7 @@ extension Linear {
     static func fit(rows m: Int, cols: (p: Int, q: Int),
                     A: some AccelerateBuffer<Float64>, ld ldA: Int,
                     iteration: Int,
-                    minimum ε: Float64) -> Direct.ChebyshevPowerRational {
+                    minimum ε: Float64) -> Direct.Power {
         let (p, q) = cols
         assert(0 < m)
         assert(0 < p && 0 < q)
@@ -493,13 +493,13 @@ extension Linear {
     // Power LS with P(t), Q(t) >= ε for every t in [-1, 1].
     // The otherwise homogeneous scale is fixed symmetrically by p[0] + q[0] = 2.
     @inlinable
-    static func fit(xx x: some AccelerateBuffer<Float64>,
-                    yy y: some AccelerateBuffer<Float64>,
-                    frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
-                    weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
-                    iteration: Optional<Int> = .none,
-                    minimum ε: Float64,
-                    count: (p: Int, q: Int)) -> Direct.ChebyshevPowerRational {
+    public static func fit(xx x: some AccelerateBuffer<Float64>,
+                           yy y: some AccelerateBuffer<Float64>,
+                           frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
+                           weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
+                           iteration: Optional<Int> = .none,
+                           minimum ε: Float64,
+                           count: (p: Int, q: Int)) -> Direct.Power {
         let m = ω.count
         precondition(m == x.count)
         precondition(m == y.count)
@@ -607,7 +607,7 @@ extension Linear {
                     weight w: some AccelerateBuffer<Float64>,
                     iteration: Optional<Int> = .none,
                     minimum ε: Float64,
-                    count: (p: Int, q: Int)) -> Direct.ChebyshevPowerRational {
+                    count: (p: Int, q: Int)) -> Direct.Power {
         let b = ω.count
         precondition(0 < b)
         precondition(b == x.μ.count)
