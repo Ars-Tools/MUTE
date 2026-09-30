@@ -48,7 +48,7 @@ extension Linear.Cascade {
         return p
     }
     @inlinable
-    init(zpk: Linear.ZPK) {
+    public init(zpk: Linear.ZPK) {
         var b = Self.Quadratics(z: zpk.z.0, r: zpk.z.1)
         var a = Self.Quadratics(z: zpk.p.0, r: zpk.p.1)
         let c = Swift.max(b.count, a.count)
