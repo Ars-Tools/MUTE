@@ -29,8 +29,7 @@ extension Linear.Direct {
     struct ChebyshevPolynomial {
         @usableFromInline let rawValue: Array<Float64>
     }
-    @usableFromInline
-    struct ChebyshevPowerRational {
+    public struct Power {
         @usableFromInline let p: ChebyshevPolynomial
         @usableFromInline let q: ChebyshevPolynomial
     }
@@ -58,13 +57,13 @@ extension Linear.Direct.ChebyshevPolynomial {
         rawValue = .init(Self.basis(at: x).prefix(degree + 1))
     }
 }
-extension Linear.Direct.ChebyshevPowerRational {
+extension Linear.Direct.Power {
     @inlinable
-    package init(raw: (p: Linear.Direct.ChebyshevPolynomial, q: Linear.Direct.ChebyshevPolynomial)) {
+    init(raw: (p: Linear.Direct.ChebyshevPolynomial, q: Linear.Direct.ChebyshevPolynomial)) {
         (p, q) = raw
     }
     @inlinable
-    package init(raw: (p: Array<Float64>, q: Array<Float64>)) {
+    init(raw: (p: Array<Float64>, q: Array<Float64>)) {
         self.init(raw: (.init(raw.p), .init(raw.q)))
     }
 }
@@ -174,7 +173,7 @@ extension Linear.Direct.ChebyshevPolynomial {
         }.unsafelyUnwrapped
     }
 }
-extension Linear.Direct.ChebyshevPowerRational {
+extension Linear.Direct.Power {
     /*
     @inlinable
     var zpk: Linear.ZPK {
@@ -272,7 +271,7 @@ extension Linear.Direct.ChebyshevPowerRational {
     }
     */
     @inlinable
-    var zpkMinimumPhase: Linear.ZPK {
+    public var zpkMinimumPhase: Linear.ZPK {
         let p = p.rawValue
         let q = q.rawValue
         assert(!p.isEmpty)
