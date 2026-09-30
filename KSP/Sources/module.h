@@ -138,6 +138,110 @@ void __vsmsma__(double const * __nonnull const A, intptr_t const iA,
 				intptr_t const length) {
 	vDSP_vsmsmaD(A, iA, &B, C, iC, &D, E, iE, length);
 }
+__attribute__((always_inline, overloadable)) static inline
+void __add__(__complex double const * __nonnull const A, intptr_t const iA,
+             __complex double const * __nonnull const B, intptr_t const iB,
+             __complex double       * __nonnull const C, intptr_t const iC,
+               intptr_t const length) {
+    vDSP_zvaddD(&(DSPDoubleSplitComplex const) {
+        .realp = &__real(*A),
+        .imagp = &__imag(*A)
+    }, 2 * iA, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*B),
+        .imagp = &__imag(*B)
+    }, 2 * iB, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*C),
+        .imagp = &__imag(*C)
+    }, 2 * iC, length);
+}
+__attribute__((always_inline, overloadable)) static inline
+void __sub__(__complex double const * __nonnull const A, intptr_t const iA,
+             __complex double const * __nonnull const B, intptr_t const iB,
+             __complex double       * __nonnull const C, intptr_t const iC,
+               intptr_t const length) {
+    vDSP_zvsubD(&(DSPDoubleSplitComplex const) {
+        .realp = &__real(*A),
+        .imagp = &__imag(*A)
+    }, 2 * iA, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*B),
+        .imagp = &__imag(*B)
+    }, 2 * iB, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*C),
+        .imagp = &__imag(*C)
+    }, 2 * iC, length);
+}
+__attribute__((always_inline, overloadable)) static inline
+void __mul__(__complex double const * __nonnull const A, intptr_t const iA, bool const conjA,
+             __complex double const * __nonnull const B, intptr_t const iB,
+             __complex double       * __nonnull const C, intptr_t const iC,
+               intptr_t const length) {
+    vDSP_zvmulD(&(DSPDoubleSplitComplex const) {
+        .realp = &__real(*A),
+        .imagp = &__imag(*A)
+    }, 2 * iA, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*B),
+        .imagp = &__imag(*B)
+    }, 2 * iB, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*C),
+        .imagp = &__imag(*C)
+    }, 2 * iC, length, conjA ? -1 : 1);
+}
+__attribute__((always_inline, overloadable)) static inline
+void __mul__(__complex double const * __nonnull const A, intptr_t const iA,
+              double const * __nonnull const B, intptr_t const iB,
+              __complex double      * __nonnull const C, intptr_t const iC,
+               intptr_t const length) {
+    vDSP_zrvmulD(&(DSPDoubleSplitComplex const) {
+        .realp = &__real(*A),
+        .imagp = &__imag(*A)
+    }, 2 * iA, B, iB, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*C),
+        .imagp = &__imag(*C)
+    }, 2 * iC, length);
+}
+__attribute__((always_inline, overloadable)) static inline
+void __fma__(__complex double const * __nonnull const A, intptr_t const iA,
+             __complex double const * __nonnull const B, intptr_t const iB,
+             __complex double const * __nonnull const C, intptr_t const iC,
+             __complex double       * __nonnull const D, intptr_t const iD,
+               intptr_t const length) {
+    vDSP_zvmaD(&(DSPDoubleSplitComplex const) {
+        .realp = &__real(*A),
+        .imagp = &__imag(*A)
+    }, 2 * iA, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*B),
+        .imagp = &__imag(*B)
+    }, 2 * iB, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*C),
+        .imagp = &__imag(*C)
+    }, 2 * iC, &(DSPDoubleSplitComplex const) {
+        .realp = &__real(*D),
+        .imagp = &__imag(*D)
+    }, 2 * iD, length);
+}
+__attribute__((always_inline, overloadable)) static inline // C += conj(A) B, in-place safe, no workspace
+void __mac__(__complex double const * __nonnull const A, intptr_t const iA,
+             __complex double const * __nonnull const B, intptr_t const iB,
+             __complex double       * __nonnull const C, intptr_t const iC,
+               intptr_t const length) {
+    vDSP_vmaD (&__real(*A), 2 * iA, &__real(*B), 2 * iB, &__real(*C), 2 * iC, &__real(*C), 2 * iC, length);
+    vDSP_vmaD (&__imag(*A), 2 * iA, &__imag(*B), 2 * iB, &__real(*C), 2 * iC, &__real(*C), 2 * iC, length);
+    vDSP_vmaD (&__real(*A), 2 * iA, &__imag(*B), 2 * iB, &__imag(*C), 2 * iC, &__imag(*C), 2 * iC, length);
+    vDSP_vmsbD(&__imag(*A), 2 * iA, &__real(*B), 2 * iB, &__imag(*C), 2 * iC, &__imag(*C), 2 * iC, length);
+    vDSP_vnegD(&__imag(*C), 2 * iC, &__imag(*C), 2 * iC, length);
+}
+__attribute__((always_inline, overloadable)) static inline
+void __mac__(__complex double const * __nonnull const A, intptr_t const iA,
+             __complex double const * __nonnull const B, intptr_t const iB,
+             __complex double const * __nonnull const C, intptr_t const iC,
+             __complex double       * __nonnull const D, intptr_t const iD,
+             intptr_t const length) {
+    vDSP_vmaD(&__real(*A), 2*iA, &__real(*B), 2*iB, &__real(*C), 2*iC, &__real(*D), 2*iD, length),
+    vDSP_vmaD(&__imag(*A), 2*iA, &__imag(*B), 2*iB, &__real(*D), 2*iD, &__real(*D), 2*iD, length),
+    vDSP_vmaD(&__real(*A), 2*iA, &__imag(*B), 2*iB, &__imag(*C), 2*iC, &__imag(*D), 2*iD, length),
+    vDSP_vmsbD(&__imag(*A), 2*iA, &__real(*B), 2*iB, &__imag(*D), 2*iD, &__imag(*D), 2*iD, length),
+    vDSP_vnegD(&__imag(*D), 2*iD, &__imag(*D), 2*iD, length);
+}
 __attribute__((always_inline)) static inline
 double __sum__(double const * __nonnull const A,
 			   intptr_t const iA,
