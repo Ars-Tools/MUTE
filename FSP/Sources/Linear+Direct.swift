@@ -47,7 +47,7 @@ extension Linear.Direct {
 }
 extension Linear.Direct {
     @inlinable
-    var zpk: Linear.ZPK {
+    public var zpk: Linear.ZPK {
         assert(!b.isEmpty)
         assert(!a.isEmpty)
         let n = SIMD2<Int>(b.count, a.count) &- 1 // len(zero), len(pole)
