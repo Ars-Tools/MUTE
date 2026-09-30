@@ -49,8 +49,8 @@ extension Linear.Cascade {
     }
     @inlinable
     init(zpk: Linear.ZPK) {
-        var b = Self.Quadratics(z: zpk.zero.0, r: zpk.zero.1)
-        var a = Self.Quadratics(z: zpk.pole.0, r: zpk.pole.1)
+        var b = Self.Quadratics(z: zpk.z.0, r: zpk.z.1)
+        var a = Self.Quadratics(z: zpk.p.0, r: zpk.p.1)
         let c = Swift.max(b.count, a.count)
         b.append(contentsOf: repeatElement(.init(1, 0, 0), count: c - b.count))
         a.append(contentsOf: repeatElement(.init(1, 0, 0), count: c - a.count))
@@ -68,7 +68,7 @@ extension Linear.Cascade {
         }
         self.init()
         reserveCapacity(c + 1)
-        if case.some(let gain) = zpk.gain {
+        if case.some(let gain) = zpk.k {
             append(.init(raw: (.init(gain, 0, 0), .init(1, 0, 0))))
         }
         for idx in Graph.Match(table: table) {
@@ -84,7 +84,7 @@ extension Linear.Cascade {
 }
 extension Linear.Cascade {
     @inlinable
-    var zpk: Linear.ZPK {
+    public var zpk: Linear.ZPK {
         reduce(into: ((Array<Complex128>(), Array<Float64>()), (Array<Complex128>(), Array<Float64>()), .none)) {
             switch $1.zero {
             case let root where root.0.imag.isZero:
@@ -107,5 +107,15 @@ extension Linear.Cascade {
                 $0.1.0.append(root.1)
             }
         }
+    }
+}
+extension Linear.Cascade {
+    @inlinable
+    public var serialized: Array<Float64> {
+        flatMap(\.serialized)
+    }
+    @inlinable
+    public var normalized: Array<Float64> {
+        flatMap(\.normalized)
     }
 }
