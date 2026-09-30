@@ -320,10 +320,11 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
                       __complex double const * __nonnull y, intptr_t const ldy,
                       __complex double       * _Nullable e, intptr_t const lde,
                       intptr_t const length) {
+    dispatch_queue_t const queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, QOS_CLASS_USER_INITIATED);
     intptr_t const m = object->count;
     intptr_t const n = object->order;
     if ( e )
-        dispatch_apply(m, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t const k) {
+        dispatch_apply(m, queue, ^(size_t const k) {
             __complex double       * __nonnull const w = object->w + k * n;
             __complex double       * __nonnull const h = object->h + k * n;
             __complex double const * __nonnull X = x + k * ldx;
@@ -352,7 +353,7 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
 //            }
 //        }
     else
-        dispatch_apply(m, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t const k) {
+        dispatch_apply(m, queue, ^(size_t const k) {
             __complex double       * __nonnull const w = object->w + k * n;
             __complex double       * __nonnull const h = object->h + k * n;
             __complex double const * __nonnull X = x + k * ldx;
@@ -387,8 +388,6 @@ void rls_filter_coefficients(rls_complex_filterbank_t*__nonnull const object,
         zlacgv_(&object->order,
                 d, &one);
 }
-
-
 // SOA
 // row-major upper-triangle vector index for (i, j), i <= j
 __attribute__((always_inline, visibility("hidden"))) static inline
@@ -399,10 +398,9 @@ intptr_t const rls_soa_index(intptr_t const n, intptr_t const i, intptr_t const 
 __attribute__((overloadable))
 rls_complex_soa_t*__nonnull const rls_complex_soa_create(intptr_t const order, intptr_t const count) {
     intptr_t const triangle = order * ( order + 1 ) / 2;
-    void*__nonnull const ptr = __malloc__(sizeof(rls_complex_soa_t const)
-                                          + (size_t)(( 3 * order + triangle + 2 ) * count) * sizeof(__complex double const)
-                                          + (size_t)(2 * count) * sizeof(double const));
-    rls_complex_soa_t*__nonnull const object = (rls_complex_soa_t*__nonnull const)ptr;
+    rls_complex_soa_t * __nonnull const object = __malloc__(sizeof(rls_complex_soa_t const) +
+                                                            (( 3 * order + triangle + 2 ) * count) * sizeof(__complex double const) +
+                                                            ( 2 * count ) * sizeof(double const));
     __complex double * cursor = (__complex double*)(object + 1);
     *(intptr_t*const)&object->count = count;
     *(intptr_t*const)&object->order = order;
@@ -446,7 +444,6 @@ void rls_filter_error(rls_complex_soa_t*__nonnull const object,
     static intptr_t const one = 1;
     intptr_t const m = object->count;
     intptr_t const n = object->order;
-    int const im = (int const)m;
     double const lambda = object->lambda;
     double const gamma = simd_precise_recip(lambda);
     __complex double * __nonnull const w = object->w;
@@ -459,7 +456,7 @@ void rls_filter_error(rls_complex_soa_t*__nonnull const object,
     __complex double * __nonnull const u = object->u;
     for ( intptr_t s = 0 ; s < length ; ++ s, ++ x, ++ y ) {
         // h[i] <- h[i-1], h[0] <- x_s : one block move, taps are contiguous rows
-        memmove(h + m, h, (size_t)(( n - 1 ) * m) * sizeof(__complex double const));
+        memmove(h + m, h, (( n - 1 ) * m) * sizeof(__complex double const));
         zcopy_(&m, x, &ldx, h, &one);
         // k[i] = Σ_{j>=i} P[i,j] h[j] + Σ_{j<i} conj(P[j,i]) h[j]
         __clr__(k, 1, n * m);
@@ -475,7 +472,7 @@ void rls_filter_error(rls_complex_soa_t*__nonnull const object,
         for ( intptr_t i = 0 ; i < n ; ++ i )
             __mac__(h + i * m, 1, k + i * m, 1, u, 1, m);
         vDSP_vsaddD(&__real(*u), 2, &lambda, q, 1, m);
-        vvrsqrt(r, q, &im);
+        __rsqrt__(r, q, m);
         // v = k r (in place), v v^H / (lambda + q) is the downdate below
         for ( intptr_t i = 0 ; i < n ; ++ i )
             __mul__(k + i * m, 1, r, 1, k + i * m, 1, m);
@@ -498,7 +495,7 @@ void rls_filter_error(rls_complex_soa_t*__nonnull const object,
                 vDSP_vsbsmD(&__real(*pij), 1, &__real(*t), 1, &gamma, &__real(*pij), 1, 2 * m);
             }
             // like zher: force Hermitian diagonal, else rounding residue excites the unstable Riccati mode
-            vDSP_vclrD(&__imag(p[rls_soa_index(n, i, i) * m]), 2, m);
+            __clr__(&__imag(p[rls_soa_index(n, i, i) * m]), 2, m);
         }
         // w[i] += v[i] u
         for ( intptr_t i = 0 ; i < n ; ++ i )
