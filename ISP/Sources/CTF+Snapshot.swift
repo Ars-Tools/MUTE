@@ -7,7 +7,6 @@
 import AltVec
 import typealias Accelerate.vDSP
 import typealias Numerics.Complex128
-import func simd.recip
 import typealias CLK.CMTime
 extension CTF {
     public struct Snapshot: Sendable {
@@ -31,6 +30,30 @@ extension CTF {
             Sxx = .init(repeating: .leastNormalMagnitude.squareRoot(), count: ω.count)
             Syy = .init(repeating: .leastNormalMagnitude.squareRoot(), count: ω.count)
             Syx = .init(repeating: .zero, count: ω.count)
+        }
+    }
+}
+extension CTF.Snapshot {
+    @inlinable
+    public func γ²(into buffer: UnsafeMutableBufferPointer<Float64>) {
+        precondition(Syx.count <= buffer.count)
+        Complex128.mags(Syx, 1, buffer.baseAddress.unsafelyUnwrapped, 1, buffer.count) // $0 <- |Syx|^2
+        assert(Sxx.count <= buffer.count)
+        Float64.Div(x: buffer.baseAddress.unsafelyUnwrapped, inc: 1,
+                    y: Sxx, inc: 1,
+                    z: buffer.baseAddress.unsafelyUnwrapped, inc: 1,
+                    length: Syx.count)
+        assert(Syy.count <= buffer.count)
+        Float64.Div(x: buffer.baseAddress.unsafelyUnwrapped, inc: 1,
+                    y: Syy, inc: 1,
+                    z: buffer.baseAddress.unsafelyUnwrapped, inc: 1,
+                    length: Syx.count)
+    }
+    @inlinable
+    public var γ²: Array<Float64> {
+        .init(unsafeUninitializedCapacity: Syx.count) {
+            $1 = $0.count
+            γ²(into: $0)
         }
     }
 }
@@ -60,8 +83,7 @@ extension CTF.Snapshot {
         .init(unsafeUninitializedCapacity: Syx.count) {
             $1 = $0.count
             guard let target = $0.baseAddress else { return }
-            Complex128.Conj(x: x, inc: 1, y: target, inc: 1, length: $1)
-            Complex128.Mul(x: y, inc: 1, y: target, inc: 1, z: target, inc: 1, length: $1)
+            Complex128.Mul(conjx: y, inc: 1, y: x, inc: 1, z: target, inc: 1, length: $1)
             Complex128.Sub(x: Syx, inc: 1, y: target, inc: 1, z: target, inc: 1, length: $1)
         }
     }
