@@ -64,7 +64,7 @@ extension CTF.SISOController {
             guard case.some(let target) = $0.baseAddress else { return }
             $1 = $0.count
             buffer.withLock {
-                $0.fetch(cursor: ( cursor + $0.period ) % $0.period,
+                $0.fetch(cursor: ( cursor % $0.period + $0.period ) % $0.period,
                          length: window.count,
                          window: window,
                          target: target,
