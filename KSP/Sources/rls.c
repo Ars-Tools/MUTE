@@ -490,7 +490,7 @@ void rls_filter_error(rls_complex_soa_t*__nonnull const object,
         __mul__(error, lderror, r, 1, u, 1, m);
         vDSP_vnegD(&__imag(*u), 2, &__imag(*u), 2, m);
         // P <- (P - v v^H) / lambda, upper triangle only
-        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+        dispatch_apply(n, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t const i) {
             for ( intptr_t j = i ; j < n ; ++ j ) {
                 __complex double * __nonnull const pij = p + rls_soa_index(n, i, j) * m;
                 __mul__(k + j * m, 1, true, k + i * m, 1, t, 1, m); // (v v^H)_ij = v_i conj(v_j)
@@ -499,7 +499,17 @@ void rls_filter_error(rls_complex_soa_t*__nonnull const object,
             }
             // like zher: force Hermitian diagonal, else rounding residue excites the unstable Riccati mode
             vDSP_vclrD(&__imag(p[rls_soa_index(n, i, i) * m]), 2, m);
-        }
+        });
+//        for ( intptr_t i = 0 ; i < n ; ++ i ) {
+//            for ( intptr_t j = i ; j < n ; ++ j ) {
+//                __complex double * __nonnull const pij = p + rls_soa_index(n, i, j) * m;
+//                __mul__(k + j * m, 1, true, k + i * m, 1, t, 1, m); // (v v^H)_ij = v_i conj(v_j)
+//                // real scalar acts identically on re/im: fused (P - t) / lambda on raw doubles
+//                vDSP_vsbsmD(&__real(*pij), 1, &__real(*t), 1, &gamma, &__real(*pij), 1, 2 * m);
+//            }
+//            // like zher: force Hermitian diagonal, else rounding residue excites the unstable Riccati mode
+//            vDSP_vclrD(&__imag(p[rls_soa_index(n, i, i) * m]), 2, m);
+//        }
         // w[i] += v[i] u
         for ( intptr_t i = 0 ; i < n ; ++ i )
             __fma__(k + i * m, 1, u, 1, w + i * m, 1, w + i * m, 1, m);
