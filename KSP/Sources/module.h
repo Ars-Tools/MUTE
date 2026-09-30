@@ -40,8 +40,8 @@ void __clr__(double * __nonnull const A, intptr_t const iA, intptr_t const lengt
 }
 __attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), A[k*iA] = 0
 void __clr__(__complex double * __nonnull const A, intptr_t const iA, intptr_t const length) {
-    vDSP_vclrD(((double*__nonnull const)A)+0, 2*iA, length);
-    vDSP_vclrD(((double*__nonnull const)A)+1, 2*iA, length);
+    vDSP_vclrD(&__real(*A), 2*iA, length);
+    vDSP_vclrD(&__imag(*A), 2*iA, length);
 }
 __attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A
 void __fill__(double const A, double * __nonnull const B, intptr_t const iB, intptr_t const length) {
@@ -49,8 +49,8 @@ void __fill__(double const A, double * __nonnull const B, intptr_t const iB, int
 }
 __attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A
 void __fill__(__complex double const A, __complex double * __nonnull const B, intptr_t const iB, intptr_t const length) {
-    vDSP_vfillD(&__real(A), ((double*__nonnull const)B)+0, 2*iB, length);
-    vDSP_vfillD(&__imag(A), ((double*__nonnull const)B)+1, 2*iB, length);
+    vDSP_vfillD(&__real(A), &__real(*B), 2 * iB, length);
+    vDSP_vfillD(&__imag(A), &__imag(*B), 2 * iB, length);
 }
 __attribute__((always_inline, overloadable)) static inline // for each (0<=k<length), B[k*iB] = A[k*iA]
 void __copy__(double const * __nonnull const A, intptr_t const iA,
@@ -95,7 +95,7 @@ __attribute__((always_inline, overloadable)) static inline // formaly matrix cop
 void __mcopy__(__complex double const * __nonnull const A, intptr_t const ldA,
                __complex double       * __nonnull const B, intptr_t const ldB,
                intptr_t const times, intptr_t const length) {
-    vDSP_mmovD(A, B, 2 * length, times, 2 * ldA, 2 * ldB);
+    vDSP_mmovD(&__real(*A), &__real(*B), 2 * length, times, 2 * ldA, 2 * ldB);
 }
 __attribute__((always_inline)) static inline // for each (0<=k<length), D[k*iD] = A[k*iE] * B + C[k*iC]
 void __vsm__(double const * __nonnull const A, intptr_t const iA,
@@ -188,8 +188,8 @@ void __mul__(__complex double const * __nonnull const A, intptr_t const iA, bool
 }
 __attribute__((always_inline, overloadable)) static inline
 void __mul__(__complex double const * __nonnull const A, intptr_t const iA,
-              double const * __nonnull const B, intptr_t const iB,
-              __complex double      * __nonnull const C, intptr_t const iC,
+                       double const * __nonnull const B, intptr_t const iB,
+             __complex double       * __nonnull const C, intptr_t const iC,
                intptr_t const length) {
     vDSP_zrvmulD(&(DSPDoubleSplitComplex const) {
         .realp = &__real(*A),
