@@ -214,6 +214,19 @@ extension Linear.Biquad {
     }
 }
 extension Linear.Biquad {
+    @inlinable
+    public var serialized: Array<Float64> {
+        .init(arrayLiteral: b.x, b.y, b.z, a.x, a.y, a.z)
+    }
+    @inlinable
+    public var normalized: Array<Float64> {
+        switch (b / a.x, a / a.x) {
+        case (let bₙ, let aₙ):
+            .init(arrayLiteral: bₙ.x, bₙ.y, bₙ.z, aₙ.y, aₙ.z)
+        }
+    }
+}
+extension Linear.Biquad {
     @inlinable@inline(__always)@_transparent
     var zero: (Complex128, Complex128) {
         switch fma(-4, b.x * b.z, b.y * b.y) {
