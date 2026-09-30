@@ -320,7 +320,7 @@ void rls_filter_error(rls_complex_filterbank_t*__nonnull const object,
                       __complex double const * __nonnull y, intptr_t const ldy,
                       __complex double       * _Nullable e, intptr_t const lde,
                       intptr_t const length) {
-    dispatch_queue_t const queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, QOS_CLASS_USER_INITIATED);
+    dispatch_queue_t const queue = dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
     intptr_t const m = object->count;
     intptr_t const n = object->order;
     if ( e )
