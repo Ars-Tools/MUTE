@@ -13,8 +13,7 @@ extension CTF.Exciters {
         func generate(sample: Int,
                       length: Int,
                       target: UnsafeMutablePointer<Float64>,
-                      stride: Int,
-                      snapshot: borrowing CTF.Snapshot)
+                      stride: Int)
     }
 }
 extension CTF.Exciters {
@@ -33,8 +32,7 @@ extension CTF.Exciters {
         func generate(sample: Int,
                       length: Int,
                       target: UnsafeMutablePointer<Float64>,
-                      stride: Int,
-                      snapshot: borrowing CTF.Snapshot) {
+                      stride: Int) {
             rng_uniform(target, stride,
                         rawValue.lowerBound, rawValue.upperBound,
                         channels, length)
