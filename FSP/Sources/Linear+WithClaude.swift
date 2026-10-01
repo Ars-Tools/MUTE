@@ -175,7 +175,7 @@ extension Linear.WithClaude {
             switch potrs(d, d, &S, d, .L, &W, d) {
             case let info:
                 assert(info == 0)
-                return true
+                return W.allSatisfy(\.isFinite) // marginal factors can overflow the inverse
             }
         }
         // Primal log-det barrier with damped Newton: affine invariant, so the
@@ -192,9 +192,9 @@ extension Linear.WithClaude {
         let μfloor = 1e-14 * max(scaleK, 1)
         var μ = max(scaleK, 1)
         while true {
-            for _ in 0..<(iteration ?? 64) {
+            newton: for _ in 0..<(iteration ?? 64) {
                 guard invert(u, 0, p, &Wp), invert(u, nP, q, &Wq) else {
-                    preconditionFailure("infeasible iterate")
+                    break newton // numerically pinned to the cone boundary; keep u
                 }
                 // ∇ = 2(K₀u + g) - μ svec(W), ∇² = 2K₀ + μ (W ⊗ₛ W)
                 gemv(N, N, 2, K, N, .N, u, 1, 0, &gradient, 1)
@@ -218,15 +218,37 @@ extension Linear.WithClaude {
                         H[c1 + c2 * N] += μ * factor[c1] * factor[c2] * v / 2
                     }
                 }
-                switch potrf(N, &H, N, .L) {
-                case let info:
-                    precondition(info == 0) // barrier Hessian is PD on the feasible set
+                // K₀ is rank-deficient, so PD rests on the barrier term; near
+                // the cone boundary W ~ 1/ε inflates the dynamic range beyond
+                // double rounding. Retry with Levenberg damping instead of dying.
+                var HF = H
+                var damping = 0.0
+                var factorized = true
+                while potrf(N, &HF, N, .L) != 0 {
+                    var scale = 0.0
+                    for c in 0..<N {
+                        scale = max(scale, H[c + c * N])
+                    }
+                    damping = max(16 * damping, 0x1p-44 * scale)
+                    guard damping.isFinite, damping < scale else {
+                        factorized = false
+                        break
+                    }
+                    for c2 in 0..<N {
+                        for c1 in 0..<N {
+                            HF[c1 + c2 * N] = H[c1 + c2 * N]
+                        }
+                        HF[c2 + c2 * N] += damping
+                    }
+                }
+                guard factorized else {
+                    break newton // Hessian numerically indefinite beyond repair at this μ
                 }
                 for c in 0..<N { // columns: -∇ and a (for the equality Schur step)
                     rhs[c] = -gradient[c]
                     rhs[N + c] = a[c]
                 }
-                switch potrs(N, 2, &H, N, .L, &rhs, N) {
+                switch potrs(N, 2, &HF, N, .L, &rhs, N) {
                 case let info:
                     assert(info == 0)
                 }
@@ -245,18 +267,23 @@ extension Linear.WithClaude {
                 }
                 // backtrack to stay inside the PSD cones
                 var t = 1.0
+                var accepted = false
                 while 0x1p-52 < t {
                     for c in 0..<N {
                         candidate[c] = u[c] + t * rhs[c]
                     }
                     if feasible(candidate) {
+                        accepted = true
                         break
                     }
                     t /= 2
                 }
+                guard accepted else {
+                    break newton // boundary-pinned; keep the last interior iterate
+                }
                 swap(&u, &candidate)
                 if abs(decrement) <= 1e-12 * (1 + μ) {
-                    break
+                    break newton
                 }
             }
             if μ <= μfloor {
