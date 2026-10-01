@@ -257,6 +257,7 @@ extension Linear {
                 Q.pended.reserveCapacity(p)
                 loop: for () in repeatElement((), count: iteration) {
                     // MARK: GGLSE
+                    assert(Q.forced.count + Q.active.count <= p) // B/D capacity and dgglse rank precondition
                     a.withUnsafeBufferPointer {
                         vDSP_mmovD($0.baseAddress.unsafelyUnwrapped, A.baseAddress.unsafelyUnwrapped,
                                    .init(m), .init(n), .init(lda), .init(m))
@@ -288,7 +289,8 @@ extension Linear {
                         let χᵟ = dot(n, $1.0, 1, χ.baseAddress.unsafelyUnwrapped, 1)
                         let wᵟ = dot(n, $1.0, 1, w.baseAddress.unsafelyUnwrapped, 1)
                         let θᵟ = dot(n, $1.0, 1, θ.baseAddress.unsafelyUnwrapped, 1)
-                        return χᵟ < $1.1 ?
+                        // wᵟ = 0 would poison the minimum with NaN/±∞
+                        return χᵟ < $1.1 && wᵟ != 0 ?
                             .some(($0, min(0, $1.1 - θᵟ) / wᵟ)) :
                             .none as Optional<(Int, Float64)>
                     }.min {
@@ -352,7 +354,16 @@ extension Linear {
                         continue loop
                     }
                     // MARK: violations
-                    let v = P(.init(χ))
+                    // near-parallel duplicates (minima pinned at the same location
+                    // across iterations) make B rank-deficient for dgglse
+                    let v = P(.init(χ)).filter { candidate in
+                        let cc = dot(n, candidate.0, 1, candidate.0, 1)
+                        return concat(Q.forced, concat(Q.active, Q.pended)).allSatisfy { existing in
+                            let ce = dot(n, candidate.0, 1, existing.0, 1)
+                            let ee = dot(n, existing.0, 1, existing.0, 1)
+                            return ce * ce < (1 - 1e-9) * cc * ee
+                        }
+                    }
                     if !v.isEmpty {
                         Q.pended.append(contentsOf: Q.active)
                         Q.active.removeAll(keepingCapacity: true)
