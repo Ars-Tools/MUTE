@@ -1,7 +1,5 @@
-// Positive power-spectrum least squares via a Riesz–Fejér SDP.
-import protocol Accelerate.AccelerateBuffer
-import typealias Accelerate.vDSP
-import typealias Accelerate.vForce
+// Positive power-spectrum least squares, with independent QR compression.
+import Accelerate
 import BLAS
 import LAPACK
 import func Darwin.log
@@ -11,9 +9,65 @@ extension Linear { public enum WithCodex {} }
 extension Linear.WithCodex {
     public enum FitStatus { case optimal, iterationLimit, numericalFailure }
 
-    /// All objectives and certificates use weights divided by their maximum.
-    /// `power` is the last feasible candidate, including on unsuccessful solves.
-    /// A floating-point certificate is subject to rounding, not interval arithmetic.
+    /// Neither method drops singular directions or changes the least-squares norm.
+    public enum Compression: Sendable {
+        case qr
+        /// Sequential TSQR reduction. The block size affects resources only.
+        case tsqr(blockRows: Int)
+    }
+
+    public enum CompressionError: Swift.Error {
+        case factorizationFailed(Int)
+    }
+
+    /// Column-major residual factor in the cosine coefficient basis [p, q].
+    /// The original residual norm is `residualScale * ||matrix * coefficients||`.
+    /// The explicit scale avoids overflow for extreme finite weights. No weight
+    /// or singular direction is discarded. Zero-power rows contribute zero.
+    public struct CompressedModel: Sendable {
+        public let matrix: [Float64]
+        public let rows: Int
+        public let count: (p: Int, q: Int)
+        public let residualScale: Float64
+        public var columns: Int { count.p + count.q + 2 }
+
+        public init(matrix: [Float64], rows: Int, count: (p: Int, q: Int),
+                    residualScale: Float64 = 1) {
+            precondition(count.p >= 0 && count.q >= 0)
+            precondition(rows > 0 && rows <= count.p + count.q + 2)
+            precondition(matrix.count == rows * (count.p + count.q + 2))
+            precondition(matrix.allSatisfy(\.isFinite))
+            precondition(residualScale.isFinite && residualScale >= 0)
+            self.matrix = matrix; self.rows = rows; self.count = count
+            self.residualScale = residualScale
+        }
+
+        /// Reuse a maximum-degree compression for a lower-degree fit without
+        /// revisiting the spectrum. Select columns, then QR the small factor.
+        public func reduced(to lower: (p: Int, q: Int)) throws -> CompressedModel {
+            precondition(lower.p >= 0 && lower.q >= 0 && lower.p <= count.p && lower.q <= count.q)
+            let selected = Array(0...lower.p) + Array((count.p+1)...(count.p+1+lower.q))
+            var a = [Double](repeating: 0, count: rows*selected.count)
+            for (j, column) in selected.enumerated() {
+                for i in 0..<rows { a[i+j*rows] = matrix[i+column*rows] }
+            }
+            let r = try Linear.WithCodex.qrFactor(&a, rows: rows, columns: selected.count)
+            return CompressedModel(matrix: r, rows: min(rows, selected.count), count: lower,
+                                   residualScale: residualScale)
+        }
+
+        public func residualNorm(coefficients: [Float64]) -> Float64 {
+            precondition(coefficients.count == columns)
+            var r = [Float64](repeating: 0, count: rows)
+            gemv(rows, columns, 1, matrix, rows, .N, coefficients, 1, 0, &r, 1)
+            // Stable Euclidean norm; reconstruct the original scale explicitly.
+            return residualScale * r.reduce(0) { hypot($0, $1) }
+        }
+    }
+
+    /// Objectives and dual bounds refer to 0.5 ||R c||², before applying
+    /// residualScale². Multiplying by this positive scale preserves the optimizer.
+    /// Certificates are floating-point estimates, not interval proofs.
     public struct FitResult {
         public let power: Linear.Direct.Power
         public let status: FitStatus
@@ -24,404 +78,408 @@ extension Linear.WithCodex {
         public let equalityResidual: Float64
         public let stationarityResidual: Float64
         public let barrierWeight: Float64
+        public let residualScale: Float64
+        public var residualNorm: Float64 { residualScale * (2 * objective).squareRoot() }
     }
 
-    /// Source-compatible convenience API. Returns identity if the solve cannot
-    /// establish approximate optimality. Use `fitResult` to inspect failures.
-    /// `iteration` is now a TOTAL Newton-step budget (default 2048).
-    public static func fit(xx x: some AccelerateBuffer<Float64>,
-                           yy y: some AccelerateBuffer<Float64>,
-                           frequency omega: some AccelerateBuffer<Float64>,
-                           weight: some AccelerateBuffer<Float64>,
-                           iteration: Optional<Int> = .none,
-                           barrierFloor: Float64 = 1e-14,
-                           minimum epsilon: Float64,
-                           count: (p: Int, q: Int)) -> Linear.Direct.Power {
-        let result = fitResult(xx: x, yy: y, frequency: omega, weight: weight,
-                               iteration: iteration, barrierFloor: barrierFloor,
-                               minimum: epsilon, count: count)
-        if result.status == .optimal { return result.power }
-        var p = Array<Float64>(repeating: 0, count: count.p + 1)
-        var q = Array<Float64>(repeating: 0, count: count.q + 1)
+    /// Preserve ||(P X - Q Y) * weight / hypot(X,Y)|| for every coefficient
+    /// vector. `weight` multiplies the residual (not the squared residual).
+    /// Compression depends on the specified degrees; positivity is not involved.
+    public static func compress(xx x: some AccelerateBuffer<Float64>,
+                                yy y: some AccelerateBuffer<Float64>,
+                                frequency omega: some AccelerateBuffer<Float64>,
+                                weight: some AccelerateBuffer<Float64>,
+                                count: (p: Int, q: Int),
+                                compression: Compression = .tsqr(blockRows: 1024)) throws -> CompressedModel {
+        let xx = x.withUnsafeBufferPointer(Array.init)
+        let yy = y.withUnsafeBufferPointer(Array.init)
+        let ff = omega.withUnsafeBufferPointer(Array.init)
+        let ww = weight.withUnsafeBufferPointer(Array.init)
+        let m = ff.count, p = count.p + 1, q = count.q + 1, d = p + q
+        precondition(m > 0 && xx.count == m && yy.count == m && ww.count == m)
+        precondition(count.p >= 0 && count.q >= 0)
+        precondition(xx.allSatisfy { $0.isFinite && $0 >= 0 })
+        precondition(yy.allSatisfy { $0.isFinite && $0 >= 0 })
+        precondition(ff.allSatisfy(\.isFinite))
+        precondition(ww.allSatisfy { $0.isFinite && $0 >= 0 })
+        let block: Int
+        switch compression {
+        case .qr: block = m
+        case .tsqr(let n): precondition(n > 0); block = n
+        }
+        let scale = ww.max()!
+        var R = [Float64](), rrows = 0
+        var start = 0
+        while start < m {
+            let size = min(block, m - start), rows = rrows + size
+            var C = [Float64](repeating: 0, count: rows * d)
+            for j in 0..<d {
+                for i in 0..<rrows { C[i + j * rows] = R[i + j * rrows] }
+            }
+            for l in 0..<size {
+                let i = start + l, s = max(xx[i], yy[i])
+                if s == 0 || scale == 0 || ww[i] == 0 { continue }
+                let a = xx[i] / s, b = yy[i] / s
+                let h = hypot(a, b), w = ww[i] / scale
+                let θ = 2 * Double.pi * ff[i].truncatingRemainder(dividingBy: 1)
+                for k in 0..<max(p, q) {
+                    let t = cos(Double(k) * θ)
+                    if k < p { C[rrows + l + k * rows] = w * a / h * t }
+                    if k < q { C[rrows + l + (p + k) * rows] = -w * b / h * t }
+                }
+            }
+            R = try qrFactor(&C, rows: rows, columns: d)
+            rrows = min(rows, d)
+            start += size
+        }
+        return CompressedModel(matrix: R, rows: rrows, count: count, residualScale: scale)
+    }
+
+    // GEQRF does not require full rank, unlike a least-squares solve via GELS.
+    // Keep all rows of R, including zero/tiny diagonals. Q is never generated.
+    private static func qrFactor(_ a: inout [Double], rows: Int, columns: Int) throws -> [Double] {
+        var m = __LAPACK_int(rows), n = __LAPACK_int(columns), lda = m
+        var tau = [Double](repeating: 0, count: min(rows, columns))
+        var query = 0.0, lwork = __LAPACK_int(-1), info = __LAPACK_int(0)
+        dgeqrf_(&m, &n, &a, &lda, &tau, &query, &lwork, &info)
+        guard info == 0 && query.isFinite && query >= 1 else {
+            throw CompressionError.factorizationFailed(Int(info))
+        }
+        lwork = __LAPACK_int(query)
+        var work = [Double](repeating: 0, count: Int(lwork))
+        dgeqrf_(&m, &n, &a, &lda, &tau, &work, &lwork, &info)
+        guard info == 0 else { throw CompressionError.factorizationFailed(Int(info)) }
+        let r = min(rows, columns)
+        var result = [Double](repeating: 0, count: r * columns)
+        for j in 0..<columns {
+            for i in 0..<min(r, j + 1) { result[i + j * r] = a[i + j * rows] }
+        }
+        return result
+    }
+
+    /// Legacy-shaped adapter. Weight now follows the stated residual-weight
+    /// convention exactly; the old implementation used sqrt(weight).
+    /// Returns identity on an unsuccessful solve; use fitResult/solve for status.
+    public static func fit(xx x: some AccelerateBuffer<Double>, yy y: some AccelerateBuffer<Double>,
+                           frequency omega: some AccelerateBuffer<Double>, weight: some AccelerateBuffer<Double>,
+                           iteration: Int? = nil, barrierFloor: Double = 1e-14,
+                           minimum: Double, count: (p: Int, q: Int)) -> Linear.Direct.Power {
+        fit(xx: x, yy: y, frequency: omega, weight: weight,
+            compression: .tsqr(blockRows: 1024), iteration: iteration,
+            barrierFloor: barrierFloor, minimum: minimum, count: count)
+    }
+
+    /// Adapter with an explicit compression policy.
+    public static func fit(xx x: some AccelerateBuffer<Double>, yy y: some AccelerateBuffer<Double>,
+                           frequency omega: some AccelerateBuffer<Double>, weight: some AccelerateBuffer<Double>,
+                           compression: Compression, iteration: Int? = nil, barrierFloor: Double = 1e-14,
+                           minimum: Double, count: (p: Int, q: Int)) -> Linear.Direct.Power {
+        let r = fitResult(xx: x, yy: y, frequency: omega, weight: weight,
+                          compression: compression, iteration: iteration, barrierFloor: barrierFloor,
+                          minimum: minimum, count: count)
+        return r.status == .optimal ? r.power : identity(count)
+    }
+
+    public static func fitResult(xx x: some AccelerateBuffer<Double>, yy y: some AccelerateBuffer<Double>,
+                                 frequency omega: some AccelerateBuffer<Double>, weight: some AccelerateBuffer<Double>,
+                                 iteration: Int? = nil, barrierFloor: Double = 1e-14,
+                                 optimalityTolerance: Double = 1e-8,
+                                 minimum: Double, count: (p: Int, q: Int)) -> FitResult {
+        fitResult(xx: x, yy: y, frequency: omega, weight: weight,
+                  compression: .tsqr(blockRows: 1024), iteration: iteration, barrierFloor: barrierFloor,
+                  optimalityTolerance: optimalityTolerance, minimum: minimum, count: count)
+    }
+
+    public static func fitResult(xx x: some AccelerateBuffer<Double>, yy y: some AccelerateBuffer<Double>,
+                                 frequency omega: some AccelerateBuffer<Double>, weight: some AccelerateBuffer<Double>,
+                                 compression: Compression, iteration: Int? = nil, barrierFloor: Double = 1e-14,
+                                 optimalityTolerance: Double = 1e-8,
+                                 minimum: Double, count: (p: Int, q: Int)) -> FitResult {
+        do {
+            let model = try compress(xx: x, yy: y, frequency: omega, weight: weight,
+                                     count: count, compression: compression)
+            return solve(model, iteration: iteration, barrierFloor: barrierFloor,
+                         optimalityTolerance: optimalityTolerance, minimum: minimum)
+        } catch {
+            return FitResult(power: identity(count), status: .numericalFailure, iterations: 0,
+                             objective: .infinity, dualLowerBound: 0, dualityGap: .infinity,
+                             equalityResidual: 0, stationarityResidual: .infinity,
+                             barrierWeight: 0, residualScale: 1)
+        }
+    }
+
+    private static func identity(_ count: (p: Int, q: Int)) -> Linear.Direct.Power {
+        var p = [Double](repeating: 0, count: count.p + 1)
+        var q = [Double](repeating: 0, count: count.q + 1)
         p[0] = 1; q[0] = 1
         return .init(raw: (p, q))
     }
 
-    /// Minimize 0.5 Σ w (P Sxx - Q Syy)²/(Sxx² + Syy²), subject to
-    /// P,Q >= ε on [-1,1] and p₀+q₀=2. Zero-power rows carry no information.
-    ///
-    /// Riesz–Fejér: P-ε = ψᴴGψ, G >= 0, ψ=(1,eⁱθ,...,eⁱⁿθ).
-    /// For a real symmetric Gram, p₀=ε+tr(G), pₖ=2ΣᵢG[i,i+k].
-    /// This is an exact cone representation, not a sampled positivity relaxation.
-    /// With u=(svec(G),svec(H)), c=cε+Lu, and aᵀu=β=2-2ε,
-    /// the objective remains a convex quadratic f(u).
-    ///
-    /// Primal-dual central equations:
-    ///   ∇f(u)+νa-z=0, aᵀu=β, G Zp=μI, H Zq=μI.
-    /// Eliminate Zp=μG⁻¹, Zq=μH⁻¹. Newton then solves the SPD
-    /// log-det Hessian with one equality Schur complement. This is feasible
-    /// central-path following with eliminated dual matrices, not an HSD solver.
-    /// Each step checks feasibility and Armijo descent. Emergency Newton damping
-    /// changes only the search direction, never the data objective.
-    ///
-    /// A dual lower bound is built from the supporting plane of f and PSD
-    /// dual slacks, so reaching a small μ alone does not imply success.
-    /// `barrierFloor` is relative to the mean lifted Hessian diagonal; smaller
-    /// values can be necessary for weak LF directions. It is not a noise model.
-    /// No coefficient regularization is added. `optimalityTolerance` bounds the gap.
-    public static func fitResult(xx x: some AccelerateBuffer<Float64>,
-                                 yy y: some AccelerateBuffer<Float64>,
-                                 frequency ω: some AccelerateBuffer<Float64>,
-                                 weight w: some AccelerateBuffer<Float64>,
-                                 iteration: Optional<Int> = .none,
-                                       barrierFloor: Float64 = 1e-14,
-                                 optimalityTolerance: Float64 = 1e-8,
-                                 minimum ε: Float64,
-                                 count: (p: Int, q: Int)) -> FitResult {
-        precondition(barrierFloor.isFinite && 0 < barrierFloor && barrierFloor <= 1)
-        precondition(iteration == nil || iteration! >= 0)
+    /// Solve only the normalized residual factor, independent of compression.
+    /// Exact Riesz–Fejér cones, p₀+q₀=2, P,Q >= minimum; no ridge.
+    /// Newton steps use Cholesky whitening, exact equality elimination, and a
+    /// thin SVD of the residual operator. No lifted N×N Hessian is formed and
+    /// no singular values are truncated. The SVD avoids squaring its condition
+    /// number in a Woodbury Schur matrix. All loops have finite budgets.
+    public static func solve(_ model: CompressedModel, iteration: Int? = nil,
+                             barrierFloor: Double = 1e-14, optimalityTolerance: Double = 1e-8,
+                             minimum ε: Double) -> FitResult {
+        precondition(ε.isFinite && ε > 0 && ε < 1)
+        precondition(barrierFloor.isFinite && barrierFloor > 0 && barrierFloor <= 1)
         precondition(optimalityTolerance.isFinite && optimalityTolerance > 0)
-        let m = ω.count
-        precondition(0 < m)
-        precondition(m == x.count)
-        precondition(m == y.count)
-        precondition(m == w.count)
-        precondition(0 <= count.p)
-        precondition(0 <= count.q)
-        precondition(ε.isFinite && 0 < ε && ε < 1)
-        precondition(x.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
-        precondition(y.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
-        precondition(ω.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
-        precondition(w.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
-        let p = count.p + 1
-        let q = count.q + 1
-        let small = p + q
-        let root2 = 2.0.squareRoot()
-        let xx = x.withUnsafeBufferPointer(Array.init)
-        let yy = y.withUnsafeBufferPointer(Array.init)
-        let rawWeights = w.withUnsafeBufferPointer(Array.init)
-        let weightScale = rawWeights.max()!
-        let ww = rawWeights.map { weightScale > 0 ? $0 / weightScale : 0 }
-        let ff = ω.withUnsafeBufferPointer { $0.map { $0.truncatingRemainder(dividingBy: 1) } }
-        // Weighted data columns: base[l] = sqrt(w/(x² + y²)) (x, -y).
-        var xcol = Array<Float64>(repeating: 0, count: m)
-        var ycol = Array<Float64>(repeating: 0, count: m)
-        for l in 0..<m {
-            // Normalize powers before hypot: even finite inputs near DBL_MAX
-            // must not overflow and silently drop a measurement row.
-            let scale = max(xx[l], yy[l])
-            if scale > 0 && ww[l] > 0 {
-                let x = xx[l] / scale, y = yy[l] / scale
-                let h = (x*x + y*y).squareRoot()
-                let weight = ww[l].squareRoot()
-                xcol[l] = weight * x / h
-                ycol[l] = -weight * y / h
-            }
+        precondition(iteration == nil || iteration! >= 0)
+        let p = model.count.p + 1, q = model.count.q + 1, d = p + q
+        let R = model.matrix, m = model.rows
+        let sizes = [p, q], bases = [0, p]
+        let ns = [p * (p + 1) / 2, q * (q + 1) / 2]
+        let offsets = [0, ns[0]], N = ns[0] + ns[1], k = N - 1
+        let β = 2 - 2 * ε, root2 = Double(2).squareRoot()
+        var G = sizes.map { n -> [Double] in
+            var g = [Double](repeating: 0, count: n*n)
+            for i in 0..<n { g[i + i*n] = (1-ε)/Double(n) }
+            return g
         }
-        // M[:, k] = xcol T_k, M[:, p + k] = ycol T_k; T_k(cos 2πω) = cos 2πkω.
-        var M = Array<Float64>(repeating: 0, count: m * small)
-        M.replaceSubrange(0..<m, with: xcol)
-        M.replaceSubrange(p * m ..< p * m + m, with: ycol)
-        if 1 < max(p, q) {
-            var t = Array<Float64>(repeating: 0, count: m)
-            for k in 1..<max(p, q) {
-                vDSP.multiply(2 * Float64(k), ff, result: &t)
-                vForce.cosPi(t, result: &t)
-                if k < p {
-                    vDSP.multiply(t, xcol, result: &M[k * m ..< k * m + m])
-                }
-                if k < q {
-                    vDSP.multiply(t, ycol, result: &M[(p + k) * m ..< (p + k) * m + m])
+        func coefficients(_ g: [[Double]]) -> [Double] {
+            var c = [Double](repeating: 0, count: d)
+            for b in 0..<2 {
+                let n = sizes[b], base = bases[b]
+                c[base] = ε
+                for j in 0..<n {
+                    c[base] += g[b][j+j*n]
+                    for i in 0..<j { c[base+j-i] += 2*g[b][i+j*n] }
                 }
             }
+            return c
         }
-        // Small data Gram; every lifted column is a scaled copy of a column
-        // of M, so the big quadratic expands from Γ without materializing it.
-        var Γ = Array<Float64>(repeating: 0, count: small * small)
-        gemm(small, small, m, 1, M, m, .T, M, m, .N, 0, &Γ, small)
-        // Scaled svec layout (‖svec‖₂ = ‖G‖_F): per block, columns j, rows
-        // i <= j; the entry feeds Chebyshev coefficient k = j - i of its
-        // polynomial with factor 1 on the diagonal and √2 off it.
-        let nP = p * (p + 1) / 2
-        let nQ = q * (q + 1) / 2
-        let N = nP + nQ
-        var κ = Array<Int>()     // column of M the svec entry couples to
-        var factor = Array<Float64>()
-        var diagonal = Array<Bool>()
-        var row = Array<Int>()
-        var col = Array<Int>()
-        κ.reserveCapacity(N)
-        factor.reserveCapacity(N)
-        diagonal.reserveCapacity(N)
-        row.reserveCapacity(N)
-        col.reserveCapacity(N)
-        for (base, d) in [(0, p), (p, q)] {
-            for j in 0..<d {
-                for i in 0...j {
-                    κ.append(base + j - i)
-                    factor.append(i == j ? 1 : root2)
-                    diagonal.append(i == j)
-                    row.append(i)
-                    col.append(j)
+        func adjoint(_ v: [Double], _ b: Int) -> [Double] {
+            let n = sizes[b], base = bases[b]
+            return (0..<n*n).map { v[base + abs($0 % n - $0 / n)] }
+        }
+        func data(_ g: [[Double]]) -> (Double, [Double], [Double]) {
+            let c = coefficients(g)
+            var r = [Double](repeating: 0, count: m)
+            var v = [Double](repeating: 0, count: d)
+            gemv(m, d, 1, R, m, .N, c, 1, 0, &r, 1)
+            gemv(m, d, 1, R, m, .T, r, 1, 0, &v, 1)
+            return (0.5*dot(m, r, 1, r, 1), r, v)
+        }
+        func factors(_ g: [[Double]]) -> ([[Double]], Double)? {
+            var l = g, ld = 0.0
+            for b in 0..<2 {
+                let n = sizes[b]
+                guard potrf(n, &l[b], n, .L) == 0 else { return nil }
+                for j in 0..<n {
+                    ld += 2*log(l[b][j+j*n])
+                    for i in 0..<j { l[b][i+j*n] = 0 }
                 }
             }
+            return ld.isFinite ? (l, ld) : nil
         }
-        // K = LᵀMᵀML is the constant data Hessian in svec coordinates.
-        var K = Array<Float64>(repeating: 0, count: N * N)
-        for c2 in 0..<N {
-            for c1 in 0..<N {
-                K[c1 + c2 * N] = factor[c1] * factor[c2] * Γ[κ[c1] + κ[c2] * small]
+        func trace(_ g: [[Double]]) -> Double {
+            (0..<2).reduce(0) { total, b in
+                total + (0..<sizes[b]).reduce(0) { $0 + g[b][$1+$1*sizes[b]] }
             }
         }
-        // Equality p₀ + q₀ = 2 ⟺ tr G + tr H = 2 - 2ε.
-        let β = 2 - 2 * ε
-        var a = Array<Float64>(repeating: 0, count: N)
-        for c in 0..<N where diagonal[c] {
-            a[c] = 1
-        }
-        // svec ↔ dense block helpers
-        let dmax = max(p, q)
-        var S = Array<Float64>(repeating: 0, count: dmax * dmax)
-        var Wp = Array<Float64>(repeating: 0, count: p * p)
-        var Wq = Array<Float64>(repeating: 0, count: q * q)
-        func dense(_ u: borrowing Array<Float64>, _ offset: Int, _ d: Int) {
-            var c = offset
-            for j in 0..<d {
-                for i in 0...j {
-                    let value = i == j ? u[c] : u[c] / root2
-                    S[i + j * d] = value
-                    S[j + i * d] = value
-                    c += 1
+        func whiten(_ c: [Double], _ l: [[Double]]) -> [Double] {
+            var v = [Double](repeating: 0, count: N)
+            for b in 0..<2 {
+                let n = sizes[b], C = adjoint(c, b)
+                var temp = [Double](repeating: 0, count: n*n)
+                var F = temp
+                gemm(n, n, n, 1, C, n, .N, l[b], n, .N, 0, &temp, n)
+                gemm(n, n, n, 1, l[b], n, .T, temp, n, .N, 0, &F, n)
+                var t = offsets[b]
+                for j in 0..<n {
+                    for i in 0...j { v[t] = F[i+j*n] * (i == j ? 1 : root2); t += 1 }
                 }
             }
+            return v
         }
-        var trialCoefficients = Array<Float64>(repeating: 0, count: small)
-        var trialResidual = Array<Float64>(repeating: 0, count: m)
-        var dataGradient = Array<Float64>(repeating: 0, count: small)
-        var dataValue = 0.0
-        // Evaluate the data term from residuals rather than a cancellation-prone
-        // expanded quadratic, especially near an exactly representable LF fit.
-        func objective(_ u: borrowing Array<Float64>, _ μ: Float64) -> Float64? {
-            var logDet = 0.0
-            for (offset, d) in [(0, p), (nP, q)] {
-                dense(u, offset, d)
-                guard potrf(d, &S, d, .L) == 0 else { return nil }
-                for i in 0..<d { logDet += 2 * log(S[i + i * d]) }
-            }
-            for i in 0..<small { trialCoefficients[i] = 0 }
-            trialCoefficients[0] = ε
-            trialCoefficients[p] = ε
-            for c in 0..<N { trialCoefficients[κ[c]] += factor[c] * u[c] }
-            gemv(m, small, 1, M, m, .N, trialCoefficients, 1, 0, &trialResidual, 1)
-            dataValue = 0.5 * dot(m, trialResidual, 1, trialResidual, 1)
-            let value = dataValue - μ * logDet
-            return value.isFinite ? value : nil
-        }
-        // W ← block⁻¹ via Cholesky; fail without trapping when not PD.
-        func invert(_ u: borrowing Array<Float64>, _ offset: Int, _ d: Int, _ W: inout Array<Float64>) -> Bool {
-            dense(u, offset, d)
-            guard potrf(d, &S, d, .L) == 0 else { return false }
-            W.withUnsafeMutableBufferPointer {
-                vDSP.clear(&$0[...])
-                for i in 0..<d {
-                    $0[i + i * d] = 1
+        func unwhiten(_ v: [Double], _ l: [[Double]]) -> [[Double]] {
+            (0..<2).map { b in
+                let n = sizes[b]
+                var S = [Double](repeating: 0, count: n*n), t = offsets[b]
+                for j in 0..<n {
+                    for i in 0...j {
+                        let x = v[t] / (i == j ? 1 : root2)
+                        S[i+j*n] = x; S[j+i*n] = x; t += 1
+                    }
                 }
+                var temp = S, out = S
+                gemm(n, n, n, 1, l[b], n, .N, S, n, .N, 0, &temp, n)
+                gemm(n, n, n, 1, temp, n, .N, l[b], n, .T, 0, &out, n)
+                // Restore symmetry after floating-point products.
+                for j in 0..<n { for i in 0..<j {
+                    let x = 0.5*(out[i+j*n]+out[j+i*n])
+                    out[i+j*n] = x; out[j+i*n] = x
+                }}
+                return out
             }
-            switch potrs(d, d, &S, d, .L, &W, d) {
-            case let info:
-                guard info == 0 else { return false }
-                return W.allSatisfy(\.isFinite) // marginal factors can overflow the inverse
-            }
         }
-        // Reduced primal-dual central path; dual cones remain interior through
-        // Z=μG⁻¹. Finite-precision conditioning still needs response regressions.
-        var u = Array<Float64>(repeating: 0, count: N)
-        for c in 0..<N where diagonal[c] { // strictly feasible start: P = Q = 1
-            u[c] = (1 - ε) / Float64(c < nP ? p : q)
+        var e = [Double](repeating: 0, count: N)
+        for b in 0..<2 {
+            var t = offsets[b]
+            for j in 0..<sizes[b] { t += j; e[t] = 1; t += 1 }
         }
-        var gradient = Array<Float64>(repeating: 0, count: N)
-        var H = Array<Float64>(repeating: 0, count: N * N)
-        var rhs = Array<Float64>(repeating: 0, count: 2 * N)
-        var candidate = u
-        let scaleK = (0..<N).reduce(0.0) { $0 + K[$1 + $1 * N] } / Float64(N)
-        guard scaleK.isFinite && 0 < scaleK else {
-            var cp = Array<Float64>(repeating: 0, count: p)
-            var cq = Array<Float64>(repeating: 0, count: q)
-            cp[0] = 1; cq[0] = 1
-            let noData = scaleK == 0
-            let value = zip(xcol, ycol).reduce(0.0) { $0 + 0.5 * ($1.0 + $1.1) * ($1.0 + $1.1) }
-            return FitResult(power: .init(raw: (cp, cq)), status: noData ? .optimal : .numericalFailure,
-                             iterations: 0, objective: value, dualLowerBound: 0, dualityGap: value,
-                             equalityResidual: 0, stationarityResidual: noData ? 0 : .infinity, barrierWeight: 0)
+        let scale = R.reduce(0) { $0 + $1*$1 } / Double(d)
+        if scale == 0 {
+            return FitResult(power: identity(model.count), status: .optimal, iterations: 0,
+                             objective: 0, dualLowerBound: 0, dualityGap: 0, equalityResidual: 0,
+                             stationarityResidual: 0, barrierWeight: 0, residualScale: model.residualScale)
         }
-        let μfloor = max(Float64.leastNormalMagnitude, barrierFloor * scaleK)
-        var μ = scaleK
+        let floor = max(Double.leastNormalMagnitude, barrierFloor*scale)
+        var μ = scale, steps = 0, reachedFloor = false, exhausted = false
+        var stationarity = Double.infinity
         let budget = iteration ?? 2048
-        var steps = 0
-        var multiplier = 0.0
-        var stationarity = Float64.infinity
-        var reachedFloor = false
-        var exhausted = false
-        // At most 256 stages, 64 Newton steps/stage, 16 factorization attempts,
-        // and 53 line-search trials/step, plus a total Newton budget.
         path: for _ in 0..<256 {
-            newton: for _ in 0..<64 {
-                guard steps < budget else { exhausted = true; break path }
+            for _ in 0..<64 {
+                if steps >= budget { exhausted = true; break path }
                 steps += 1
-                guard invert(u, 0, p, &Wp), invert(u, nP, q, &Wq) else {
-                    break newton // numerically pinned to the cone boundary; keep u
+                guard let (l, ld) = factors(G) else { break path }
+                let (f, residual, _) = data(G)
+                let current = f - μ*ld
+                // Whiten ΔG=L S Lᵀ: barrier Hessian becomes μ I.
+                var acoeff = [Double](repeating: 0, count: d)
+                acoeff[0] = 1; acoeff[p] = 1
+                let a = whiten(acoeff, l)
+                let anorm = a.reduce(0) { hypot($0, $1) }
+                guard anorm > 0 && anorm.isFinite else { break path }
+                // Householder eliminates the trace equality exactly before SVD.
+                var house = a
+                let alpha = a[0] >= 0 ? -anorm : anorm
+                house[0] -= alpha
+                let hn = house.reduce(0) { hypot($0, $1) }
+                for i in 0..<N { house[i] /= hn }
+                func reflect(_ v: [Double]) -> [Double] {
+                    let h = 2*dot(N, house, 1, v, 1)
+                    return (0..<N).map { v[$0] - h*house[$0] }
                 }
-                // Form the gradient from original residuals, avoiding the
-                // cancellation of K*u + g along weak LF directions.
-                guard let current = objective(u, μ) else { break newton }
-                gemv(m, small, 1, M, m, .T, trialResidual, 1, 0, &dataGradient, 1)
-                for c in 0..<N { gradient[c] = factor[c] * dataGradient[κ[c]] }
-                for c in 0..<N {
-                    let W = c < nP ? Wp : Wq
-                    let d = c < nP ? p : q
-                    gradient[c] -= μ * factor[c] * W[row[c] + col[c] * d]
+                let er = reflect(e)
+                var V = [Double](repeating: 0, count: m*k)
+                var first = [Double](repeating: 0, count: m)
+                for i in 0..<m {
+                    let row = (0..<d).map { R[i+$0*m] }
+                    let v = reflect(whiten(row, l))
+                    first[i] = v[0]
+                    for j in 0..<k { V[i+j*m] = v[j+1] }
                 }
-                for c2 in 0..<N {
-                    let W = c2 < nP ? Wp : Wq
-                    let d = c2 < nP ? p : q
-                    let lower = c2 < nP ? 0 : nP
-                    let upper = c2 < nP ? nP : N
-                    let (i2, j2) = (row[c2], col[c2])
-                    for c1 in 0..<N {
-                        H[c1 + c2 * N] = K[c1 + c2 * N]
-                    }
-                    for c1 in lower..<upper {
-                        let (i1, j1) = (row[c1], col[c1])
-                        let v = W[i1 + i2 * d] * W[j1 + j2 * d] + W[i1 + j2 * d] * W[j1 + i2 * d]
-                        H[c1 + c2 * N] += μ * factor[c1] * factor[c2] * v / 2
-                    }
+                let fixed = (β-trace(G))/alpha
+                let r = (0..<m).map { residual[$0] + fixed*first[$0] }
+                let rank = min(m, k)
+                var singular = [Double](repeating: 0, count: rank)
+                var U = [Double](repeating: 0, count: m*rank)
+                var VT = [Double](repeating: 0, count: rank*k)
+                let workspace = gesvd(m, k, &V, m, &singular, &U, m, &VT, rank,
+                                      nil as UnsafeMutablePointer<Double>?, 0)
+                guard workspace > 0 else { break path }
+                var work = [Double](repeating: 0, count: workspace)
+                guard gesvd(m, k, &V, m, &singular, &U, m, &VT, rank, &work, work.count) == 0 else {
+                    break path
                 }
-                // K₀ is rank-deficient, so PD rests on the barrier term; near
-                // the cone boundary W ~ 1/ε inflates the dynamic range beyond
-                // double rounding. Retry with Levenberg damping instead of dying.
-                var HF = H
-                let scale = (0..<N).map { abs(H[$0 + $0 * N]) }.max()!
-                var factorized = false
-                var damping = 0.0
-                for _ in 0..<16 {
-                    HF = H
-                    for c in 0..<N { HF[c + c * N] += damping }
-                    if potrf(N, &HF, N, .L) == 0 { factorized = true; break }
-                    damping = max(16 * damping, 0x1p-44 * scale)
-                    if !damping.isFinite || damping >= scale { break }
+                // In the orthogonal complement the Newton step equals e.
+                // In each retained singular direction solve (μ+σ²)s=μe-σr.
+                // All singular values, including zeros, are retained.
+                let ered = Array(er.dropFirst())
+                var ep = [Double](repeating: 0, count: rank)
+                var rp = ep
+                gemv(rank, k, 1, VT, rank, .N, ered, 1, 0, &ep, 1)
+                gemv(m, rank, 1, U, m, .T, r, 1, 0, &rp, 1)
+                var adjustment = ep
+                for j in 0..<rank {
+                    let s = singular[j]
+                    adjustment[j] = (μ*ep[j]-s*rp[j])/(μ+s*s)-ep[j]
                 }
-                guard factorized else { break newton }
-                for c in 0..<N { // columns: -∇ and a (for the equality Schur step)
-                    rhs[c] = -gradient[c]
-                    rhs[N + c] = a[c]
-                }
-                switch potrs(N, 2, &HF, N, .L, &rhs, N) {
-                case let info:
-                    guard info == 0 else { break newton }
-                }
-                let drift = β - dot(N, a, 1, u, 1)
-                var ah = 0.0
-                var ag = 0.0
-                for c in 0..<N {
-                    ah += a[c] * rhs[N + c]
-                    ag += a[c] * rhs[c]
-                }
-                guard ah.isFinite && ah > 0 else { break newton }
-                let ν = (ag - drift) / ah
-                multiplier = ν
-                stationarity = (0..<N).map { abs(gradient[$0] + ν * a[$0]) }.max()!
-                var decrement = 0.0
-                for c in 0..<N {
-                    rhs[c] -= ν * rhs[N + c]
-                    decrement -= gradient[c] * rhs[c]
-                }
-                guard decrement.isFinite, decrement >= 0 else { break newton }
-                if decrement <= max(1e-28 * scaleK, 1e-6 * μ) { break newton }
-                // Armijo descent as well as cone feasibility is required.
-                var t = 1.0
-                var accepted = false
+                var reduced = ered
+                gemv(rank, k, 1, VT, rank, .T, adjustment, 1, 1, &reduced, 1)
+                let stepWhite = reflect([fixed] + reduced)
+                let direction = unwhiten(stepWhite, l)
+                var dc = coefficients(direction)
+                dc[0] -= ε; dc[p] -= ε
+                var dr = [Double](repeating: 0, count: m)
+                gemv(m, d, 1, R, m, .N, dc, 1, 0, &dr, 1)
+                let slope = dot(m, residual, 1, dr, 1) - μ*dot(N, e, 1, stepWhite, 1)
+                let decrement = -slope
+                stationarity = max(0, decrement).squareRoot()
+                guard decrement.isFinite else { break path }
+                if decrement <= max(1e-28*scale, 1e-6*μ) { break }
+                var step = 1.0, accepted = false
                 for _ in 0..<53 {
-                    for c in 0..<N {
-                        candidate[c] = u[c] + t * rhs[c]
+                    var candidate = G
+                    for b in 0..<2 {
+                        for i in candidate[b].indices { candidate[b][i] += step*direction[b][i] }
                     }
-                    if let value = objective(candidate, μ),
-                       value <= current - 0.01 * t * decrement {
-                        accepted = true
-                        break
+                    let tr = trace(candidate)
+                    if tr > 0 && tr.isFinite {
+                        for b in 0..<2 { for i in candidate[b].indices { candidate[b][i] *= β/tr } }
+                        if let (_, logdet) = factors(candidate) {
+                            let (value, _, _) = data(candidate)
+                            if value-μ*logdet <= current+0.01*step*slope {
+                                G = candidate; accepted = true; break
+                            }
+                        }
                     }
-                    t /= 2
+                    step *= 0.5
                 }
-                guard accepted else {
-                    break newton // boundary-pinned; keep the last interior iterate
-                }
-                swap(&u, &candidate)
-
+                if !accepted { break }
             }
-            if μ <= μfloor {
-                reachedFloor = true
-                break
-            }
-            μ = max(0.05 * μ, μfloor)
+            if μ <= floor { reachedFloor = true; break }
+            μ = max(0.05*μ, floor)
         }
-        // Rescale Grams, not completed coefficients: this preserves P,Q >= ε.
-        let trace = dot(N, a, 1, u, 1)
-        let gramScale = β / trace
-        for i in 0..<N { u[i] *= gramScale }
-        _ = objective(u, μ)
-        gemv(m, small, 1, M, m, .T, trialResidual, 1, 0, &dataGradient, 1)
-        var gf = Array<Float64>(repeating: 0, count: N)
-        for c in 0..<N { gf[c] = factor[c] * dataGradient[κ[c]] }
-
-        // Convexity: f(v) >= f(u)+gfᵀ(v-u).
-        // If Z=mat(gf)+νI >= 0, gfᵀv >= -νβ on the feasible set.
-        // Hence d=f(u)-gfᵀu-νβ is a global dual lower bound.
-        var minEigenvalue = Float64.infinity
-        var eigenOK = true
-        var roundingMargin = 0.0
-        for (offset, d) in [(0, p), (nP, q)] {
-            dense(gf, offset, d)
-            var eig = Array<Float64>(repeating: 0, count: d)
-            var work = Array<Float64>(repeating: 0, count: max(1, 3*d))
-            let norm = S.prefix(d*d).map(abs).max()!
-            roundingMargin = max(roundingMargin, 128 * Float64.ulpOfOne * Float64(d) * norm)
-            if syev(d, &S, d, .L, false, &eig, &work, work.count) != 0 || !eig.allSatisfy(\.isFinite) {
+        let (value, _, gradient) = data(G)
+        var minEigen = Double.infinity, margin = 0.0, eigenOK = true
+        var supporting = 0.0
+        for b in 0..<2 {
+            let n = sizes[b]
+            var C = adjoint(gradient, b)
+            supporting += dot(n*n, C, 1, G[b], 1)
+            margin = max(margin, 128*Double.ulpOfOne*Double(n)*(C.map(abs).max() ?? 0))
+            var eig = [Double](repeating: 0, count: n)
+            var work = [Double](repeating: 0, count: max(1, 3*n))
+            if syev(n, &C, n, .L, false, &eig, &work, work.count) != 0 || !eig.allSatisfy(\.isFinite) {
                 eigenOK = false; break
             }
-            minEigenvalue = min(minEigenvalue, eig[0])
+            minEigen = min(minEigen, eig[0])
         }
-        let dualMultiplier = -minEigenvalue + roundingMargin
-        let supportingGap = eigenOK ? max(0, dot(N, gf, 1, u, 1) + dualMultiplier * β) : .infinity
-        let value = dataValue
-        // Zero residual dual variables give the universal lower bound 0 for
-        // this sum-of-squares objective. This stronger bound matters on exactly
-        // representable, rank-deficient fits where gradient rounding otherwise
-        // makes the supporting-plane bound needlessly pessimistic.
-        let lowerBound = max(0, value - supportingGap)
-        let gap = max(0, value - lowerBound)
-        let equality = abs(dot(N, a, 1, u, 1) - β)
-        // Recompute the central stationarity at the returned iterate.
-        if invert(u, 0, p, &Wp), invert(u, nP, q, &Wq) {
-            stationarity = 0
-            for c in 0..<N {
-                let W = c < nP ? Wp : Wq
-                let d = c < nP ? p : q
-                stationarity = max(stationarity, abs(gf[c] + multiplier*a[c]
-                    - μ * factor[c] * W[row[c] + col[c]*d]))
+        let lower = eigenOK ? max(0, value-supporting-(-minEigen+margin)*β) : 0
+        let gap = max(0, value-lower), equality = abs(trace(G)-β)
+        // Report central KKT stationarity at the returned iterate, not a
+        // Newton decrement from an earlier iterate.
+        if var (l, _) = factors(G) {
+            var central = [[Double]]()
+            var diagonalSum = 0.0
+            var valid = true
+            for b in 0..<2 {
+                let n = sizes[b]
+                var inverse = [Double](repeating: 0, count: n*n)
+                for i in 0..<n { inverse[i+i*n] = 1 }
+                if potrs(n, n, &l[b], n, .L, &inverse, n) != 0 { valid = false; break }
+                let C = adjoint(gradient, b)
+                let z = (0..<n*n).map { C[$0]-μ*inverse[$0] }
+                diagonalSum += (0..<n).reduce(0) { $0+z[$1+$1*n] }
+                central.append(z)
+            }
+            if valid {
+                let multiplier = -diagonalSum/Double(d)
+                stationarity = 0
+                for b in 0..<2 {
+                    let n = sizes[b]
+                    for j in 0..<n { for i in 0..<n {
+                        stationarity = max(stationarity, abs(central[b][i+j*n]+(i == j ? multiplier : 0)))
+                    }}
+                }
             }
         }
-        let feasible = objective(u, μ) != nil && equality <= 1e-10
+        let feasible = factors(G) != nil && equality <= 1e-10 && value.isFinite
         let status: FitStatus
-        if reachedFloor && feasible && eigenOK && gap <= optimalityTolerance * max(1, abs(value)) {
+        if reachedFloor && feasible && eigenOK && gap <= optimalityTolerance*max(1, value) {
             status = .optimal
         } else if exhausted { status = .iterationLimit }
         else { status = .numericalFailure }
-        var coefficients = Array<Float64>(repeating: 0, count: small)
-        coefficients[0] = ε; coefficients[p] = ε
-        for c in 0..<N { coefficients[κ[c]] += factor[c] * u[c] }
-        return FitResult(power: .init(raw: (Array(coefficients.prefix(p)), Array(coefficients.suffix(q)))),
+        let c = coefficients(G)
+        return FitResult(power: .init(raw: (Array(c.prefix(p)), Array(c.suffix(q)))),
                          status: status, iterations: steps, objective: value,
-                         dualLowerBound: lowerBound, dualityGap: gap,
-                         equalityResidual: equality, stationarityResidual: stationarity, barrierWeight: μ)
+                         dualLowerBound: lower, dualityGap: gap, equalityResidual: equality,
+                         stationarityResidual: stationarity, barrierWeight: μ,
+                         residualScale: model.residualScale)
     }
-
 }
