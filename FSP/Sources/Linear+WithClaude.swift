@@ -31,9 +31,8 @@ extension Linear.WithClaude {
     /// solution is the global optimum of the original fit.
     ///
     /// The cone program is solved by ADMM: the quadratic step reuses one
-    /// cached `posv` inverse (plus a Schur correction for `p₀ + q₀ = 2`), and
-    /// the cone step projects each Gram block through `gesvd` using the polar
-    /// identity `Π(S) = (S + V Σ Vᵀ) / 2` for symmetric `S`.
+    /// `potrf` factorization (plus a Schur correction for `p₀ + q₀ = 2`), and
+    /// the cone step projects each Gram block by `syev` eigenvalue clipping.
     public static func fit(xx x: some AccelerateBuffer<Float64>,
                            yy y: some AccelerateBuffer<Float64>,
                            frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
@@ -64,11 +63,10 @@ extension Linear.WithClaude {
         // Weighted data columns: base[l] = sqrt(w/(x² + y²)) (x, -y).
         var xcol = Array<Float64>(repeating: 0, count: m)
         var ycol = Array<Float64>(repeating: 0, count: m)
-        for l in 0..<m {
-            let h = (xx[l] * xx[l] + yy[l] * yy[l]).squareRoot()
+        for (l, h) in vDSP.hypot(xx, yy).enumerated() {
             let s = ww[l].squareRoot()
             if 0 < h, h.isFinite, 0 < s {
-                xcol[l] = s * xx[l] / h
+                xcol[l] =  s * xx[l] / h
                 ycol[l] = -s * yy[l] / h
             }
         }
@@ -129,11 +127,7 @@ extension Linear.WithClaude {
         for c in 0..<N {
             K[c + c * N] += ρ
         }
-        var Kinv = Array<Float64>(repeating: 0, count: N * N)
-        for c in 0..<N {
-            Kinv[c + c * N] = 1
-        }
-        switch posv(N, N, &K, N, .L, &Kinv, N) {
+        switch potrf(N, &K, N, .L) {
         case let info:
             precondition(info == 0)
         }
@@ -150,22 +144,21 @@ extension Linear.WithClaude {
         for c in 0..<N where diagonal[c] {
             a[c] = 1
         }
-        var kA = Array<Float64>(repeating: 0, count: N)
-        gemv(N, N, 1, Kinv, N, .N, a, 1, 0, &kA, 1)
+        var kA = a
+        switch potrs(N, 1, &K, N, .L, &kA, N) {
+        case let info:
+            precondition(info == 0)
+        }
         let aKa = dot(N, a, 1, kA, 1)
         precondition(0 < aKa)
-        // PSD projection scratch (gesvd of symmetric block, polar identity).
+        // PSD projection scratch (syev eigenvalue clipping).
         let dmax = max(p, q)
-        let lwork = gesvd(dmax, dmax,
-                          .none, dmax,
-                          .none,
-                          .none, dmax,
-                          .init(bitPattern: ~0), dmax,
-                          .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        let lwork = syev(dmax,
+                         .none, dmax, .L, true,
+                         .none,
+                         .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         assert(0 < lwork)
         var S0 = Array<Float64>(repeating: 0, count: dmax * dmax)
-        var SV = S0
-        var VT = S0
         var SW = S0
         var Π = S0
         var σ = Array<Float64>(repeating: 0, count: dmax)
@@ -180,21 +173,21 @@ extension Linear.WithClaude {
                     c += 1
                 }
             }
-            SV = S0
-            switch gesvd(d, d, &SV, d, &σ, .none, d, &VT, d, &work, lwork) {
+            switch syev(d, &S0, d, .L, true, &σ, &work, lwork) { // S0 ← eigenvectors
             case let info:
                 assert(info == 0)
             }
-            for j in 0..<d { // SW = diag(σ) VT
+            for j in 0..<d { // SW = V max(λ, 0)
+                let λ = max(σ[j], 0)
                 for i in 0..<d {
-                    SW[i + j * d] = σ[i] * VT[i + j * d]
+                    SW[i + j * d] = λ * S0[i + j * d]
                 }
             }
-            gemm(d, d, d, 0.5, VT, d, .T, SW, d, .N, 0, &Π, d) // polar/2
+            gemm(d, d, d, 1, SW, d, .N, S0, d, .T, 0, &Π, d)
             c = offset
-            for j in 0..<d { // Π(S) = (S + VᵀΣV)/2 back onto scaled svec
+            for j in 0..<d { // clipped block back onto scaled svec
                 for i in 0...j {
-                    let value = 0.5 * S0[i + j * d] + Π[i + j * d]
+                    let value = Π[i + j * d]
                     s[c] = i == j ? value : value * root2
                     c += 1
                 }
@@ -207,15 +200,17 @@ extension Linear.WithClaude {
         }
         var u = z
         var v = Array<Float64>(repeating: 0, count: N)
-        var rhs = v
         var zz = z
         let tolerance = 1e-10 * Float64(N).squareRoot()
         for _ in 0..<max(64, iteration ?? 4096) {
             // u = argmin uᵀK₀u + 2gᵀu + (ρ/2)‖u - z + v‖² s.t. aᵀu = β
             for c in 0..<N {
-                rhs[c] = ρ * (z[c] - v[c]) - 2 * g[c]
+                u[c] = ρ * (z[c] - v[c]) - 2 * g[c]
             }
-            gemv(N, N, 1, Kinv, N, .N, rhs, 1, 0, &u, 1)
+            switch potrs(N, 1, &K, N, .L, &u, N) {
+            case let info:
+                assert(info == 0)
+            }
             let μ = (dot(N, a, 1, u, 1) - β) / aKa
             for c in 0..<N {
                 u[c] -= μ * kA[c]
