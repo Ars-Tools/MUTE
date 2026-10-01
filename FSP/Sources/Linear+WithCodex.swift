@@ -159,11 +159,28 @@ extension Linear.WithCodex {
 
         var pCuts = Array<Float64>()
         var qCuts = Array<Float64>()
-        var solution = Array(repeating: 0.0, count: variableCount)
-        let maximumNewtonIterations = max(8, iteration ?? 128)
+        var solution = linear.map(-)
+        var unconstrainedFactor = dataHessian
+        let unconstrainedInfo = posv(variableCount, 1,
+                                     &unconstrainedFactor, variableCount, .L,
+                                     &solution, variableCount)
+        if unconstrainedInfo != 0 || !solution.allSatisfy(\.isFinite) {
+            solution = Array(repeating: 0.0, count: variableCount)
+        } else {
+            let unconstrained = Self.coefficients(solution: solution,
+                                                  pCount: pCount,
+                                                  qCount: qCount)
+            if Self.minimum(of: unconstrained.p).value >= constrainedMinimum &&
+                Self.minimum(of: unconstrained.q).value >= constrainedMinimum {
+                return .init(raw: (unconstrained.p, unconstrained.q))
+            }
+        }
+        let maximumNewtonIterationsPerStage = max(8, iteration ?? 32)
 
-        // Dense grid first, then at most eight continuous-minimum cuts.
-        for _ in 0..<8 {
+        // A polynomial of degrees p and q cannot require more than p + q
+        // distinct interior minimum cuts.  The two extra rounds cover the
+        // interval endpoints and numerical duplicates.
+        for _ in 0..<(pCount + qCount + 2) {
             let constraintCount = 2 * sampleCount + pCuts.count + qCuts.count
             var constraints = Array(repeating: 0.0,
                                     count: constraintCount * variableCount)
@@ -211,10 +228,15 @@ extension Linear.WithCodex {
                 row += 1
             }
 
-            // Restart from P=Q=1 after a new cut.  Unlike the former exchange
-            // loop this is one known-feasible restart per continuous cut, not
-            // one restart per active constraint.
-            for index in solution.indices { solution[index] = 0 }
+            // Keep the unconstrained solution (or the preceding cut solution)
+            // when possible.  If a newly added cut makes it infeasible, move
+            // it toward the known strict interior point P=Q=1 just far enough
+            // to restore a useful interior margin.
+            Self.moveToStrictInterior(constraints: constraints,
+                                      constraintOffset: 1 - constrainedMinimum,
+                                      variables: variableCount,
+                                      constraintsCount: constraintCount,
+                                      solution: &solution)
             Self.solveBarrier(offset: offset,
                               dataHessian: dataHessian,
                               linear: linear,
@@ -222,7 +244,7 @@ extension Linear.WithCodex {
                               constraintOffset: 1 - constrainedMinimum,
                               variables: variableCount,
                               constraintsCount: constraintCount,
-                              maximumIteration: maximumNewtonIterations,
+                              maximumIterationPerStage: maximumNewtonIterationsPerStage,
                               solution: &solution)
 
             let coefficients = Self.coefficients(solution: solution,
@@ -243,7 +265,7 @@ extension Linear.WithCodex {
             }
             if !addedCut {
                 precondition(pMinimum.value >= epsilon && qMinimum.value >= epsilon,
-                             "Power fit did not establish continuous positivity")
+                             "Power fit did not establish continuous positivity: P min \(pMinimum.value) at \(pMinimum.location), Q min \(qMinimum.value) at \(qMinimum.location), requested \(epsilon)")
                 return .init(raw: (coefficients.p, coefficients.q))
             }
         }
@@ -251,9 +273,10 @@ extension Linear.WithCodex {
         let coefficients = Self.coefficients(solution: solution,
                                              pCount: pCount,
                                              qCount: qCount)
-        precondition(Self.minimum(of: coefficients.p).value >= epsilon &&
-                     Self.minimum(of: coefficients.q).value >= epsilon,
-                     "Power fit did not establish continuous positivity")
+        let pMinimum = Self.minimum(of: coefficients.p).value
+        let qMinimum = Self.minimum(of: coefficients.q).value
+        precondition(pMinimum >= epsilon && qMinimum >= epsilon,
+                     "Power fit did not establish continuous positivity: P min \(pMinimum), Q min \(qMinimum), requested \(epsilon)")
         return .init(raw: (coefficients.p, coefficients.q))
     }
 }
@@ -266,7 +289,7 @@ extension Linear.WithCodex {
                              constraintOffset: Float64,
                              variables: Int,
                              constraintsCount: Int,
-                             maximumIteration: Int,
+                             maximumIterationPerStage: Int,
                              solution: inout Array<Float64>) {
         var residual = Array(repeating: constraintOffset, count: constraintsCount)
         var inverseResidual = Array(repeating: 0.0, count: constraintsCount)
@@ -283,11 +306,13 @@ extension Linear.WithCodex {
                           initialDataObjective / Float64(max(1, constraintsCount)))
         let minimumBarrier = 1.0e-13 * max(1, initialDataObjective) /
             Float64(max(1, constraintsCount))
-        var usedIterations = 0
 
-        while minimumBarrier < barrier && usedIterations < maximumIteration {
-            for _ in 0..<32 where usedIterations < maximumIteration {
-                usedIterations += 1
+        // `maximumIterationPerStage` is deliberately not shared by all
+        // barrier values.  Sharing one budget used to stop after only a few
+        // reductions of mu and left a visible analytic-center common factor
+        // in P and Q when thousands of grid constraints were present.
+        while minimumBarrier < barrier {
+            for _ in 0..<maximumIterationPerStage {
                 for index in residual.indices { residual[index] = constraintOffset }
                 gemv(constraintsCount, variables,
                      1,
@@ -357,7 +382,7 @@ extension Linear.WithCodex {
                 let decrementSquared = max(0,
                                            -zip(gradient, direction).lazy
                                             .map(*).reduce(0, +))
-                if decrementSquared <= 1.0e-16 * max(1, initialDataObjective) {
+                if decrementSquared <= 1.0e-12 * max(1, initialDataObjective) {
                     break
                 }
 
@@ -405,6 +430,29 @@ extension Linear.WithCodex {
                 }
             }
             barrier *= 0.1
+        }
+    }
+
+    static func moveToStrictInterior(constraints: Array<Float64>,
+                                     constraintOffset: Float64,
+                                     variables: Int,
+                                     constraintsCount: Int,
+                                     solution: inout Array<Float64>) {
+        guard solution.contains(where: { !$0.isZero }) else { return }
+        var displacement = Array(repeating: 0.0, count: constraintsCount)
+        gemv(constraintsCount, variables,
+             1,
+             constraints, constraintsCount, .N,
+             solution, 1,
+             0,
+             &displacement, 1)
+        var scale = 1.0
+        let retainedMargin = 0.01 * constraintOffset
+        for value in displacement where value < retainedMargin - constraintOffset {
+            scale = min(scale, (constraintOffset - retainedMargin) / -value)
+        }
+        if scale < 1 {
+            vDSP.multiply(max(0, 0.995 * scale), solution, result: &solution)
         }
     }
 
