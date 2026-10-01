@@ -10,6 +10,7 @@ import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import BLAS
 import LAPACK
+import func Darwin.log
 
 extension Linear {
     /// Alternative power fitter kept in a namespace so it can coexist with
@@ -19,29 +20,34 @@ extension Linear {
 
 extension Linear.WithClaude {
     /// Fits `P(cos 2πω) Sxx - Q(cos 2πω) Syy = 0` with `P, Q >= minimum` on
-    /// the whole interval, to global optimality.
+    /// the whole interval using a finite-accuracy convex barrier solve.
     ///
     /// Because the Chebyshev argument is `cos 2πω`, interval nonnegativity is
     /// circle nonnegativity of an even trigonometric polynomial, so
     /// Riesz–Fejér applies exactly: `P - ε = ψᴴ G ψ` with one PSD Gram matrix
     /// `G` per polynomial and the linear map `p₀ = ε + tr G`,
     /// `p_k = 2 Σᵢ G[i, i+k]`. The semi-infinite constraint becomes two small
-    /// PSD cones — no grid constraints, no cutting planes, no barrier bias —
+    /// PSD cones — no grid constraints or cutting planes —
     /// and the whole problem is a convex semidefinite least squares whose
-    /// solution is the global optimum of the original fit.
+    /// barrier solutions approach the global optimum as μ tends to zero.
+    /// `barrierFloor` is relative to the mean lifted data-Hessian diagonal.
+    /// It controls analytic-center bias, not robustness to measurement noise.
+    /// `iteration` bounds Newton steps per barrier stage, not total steps.
     ///
     /// The cone program is solved by a primal log-det barrier with damped
-    /// Newton steps (`potrf`/`potrs`); affine invariance keeps the
-    /// band-edge-compressed directions of the Chebyshev basis from slowing
-    /// convergence, and backtracking on the Cholesky feasibility check keeps
-    /// every iterate strictly inside the cones.
+    /// Newton steps (`potrf`/`potrs`). Exact Newton steps are affine invariant;
+    /// finite-precision factorization and emergency damping still limit LF
+    /// accuracy. Backtracking checks both cone feasibility and Armijo descent.
     public static func fit(xx x: some AccelerateBuffer<Float64>,
                            yy y: some AccelerateBuffer<Float64>,
                            frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
                            weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
                            iteration: Optional<Int> = .none,
+                           barrierFloor: Float64 = 1e-14,
                            minimum ε: Float64,
                            count: (p: Int, q: Int)) -> Linear.Direct.Power {
+        precondition(barrierFloor.isFinite && 0 < barrierFloor && barrierFloor <= 1)
+        precondition(iteration == nil || iteration! > 0)
         let m = ω.count
         precondition(0 < m)
         precondition(m == x.count)
@@ -127,12 +133,6 @@ extension Linear.WithClaude {
                 K[c1 + c2 * N] = factor[c1] * factor[c2] * Γ[κ[c1] + κ[c2] * small]
             }
         }
-        // Linear term of ‖Âu + b‖²: b = ε (M[:,0] + M[:,p]) from the constant
-        // Chebyshev coefficients of both polynomials.
-        var g = Array<Float64>(repeating: 0, count: N)
-        for c in 0..<N {
-            g[c] = ε * factor[c] * (Γ[κ[c] + 0 * small] + Γ[κ[c] + p * small])
-        }
         // Equality p₀ + q₀ = 2 ⟺ tr G + tr H = 2 - 2ε.
         let β = 2 - 2 * ε
         var a = Array<Float64>(repeating: 0, count: N)
@@ -155,12 +155,25 @@ extension Linear.WithClaude {
                 }
             }
         }
-        func feasible(_ u: borrowing Array<Float64>) -> Bool {
+        var trialCoefficients = Array<Float64>(repeating: 0, count: small)
+        var trialResidual = Array<Float64>(repeating: 0, count: m)
+        var dataGradient = Array<Float64>(repeating: 0, count: small)
+        // Evaluate the data term from residuals rather than a cancellation-prone
+        // expanded quadratic, especially near an exactly representable LF fit.
+        func objective(_ u: borrowing Array<Float64>, _ μ: Float64) -> Float64? {
+            var logDet = 0.0
             for (offset, d) in [(0, p), (nP, q)] {
                 dense(u, offset, d)
-                guard potrf(d, &S, d, .L) == 0 else { return false }
+                guard potrf(d, &S, d, .L) == 0 else { return nil }
+                for i in 0..<d { logDet += 2 * log(S[i + i * d]) }
             }
-            return true
+            for i in 0..<small { trialCoefficients[i] = 0 }
+            trialCoefficients[0] = ε
+            trialCoefficients[p] = ε
+            for c in 0..<N { trialCoefficients[κ[c]] += factor[c] * u[c] }
+            gemv(m, small, 1, M, m, .N, trialCoefficients, 1, 0, &trialResidual, 1)
+            let value = dot(m, trialResidual, 1, trialResidual, 1) - μ * logDet
+            return value.isFinite ? value : nil
         }
         // W ← block⁻¹ via Cholesky; returns log det or nil when not PD
         func invert(_ u: borrowing Array<Float64>, _ offset: Int, _ d: Int, _ W: inout Array<Float64>) -> Bool {
@@ -178,8 +191,8 @@ extension Linear.WithClaude {
                 return W.allSatisfy(\.isFinite) // marginal factors can overflow the inverse
             }
         }
-        // Primal log-det barrier with damped Newton: affine invariant, so the
-        // near-singular band-edge directions of K₀ do not slow convergence.
+        // Primal log-det barrier with damped Newton. Finite-precision
+        // conditioning must still be checked with response-domain regressions.
         var u = Array<Float64>(repeating: 0, count: N)
         for c in 0..<N where diagonal[c] { // strictly feasible start: P = Q = 1
             u[c] = (1 - ε) / Float64(c < nP ? p : q)
@@ -189,19 +202,28 @@ extension Linear.WithClaude {
         var rhs = Array<Float64>(repeating: 0, count: 2 * N)
         var candidate = u
         let scaleK = (0..<N).reduce(0.0) { $0 + K[$1 + $1 * N] } / Float64(N)
-        let μfloor = 1e-14 * max(scaleK, 1)
-        var μ = max(scaleK, 1)
+        guard 0 < scaleK else {
+            var cp = Array<Float64>(repeating: 0, count: p)
+            var cq = Array<Float64>(repeating: 0, count: q)
+            cp[0] = 1; cq[0] = 1
+            return .init(raw: (cp, cq))
+        }
+        let μfloor = barrierFloor * scaleK
+        var μ = scaleK
         while true {
             newton: for _ in 0..<(iteration ?? 64) {
                 guard invert(u, 0, p, &Wp), invert(u, nP, q, &Wq) else {
                     break newton // numerically pinned to the cone boundary; keep u
                 }
-                // ∇ = 2(K₀u + g) - μ svec(W), ∇² = 2K₀ + μ (W ⊗ₛ W)
-                gemv(N, N, 2, K, N, .N, u, 1, 0, &gradient, 1)
+                // Form the gradient from original residuals, avoiding the
+                // cancellation of K*u + g along weak LF directions.
+                guard let current = objective(u, μ) else { break newton }
+                gemv(m, small, 2, M, m, .T, trialResidual, 1, 0, &dataGradient, 1)
+                for c in 0..<N { gradient[c] = factor[c] * dataGradient[κ[c]] }
                 for c in 0..<N {
                     let W = c < nP ? Wp : Wq
                     let d = c < nP ? p : q
-                    gradient[c] += 2 * g[c] - μ * factor[c] * W[row[c] + col[c] * d]
+                    gradient[c] -= μ * factor[c] * W[row[c] + col[c] * d]
                 }
                 for c2 in 0..<N {
                     let W = c2 < nP ? Wp : Wq
@@ -265,14 +287,17 @@ extension Linear.WithClaude {
                     rhs[c] -= ν * rhs[N + c]
                     decrement -= gradient[c] * rhs[c]
                 }
-                // backtrack to stay inside the PSD cones
+                guard decrement.isFinite, decrement >= 0 else { break newton }
+                if decrement <= max(1e-28 * scaleK, 1e-6 * μ) { break newton }
+                // Armijo descent as well as cone feasibility is required.
                 var t = 1.0
                 var accepted = false
                 while 0x1p-52 < t {
                     for c in 0..<N {
                         candidate[c] = u[c] + t * rhs[c]
                     }
-                    if feasible(candidate) {
+                    if let value = objective(candidate, μ),
+                       value <= current - 0.01 * t * decrement {
                         accepted = true
                         break
                     }
@@ -282,14 +307,12 @@ extension Linear.WithClaude {
                     break newton // boundary-pinned; keep the last interior iterate
                 }
                 swap(&u, &candidate)
-                if abs(decrement) <= 1e-12 * (1 + μ) {
-                    break newton
-                }
+
             }
             if μ <= μfloor {
                 break
             }
-            μ = max(0.05 * μ, 0.999 * μfloor)
+            μ = max(0.05 * μ, μfloor)
         }
         // Coefficients from the strictly feasible iterate; the common rescale
         // restores p₀ + q₀ = 2 exactly without changing P/Q.
