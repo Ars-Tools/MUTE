@@ -89,8 +89,7 @@ extension CTF.SISOController {
         exciter.generate(sample: sample,
                          length: length,
                          target: target,
-                         stride: length,
-                         snapshot: snapshot.withLock(\.self))
+                         stride: length)
     }
 }
 extension CTF.SISOController {
