@@ -7,6 +7,7 @@
 @preconcurrency import protocol Accelerate.AccelerateBuffer
 import typealias Accelerate.vDSP
 import typealias Numerics.Complex128
+import typealias Dispatch.DispatchQueue
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
 import typealias KSP.rls_complex_filterbank_t
@@ -81,6 +82,7 @@ extension CTF.SISO {
         public let dft: DFT
         public let statistics: Mutex<CTF.Snapshot>
         public let average: Atomic<Float64>
+        public let queue: DispatchQueue = .init(label: "tools.ars.mute.isp.ctf.siso") // serial queue
         @inlinable
         public init(dft transformer: DFT, count: Int, λ: Float64, soa: Bool) { // count = filter order
             dft = transformer
