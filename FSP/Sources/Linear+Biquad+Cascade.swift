@@ -29,6 +29,8 @@ extension Linear.Cascade {
         let r = r + repeatElement(0, count: r.count & 1)
         assert(r.count.isMultiple(of: 2))
         if !r.isEmpty {
+            // maximize bottleneck
+            /*
             var table = MatBuf(shape: (r.count, r.count), with: 0.0)
             for (row, r₀) in r.enumerated() {
                 for (col, r₁) in r.enumerated().dropFirst(row + 1) {
@@ -43,6 +45,12 @@ extension Linear.Cascade {
                 let r₀ = r[pair.x]
                 let r₁ = r[pair.y]
                 p.append(.init(1, -r₀-r₁, r₀*r₁))
+            }
+            */
+            // sorted pair
+            var sorted = ArraySlice(r.sorted())
+            while let min = sorted.popFirst(), let max = sorted.popLast() {
+                p.append(.init(1, -min-max, min*max))
             }
         }
         return p
