@@ -30,9 +30,11 @@ extension Linear.WithClaude {
     /// and the whole problem is a convex semidefinite least squares whose
     /// solution is the global optimum of the original fit.
     ///
-    /// The cone program is solved by ADMM: the quadratic step reuses one
-    /// `potrf` factorization (plus a Schur correction for `p₀ + q₀ = 2`), and
-    /// the cone step projects each Gram block by `syev` eigenvalue clipping.
+    /// The cone program is solved by a primal log-det barrier with damped
+    /// Newton steps (`potrf`/`potrs`); affine invariance keeps the
+    /// band-edge-compressed directions of the Chebyshev basis from slowing
+    /// convergence, and backtracking on the Cholesky feasibility check keeps
+    /// every iterate strictly inside the cones.
     public static func fit(xx x: some AccelerateBuffer<Float64>,
                            yy y: some AccelerateBuffer<Float64>,
                            frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
@@ -100,36 +102,30 @@ extension Linear.WithClaude {
         var κ = Array<Int>()     // column of M the svec entry couples to
         var factor = Array<Float64>()
         var diagonal = Array<Bool>()
+        var row = Array<Int>()
+        var col = Array<Int>()
         κ.reserveCapacity(N)
         factor.reserveCapacity(N)
         diagonal.reserveCapacity(N)
+        row.reserveCapacity(N)
+        col.reserveCapacity(N)
         for (base, d) in [(0, p), (p, q)] {
             for j in 0..<d {
                 for i in 0...j {
                     κ.append(base + j - i)
                     factor.append(i == j ? 1 : root2)
                     diagonal.append(i == j)
+                    row.append(i)
+                    col.append(j)
                 }
             }
         }
-        // K = 2 ÂᵀÂ + ρI, inverted once; Â = M L with L the svec→coefficient map.
+        // K₀ = ÂᵀÂ with Â = M L, L the svec→coefficient map; objective uᵀK₀u + 2gᵀu.
         var K = Array<Float64>(repeating: 0, count: N * N)
         for c2 in 0..<N {
             for c1 in 0..<N {
-                K[c1 + c2 * N] = 2 * factor[c1] * factor[c2] * Γ[κ[c1] + κ[c2] * small]
+                K[c1 + c2 * N] = factor[c1] * factor[c2] * Γ[κ[c1] + κ[c2] * small]
             }
-        }
-        var trace = 0.0
-        for c in 0..<N {
-            trace += K[c + c * N]
-        }
-        let ρ = max(trace / Float64(N), 1)
-        for c in 0..<N {
-            K[c + c * N] += ρ
-        }
-        switch potrf(N, &K, N, .L) {
-        case let info:
-            precondition(info == 0)
         }
         // Linear term of ‖Âu + b‖²: b = ε (M[:,0] + M[:,p]) from the constant
         // Chebyshev coefficients of both polynomials.
@@ -137,115 +133,144 @@ extension Linear.WithClaude {
         for c in 0..<N {
             g[c] = ε * factor[c] * (Γ[κ[c] + 0 * small] + Γ[κ[c] + p * small])
         }
-        // Equality p₀ + q₀ = 2 ⟺ tr G + tr H = 2 - 2ε, handled by a Schur
-        // correction against the cached inverse.
+        // Equality p₀ + q₀ = 2 ⟺ tr G + tr H = 2 - 2ε.
         let β = 2 - 2 * ε
         var a = Array<Float64>(repeating: 0, count: N)
         for c in 0..<N where diagonal[c] {
             a[c] = 1
         }
-        var kA = a
-        switch potrs(N, 1, &K, N, .L, &kA, N) {
-        case let info:
-            precondition(info == 0)
-        }
-        let aKa = dot(N, a, 1, kA, 1)
-        precondition(0 < aKa)
-        // PSD projection scratch (syev eigenvalue clipping).
+        // svec ↔ dense block helpers
         let dmax = max(p, q)
-        let lwork = syev(dmax,
-                         .none, dmax, .L, true,
-                         .none,
-                         .none as Optional<UnsafeMutablePointer<Float64>>, 0)
-        assert(0 < lwork)
-        var S0 = Array<Float64>(repeating: 0, count: dmax * dmax)
-        var SW = S0
-        var Π = S0
-        var σ = Array<Float64>(repeating: 0, count: dmax)
-        var work = Array<Float64>(repeating: 0, count: lwork)
-        func project(_ s: inout Array<Float64>, offset: Int, d: Int) {
+        var S = Array<Float64>(repeating: 0, count: dmax * dmax)
+        var Wp = Array<Float64>(repeating: 0, count: p * p)
+        var Wq = Array<Float64>(repeating: 0, count: q * q)
+        func dense(_ u: borrowing Array<Float64>, _ offset: Int, _ d: Int) {
             var c = offset
             for j in 0..<d {
                 for i in 0...j {
-                    let value = i == j ? s[c] : s[c] / root2
-                    S0[i + j * d] = value
-                    S0[j + i * d] = value
+                    let value = i == j ? u[c] : u[c] / root2
+                    S[i + j * d] = value
+                    S[j + i * d] = value
                     c += 1
                 }
             }
-            switch syev(d, &S0, d, .L, true, &σ, &work, lwork) { // S0 ← eigenvectors
-            case let info:
-                assert(info == 0)
+        }
+        func feasible(_ u: borrowing Array<Float64>) -> Bool {
+            for (offset, d) in [(0, p), (nP, q)] {
+                dense(u, offset, d)
+                guard potrf(d, &S, d, .L) == 0 else { return false }
             }
-            for j in 0..<d { // SW = V max(λ, 0)
-                let λ = max(σ[j], 0)
+            return true
+        }
+        // W ← block⁻¹ via Cholesky; returns log det or nil when not PD
+        func invert(_ u: borrowing Array<Float64>, _ offset: Int, _ d: Int, _ W: inout Array<Float64>) -> Bool {
+            dense(u, offset, d)
+            guard potrf(d, &S, d, .L) == 0 else { return false }
+            W.withUnsafeMutableBufferPointer {
+                vDSP.clear(&$0[...])
                 for i in 0..<d {
-                    SW[i + j * d] = λ * S0[i + j * d]
+                    $0[i + i * d] = 1
                 }
             }
-            gemm(d, d, d, 1, SW, d, .N, S0, d, .T, 0, &Π, d)
-            c = offset
-            for j in 0..<d { // clipped block back onto scaled svec
-                for i in 0...j {
-                    let value = Π[i + j * d]
-                    s[c] = i == j ? value : value * root2
-                    c += 1
-                }
-            }
-        }
-        // Strictly feasible start: P = Q = 1 (uniform diagonal Grams).
-        var z = Array<Float64>(repeating: 0, count: N)
-        for c in 0..<N where diagonal[c] {
-            z[c] = (1 - ε) / Float64(c < nP ? p : q)
-        }
-        var u = z
-        var v = Array<Float64>(repeating: 0, count: N)
-        var zz = z
-        let tolerance = 1e-10 * Float64(N).squareRoot()
-        for _ in 0..<max(64, iteration ?? 4096) {
-            // u = argmin uᵀK₀u + 2gᵀu + (ρ/2)‖u - z + v‖² s.t. aᵀu = β
-            for c in 0..<N {
-                u[c] = ρ * (z[c] - v[c]) - 2 * g[c]
-            }
-            switch potrs(N, 1, &K, N, .L, &u, N) {
+            switch potrs(d, d, &S, d, .L, &W, d) {
             case let info:
                 assert(info == 0)
+                return true
             }
-            let μ = (dot(N, a, 1, u, 1) - β) / aKa
-            for c in 0..<N {
-                u[c] -= μ * kA[c]
+        }
+        // Primal log-det barrier with damped Newton: affine invariant, so the
+        // near-singular band-edge directions of K₀ do not slow convergence.
+        var u = Array<Float64>(repeating: 0, count: N)
+        for c in 0..<N where diagonal[c] { // strictly feasible start: P = Q = 1
+            u[c] = (1 - ε) / Float64(c < nP ? p : q)
+        }
+        var gradient = Array<Float64>(repeating: 0, count: N)
+        var H = Array<Float64>(repeating: 0, count: N * N)
+        var rhs = Array<Float64>(repeating: 0, count: 2 * N)
+        var candidate = u
+        let scaleK = (0..<N).reduce(0.0) { $0 + K[$1 + $1 * N] } / Float64(N)
+        let μfloor = 1e-14 * max(scaleK, 1)
+        var μ = max(scaleK, 1)
+        while true {
+            for _ in 0..<(iteration ?? 64) {
+                guard invert(u, 0, p, &Wp), invert(u, nP, q, &Wq) else {
+                    preconditionFailure("infeasible iterate")
+                }
+                // ∇ = 2(K₀u + g) - μ svec(W), ∇² = 2K₀ + μ (W ⊗ₛ W)
+                gemv(N, N, 2, K, N, .N, u, 1, 0, &gradient, 1)
+                for c in 0..<N {
+                    let W = c < nP ? Wp : Wq
+                    let d = c < nP ? p : q
+                    gradient[c] += 2 * g[c] - μ * factor[c] * W[row[c] + col[c] * d]
+                }
+                for c2 in 0..<N {
+                    let W = c2 < nP ? Wp : Wq
+                    let d = c2 < nP ? p : q
+                    let lower = c2 < nP ? 0 : nP
+                    let upper = c2 < nP ? nP : N
+                    let (i2, j2) = (row[c2], col[c2])
+                    for c1 in 0..<N {
+                        H[c1 + c2 * N] = 2 * K[c1 + c2 * N]
+                    }
+                    for c1 in lower..<upper {
+                        let (i1, j1) = (row[c1], col[c1])
+                        let v = W[i1 + i2 * d] * W[j1 + j2 * d] + W[i1 + j2 * d] * W[j1 + i2 * d]
+                        H[c1 + c2 * N] += μ * factor[c1] * factor[c2] * v / 2
+                    }
+                }
+                switch potrf(N, &H, N, .L) {
+                case let info:
+                    precondition(info == 0) // barrier Hessian is PD on the feasible set
+                }
+                for c in 0..<N { // columns: -∇ and a (for the equality Schur step)
+                    rhs[c] = -gradient[c]
+                    rhs[N + c] = a[c]
+                }
+                switch potrs(N, 2, &H, N, .L, &rhs, N) {
+                case let info:
+                    assert(info == 0)
+                }
+                let drift = β - dot(N, a, 1, u, 1)
+                var ah = 0.0
+                var ag = 0.0
+                for c in 0..<N {
+                    ah += a[c] * rhs[N + c]
+                    ag += a[c] * rhs[c]
+                }
+                let ν = (ag - drift) / ah
+                var decrement = 0.0
+                for c in 0..<N {
+                    rhs[c] -= ν * rhs[N + c]
+                    decrement -= gradient[c] * rhs[c]
+                }
+                // backtrack to stay inside the PSD cones
+                var t = 1.0
+                while 0x1p-52 < t {
+                    for c in 0..<N {
+                        candidate[c] = u[c] + t * rhs[c]
+                    }
+                    if feasible(candidate) {
+                        break
+                    }
+                    t /= 2
+                }
+                swap(&u, &candidate)
+                if abs(decrement) <= 1e-12 * (1 + μ) {
+                    break
+                }
             }
-            // z = Π_PSD(u + v) per Gram block
-            swap(&z, &zz)
-            for c in 0..<N {
-                z[c] = u[c] + v[c]
-            }
-            project(&z, offset: 0, d: p)
-            project(&z, offset: nP, d: q)
-            // v += u - z, residuals
-            var primal = 0.0
-            var dual = 0.0
-            var scale = 0.0
-            for c in 0..<N {
-                let r = u[c] - z[c]
-                let s = z[c] - zz[c]
-                v[c] += r
-                primal += r * r
-                dual += s * s
-                scale = max(scale, abs(z[c]))
-            }
-            if primal.squareRoot() <= tolerance * (1 + scale),
-               ρ * dual.squareRoot() <= tolerance * (1 + scale) * ρ {
+            if μ <= μfloor {
                 break
             }
+            μ = max(0.05 * μ, 0.999 * μfloor)
         }
-        // Coefficients from the projected (hence certified PSD) iterate; the
-        // common rescale restores p₀ + q₀ = 2 exactly without changing P/Q.
+        // Coefficients from the strictly feasible iterate; the common rescale
+        // restores p₀ + q₀ = 2 exactly without changing P/Q.
         var coefficients = Array<Float64>(repeating: 0, count: small)
         coefficients[0] = ε
         coefficients[p] = ε
         for c in 0..<N {
-            coefficients[κ[c]] += factor[c] * z[c]
+            coefficients[κ[c]] += factor[c] * u[c]
         }
         let scale = 2 / (coefficients[0] + coefficients[p])
         vDSP.multiply(scale, coefficients, result: &coefficients)
