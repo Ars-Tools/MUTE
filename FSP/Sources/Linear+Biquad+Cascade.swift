@@ -4,8 +4,13 @@
 //
 //  Created by Kota on 9/3/26.
 //
+import typealias Accelerate.vDSP
+import typealias Accelerate.vForce
 import func simd.log1p
 import func simd.simd_abs
+import func simd.log2
+import func simd.exp2
+import func simd.fma
 import typealias Numerics.Complex128
 import typealias Dense.MatBuf
 import typealias Optimise.Graph
@@ -49,9 +54,11 @@ extension Linear.Cascade {
             */
             // sorted pair
             var sorted = ArraySlice(r.sorted())
+            assert(sorted.count.isMultiple(of: 2))
             while let min = sorted.popFirst(), let max = sorted.popLast() {
                 p.append(.init(1, -min-max, min*max))
             }
+            assert(sorted.isEmpty)
         }
         return p
     }
@@ -69,18 +76,36 @@ extension Linear.Cascade {
             for (col, pole) in a.enumerated() {
                 let δ₋₁ = switch Linear.Biquad(raw: (zero, pole)).𝒢 {
                 case let 𝒢:
-                    ( 𝒢.y - 𝒢.x ) / 𝒢.x // 𝒢.y / 𝒢.x  - 1
+                    ( 𝒢.y - 𝒢.x ) / 𝒢.x // = 𝒢.y / 𝒢.x  - 1
                 }
                 table[row, col] = δ₋₁ - log1p(δ₋₁)
             }
         }
         self.init()
         reserveCapacity(c + 1)
-        if case.some(let gain) = zpk.k {
-            append(.init(raw: (.init(gain, 0, 0), .init(1, 0, 0))))
-        }
         for idx in Graph.Match(table: table) {
             append(.init(raw: (b[idx.x], a[idx.y])))
+        }
+        switch zpk.k {
+        case.some(let g):
+            let forward = vForce.log2(map(\.𝒢ₘ))
+            let inverse = vForce.log2(map(\.⁻¹.𝒢ₘ))
+            let balance = vDSP.multiply(subtraction: (inverse, forward), 0.125)
+            let total = fma(0.5, log2(g.magnitude), -vDSP.sum(balance)) / .init(count)
+            let derivative = vDSP.add(total, balance)
+            replaceSubrange(indices, with: zip(self, derivative).map {
+                .init(raw: (
+                    $0.b * exp2( $1),
+                    $0.a * exp2(-$1)
+                ))
+            })
+            if case.minus = g.sign, let first {
+                replaceSubrange(0..<1, with: CollectionOfOne(
+                    .init(raw: (-first.b, first.a))
+                ))
+            }
+        case.none:
+            break
         }
     }
 }
