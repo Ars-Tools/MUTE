@@ -17,6 +17,7 @@ import func BLAS.gemv
 import func LAPACK.gels
 import func LAPACK.geqrf
 import func LAPACK.gesvd
+import func LAPACK.gesvj
 import func LAPACK.gglse
 import func Layout.concat
 import func simd.log
@@ -179,10 +180,10 @@ extension Linear {
                       .none,
                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         assert(0 < r)
-        let l = gesvd(n, n,
-                      .none, m,
+        let l = gesvj(n, n,
+                      .none, m, .U,
                       .none,
-                      .none, n,
+                      0,
                       .init(bitPattern: ~0), n,
                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         assert(0 < l)
@@ -231,30 +232,20 @@ extension Linear {
             case let info:
                 assertionFailure("geqrf ends with \(info)")
             }
-            switch gesvd(n, n,
-                         M.baseAddress, m,
+            switch gesvj(n, n,
+                         M.baseAddress, m, .U,
                          s.baseAddress,
-                         .none, n,
+                         0,
                          v.baseAddress, n,
                          z.baseAddress, z.count) {
             case 0:
                 break
             case let info:
-                assertionFailure("gesvd ends with \(info)")
+                assertionFailure("gesvj ends with \(info)")
             }
-            return.init(raw: (
-                .init(unsafeUninitializedCapacity: 1 + count.b) {
-                    $1 = $0.count
-                    copy($1,
-                         v.baseAddress.unsafelyUnwrapped.advanced(by: ( count.b * 0 + 1 ) * n - 1), n,
-                         $0.baseAddress.unsafelyUnwrapped, 1)
-                },
-                .init(unsafeUninitializedCapacity: 1 + count.a) {
-                    $1 = $0.count
-                    copy($1,
-                         v.baseAddress.unsafelyUnwrapped.advanced(by: ( count.b * 1 + 2 ) * n - 1), n,
-                         $0.baseAddress.unsafelyUnwrapped, 1)
-                }
+            return .init(raw: (
+                .init(v.dropFirst(n * n - n + 0 + 0 * count.b).prefix(1 + count.b)),
+                .init(v.dropFirst(n * n - n + 1 + 1 * count.b).prefix(1 + count.a))
             ))
         }
     }
@@ -279,18 +270,24 @@ extension Linear {
         precondition(0 <= count.a)
         let m = 4 * ω
         let n = 2 + count.b + count.a
-        let l = gesvd(m, n,
+        precondition(n <= m)
+        let r = geqrf(m, n,
                       .none, m,
                       .none,
-                      .none, m,
+                      .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(0 < r)
+        let l = gesvj(n, n,
+                      .none, m, .U,
+                      .none,
+                      0,
                       .init(bitPattern: ~0), n,
                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         assert(0 < l)
-        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + n * n + max(m, n) + max(m, l)) {
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + n * n + max(m, n) + max(m, l, r)) {
             let M = $0.extracting(0..<m*n)
             let v = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(n * n))
             let s = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n).prefix(max(m, n)))
-            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n + max(m, n)).prefix(max(m, l)))
+            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n + max(m, n)).prefix(max(m, l, r)))
             let B = M.extracting((0 + 0 * count.b + 0 * count.a) * m ..< (1 + 1 * count.b + 0 * count.a) * m)
             let A = M.extracting((1 + 1 * count.b + 0 * count.a) * m ..< (2 + 1 * count.b + 1 * count.a) * m)
             // R
@@ -343,26 +340,28 @@ extension Linear {
                     vDSP.negative(A[col..<col+m], result: &A[col..<col+m])
                 }
             }
-            let ε = gesvd(m, n,
-                          M.baseAddress, m,
-                          s.baseAddress,
-                          .none, m,
-                          v.baseAddress, n,
-                          z.baseAddress, z.count)
-            assert(ε == 0)
-            return.init(raw: (
-                .init(unsafeUninitializedCapacity: 1 + count.b) {
-                    $1 = $0.count
-                    copy($1,
-                         v.baseAddress.unsafelyUnwrapped.advanced(by: ( count.b * 0 + 1 ) * n - 1), n,
-                         $0.baseAddress.unsafelyUnwrapped, 1)
-                },
-                .init(unsafeUninitializedCapacity: 1 + count.a) {
-                    $1 = $0.count
-                    copy($1,
-                         v.baseAddress.unsafelyUnwrapped.advanced(by: ( count.b * 1 + 2 ) * n - 1), n,
-                         $0.baseAddress.unsafelyUnwrapped, 1)
+            switch geqrf(m, n, M.baseAddress, m, s.baseAddress, z.baseAddress, z.count) {
+            case 0:
+                for (col, len) in repeatElement(min(m, n), count: n).enumerated() {
+                    M[col*m+col+1..<col*m+len].update(repeating: .zero)
                 }
+            case let info:
+                assertionFailure("geqrf ends with \(info)")
+            }
+            switch gesvj(n, n,
+                         M.baseAddress, m, .U,
+                         s.baseAddress,
+                         0,
+                         v.baseAddress, n,
+                         z.baseAddress, z.count) {
+            case 0:
+                break
+            case let info:
+                assertionFailure("gesvj ends with \(info)")
+            }
+            return .init(raw: (
+                .init(v.dropFirst(n * n - n + 0 + 0 * count.b).prefix(1 + count.b)),
+                .init(v.dropFirst(n * n - n + 1 + 1 * count.b).prefix(1 + count.a))
             ))
         }
     }
