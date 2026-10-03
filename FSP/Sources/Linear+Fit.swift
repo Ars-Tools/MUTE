@@ -6,6 +6,7 @@
 //
 import typealias Numerics.Complex128
 import protocol Accelerate.AccelerateBuffer
+import protocol Accelerate.AccelerateMutableBuffer
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import func Accelerate.vDSP_mmovD
@@ -14,11 +15,146 @@ import func BLAS.ger
 import func BLAS.copy
 import func BLAS.gemv
 import func LAPACK.gels
+import func LAPACK.geqrf
 import func LAPACK.gesvd
 import func LAPACK.gglse
-import func MKL.vDSP_ctoz
-import func KSP.wiener
 import func Layout.concat
+import func simd.log
+// MARK: Non-Linear Fit
+extension Linear {
+    public struct FitOption {
+        let maxIteration: Int
+        let tolerance: Float64
+    }
+    @inlinable@_transparent
+    static func logsum(roots: Array<Complex128>,
+                       frequency: some AccelerateBuffer<Float64>,
+                       r: inout some AccelerateMutableBuffer<Float64>,
+                       i: inout some AccelerateMutableBuffer<Float64>,
+                       w: UnsafeMutableBufferPointer<Float64>/*workspace*/) {
+        let N = frequency.count
+        assert(8 * N <= w.count)
+        let ηₛr = UnsafeMutableBufferPointer(rebasing: w[0*N..<1*N])
+        let ηₛi = UnsafeMutableBufferPointer(rebasing: w[1*N..<2*N])
+        let ηₜr = UnsafeMutableBufferPointer(rebasing: w[2*N..<3*N])
+        let ηₜi = UnsafeMutableBufferPointer(rebasing: w[3*N..<4*N])
+        let η₁r = UnsafeMutableBufferPointer(rebasing: w[4*N..<5*N])
+        let η₁i = UnsafeMutableBufferPointer(rebasing: w[5*N..<6*N])
+        let η₂r = UnsafeMutableBufferPointer(rebasing: w[6*N..<7*N])
+        let η₂i = UnsafeMutableBufferPointer(rebasing: w[7*N..<8*N])
+        vDSP.multiply(-2, frequency, result: &η₁i[0..<N])
+        vForce.cosPi(η₁i, result: &η₁r[0..<N])
+        vForce.sinPi(η₁i, result: &η₁i[0..<N])
+        vDSP.multiply(-4, frequency, result: &η₂i[0..<N])
+        vForce.cosPi(η₂i, result: &η₂r[0..<N])
+        vForce.sinPi(η₂i, result: &η₂i[0..<N])
+        for root in roots {
+            let r₁ = -2 * root.real
+            let r₂ = root.magnitudeSquared
+            vDSP.add(multiplication: (η₁r, r₁),
+                     multiplication: (η₂r, r₂),
+                     result: &ηₜr[0..<N])
+            vDSP.add(1, ηₜr[0..<N], result: &ηₜr[0..<N])
+            vDSP.add(multiplication: (η₁i, r₁),
+                     multiplication: (η₂i, r₂),
+                     result: &ηₜi[0..<N])
+            vDSP.add(multiplication: (ηₜr, ηₜr), multiplication: (ηₜi, ηₜi), result: &ηₛr[0..<N])
+            vForce.log(ηₛr, result: &ηₛr[0..<N])
+            vDSP.multiply(0.5, ηₛr, result: &ηₛr[0..<N])
+            vDSP.add(r, ηₛr, result: &r)
+            vForce.atan2(x: ηₜr, y: ηₜi, result: &ηₛi[0..<N])
+            vDSP.add(i, ηₛi, result: &i)
+        }
+    }
+    @inlinable@_transparent
+    static func logsum(roots: Array<Float64>,
+                       frequency: some AccelerateBuffer<Float64>,
+                       r: inout some AccelerateMutableBuffer<Float64>,
+                       i: inout some AccelerateMutableBuffer<Float64>,
+                       w: UnsafeMutableBufferPointer<Float64>/*workspace*/) {
+        let N = frequency.count
+        assert(6 * N <= w.count)
+        let ηₛr = UnsafeMutableBufferPointer(rebasing: w[0*N..<1*N])
+        let ηₛi = UnsafeMutableBufferPointer(rebasing: w[1*N..<2*N])
+        let ηₜr = UnsafeMutableBufferPointer(rebasing: w[2*N..<3*N])
+        let ηₜi = UnsafeMutableBufferPointer(rebasing: w[3*N..<4*N])
+        let η₁r = UnsafeMutableBufferPointer(rebasing: w[4*N..<5*N])
+        let η₁i = UnsafeMutableBufferPointer(rebasing: w[5*N..<6*N])
+        vDSP.multiply(-2, frequency, result: &η₁i[0..<N])
+        vForce.cosPi(η₁i, result: &η₁r[0..<N])
+        vForce.sinPi(η₁i, result: &η₁i[0..<N])
+        for root in roots {
+            let r₁ = -root
+            vDSP.add(multiplication: (η₁r, r₁), 1, result: &ηₛr[0..<N])
+            vDSP.multiply(r₁, η₁i, result: &ηₛi[0..<N])
+            vDSP.add(multiplication: (ηₛr, ηₛr), multiplication: (ηₛi, ηₛi), result: &ηₜr[0..<N])
+            vForce.log(ηₜr, result: &ηₜr[0..<N])
+            vDSP.multiply(0.5, ηₜr, result: &ηₜr[0..<N])
+            vDSP.add(r, ηₜr, result: &r)
+            vForce.atan2(x: ηₛr, y: ηₛi, result: &ηₜi[0..<N])
+            vDSP.add(i, ηₜi, result: &i)
+        }
+    }
+    @inlinable
+    public static func fit(x: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>),
+                           y: (r: some AccelerateBuffer<Float64>, i: some AccelerateBuffer<Float64>),
+                           frequency: some AccelerateBuffer<Float64>,
+                           initial: Linear.ZPK,
+                           regularization: borrowing (Linear.ZPK) -> some AccelerateBuffer<Float64>) {
+        let N = frequency.count
+        var result = initial
+        withUnsafeTemporaryAllocation(of: Float64.self, capacity: 12 * N) {
+            let Xr = UnsafeMutableBufferPointer(rebasing: $0[0*N..<1*N]) // accum
+            let Xi = UnsafeMutableBufferPointer(rebasing: $0[1*N..<2*N])
+            let Yr = UnsafeMutableBufferPointer(rebasing: $0[2*N..<3*N])
+            let Yi = UnsafeMutableBufferPointer(rebasing: $0[3*N..<4*N])
+            let Zr = UnsafeMutableBufferPointer(rebasing: $0[4*N..<5*N]) // table
+            let Zi = UnsafeMutableBufferPointer(rebasing: $0[5*N..<6*N])
+            let Wr = UnsafeMutableBufferPointer(rebasing: $0[6*N..<7*N]) // workspace
+            let Wi = UnsafeMutableBufferPointer(rebasing: $0[7*N..<8*N])
+            vDSP.clear(&Xr[0..<N])
+            vDSP.clear(&Xi[0..<N])
+            vDSP.clear(&Yr[0..<N])
+            vDSP.clear(&Yi[0..<N])
+            logsum(roots: result.z.0, frequency: frequency, r: &Xr[0..<N], i: &Xi[0..<N], w: .init(rebasing: $0.dropFirst(4 * N)))
+            logsum(roots: result.z.1, frequency: frequency, r: &Xr[0..<N], i: &Xi[0..<N], w: .init(rebasing: $0.dropFirst(4 * N)))
+            logsum(roots: result.p.0, frequency: frequency, r: &Yr[0..<N], i: &Yi[0..<N], w: .init(rebasing: $0.dropFirst(4 * N)))
+            logsum(roots: result.p.1, frequency: frequency, r: &Yr[0..<N], i: &Yi[0..<N], w: .init(rebasing: $0.dropFirst(4 * N)))
+            vForce.exp(Xr, result: &Wr[0..<N])
+            vForce.sincos(Xi, sinResult: &Xi[0..<N], cosResult: &Xr[0..<N])
+            vDSP.multiply(Wr, Xr, result: &Xr[0..<N])
+            vDSP.multiply(Wr, Xi, result: &Xi[0..<N])
+            vForce.exp(Yr, result: &Wr[0..<N])
+            vForce.sincos(Yi, sinResult: &Yi[0..<N], cosResult: &Yr[0..<N])
+            vDSP.multiply(Wr, Yr, result: &Yr[0..<N])
+            vDSP.multiply(Wr, Yi, result: &Yi[0..<N])
+            
+        }
+    }
+}
+// MARK: Compaction
+extension Linear {
+    @inlinable
+    static func compact(M: UnsafeMutableBufferPointer<Float64>, ld: Int, rows: Int, cols: Int) {
+        assert(cols <= rows)
+        let size = geqrf(rows, cols,
+                         .none, ld,
+                         .none,
+                         .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(0 <= size)
+        let diag = min(rows, cols)
+        withUnsafeTemporaryAllocation(of: Float64.self, capacity: size + diag) {
+            let info = geqrf(rows, cols,
+                             M.baseAddress, ld,
+                             $0.baseAddress.map { $0.advanced(by: size) },
+                             $0.baseAddress, size)
+            assert(0 == info)
+        }
+        for col in 0..<cols {
+            M[col*ld+col+1..<col*ld+diag].update(repeating: .zero)
+        }
+    }
+}
 // MARK: Complex Fit
 extension Linear {
     @inlinable // J = Σ w[l] / (|X[l]|² + |Y[l]|²) * |A[l]Y[l] - B[l]X[l]|²
@@ -37,18 +173,24 @@ extension Linear {
         precondition(0 <= count.a)
         let m = 2 * ω
         let n = 2 + count.b + count.a
-        let l = gesvd(m, n,
+        precondition(n <= m)
+        let r = geqrf(m, n,
                       .none, m,
                       .none,
+                      .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(0 < r)
+        let l = gesvd(n, n,
                       .none, m,
+                      .none,
+                      .none, n,
                       .init(bitPattern: ~0), n,
                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         assert(0 < l)
-        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + n * n + max(m, n) + max(m, l)) {
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + n * n + min(m, n) + max(m, l, r)) {
             let M = $0.extracting(0..<m*n)
             let v = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(n * n))
-            let s = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n).prefix(max(m, n)))
-            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n + max(m, n)).prefix(max(m, l)))
+            let s = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n).prefix(min(m, n)))
+            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + n * n + min(m, n)).prefix(max(m, l, r)))
             let B = M.extracting((0 + 0 * count.b + 0 * count.a) * m ..< (1 + 1 * count.b + 0 * count.a) * m)
             let A = M.extracting((1 + 1 * count.b + 0 * count.a) * m ..< (2 + 1 * count.b + 1 * count.a) * m)
             assert((1 + count.b) * m == B.count)
@@ -81,13 +223,25 @@ extension Linear {
                     vDSP.add(multiplication: (A[0..<ω], z[ω..<m]), multiplication: (A[ω..<m], z[0..<ω]), result: &A[col+ω..<col+m])
                 }
             }
-            let ε = gesvd(m, n,
-                          M.baseAddress, m,
-                          s.baseAddress,
-                          .none, m,
-                          v.baseAddress, n,
-                          z.baseAddress, z.count)
-            assert(ε == 0)
+            switch geqrf(m, n, M.baseAddress, m, s.baseAddress, z.baseAddress, z.count) {
+            case 0:
+                for (col, len) in repeatElement(min(m, n), count: n).enumerated() {
+                    M[col*m+col+1..<col*m+len].update(repeating: .zero)
+                }
+            case let info:
+                assertionFailure("geqrf ends with \(info)")
+            }
+            switch gesvd(n, n,
+                         M.baseAddress, m,
+                         s.baseAddress,
+                         .none, n,
+                         v.baseAddress, n,
+                         z.baseAddress, z.count) {
+            case 0:
+                break
+            case let info:
+                assertionFailure("gesvd ends with \(info)")
+            }
             return.init(raw: (
                 .init(unsafeUninitializedCapacity: 1 + count.b) {
                     $1 = $0.count
