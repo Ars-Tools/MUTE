@@ -12,10 +12,12 @@ import typealias Accelerate.vForce
 import func Accelerate.vDSP_mmovD
 import func MKL.vDSP_fill
 import func MKL.vDSP_copy
+import func MKL.vDSP_add
 import func BLAS.dot
 import func BLAS.ger
 import func BLAS.copy
 import func BLAS.trmv
+import func BLAS.trmm
 import func BLAS.gemv
 import func BLAS.gemm
 import func BLAS.syrk
@@ -27,6 +29,8 @@ import func LAPACK.geqrf
 import func LAPACK.gesvd
 import func LAPACK.gesvj
 import func LAPACK.gglse
+import func LAPACK.larf
+import func LAPACK.larfg
 import func Layout.concat
 import simd
 // MARK: Non-Linear Fit
@@ -690,6 +694,390 @@ extension Linear {
     }
     @inlinable // SPD
     static func fit(m: Int, n count: (p: Int, q: Int),
+                    a: UnsafeMutableBufferPointer<Float64>, lda: Int,
+                    armijo: Float64 = 0.01,
+                    iteration: Int = 42, // newton iteration
+                    torelance: Float64 = 1e-8,
+                    centering: Float64 = 0.01,
+                    reduction: Float64 = 0.2,
+                    minimum ε: Float64) ->  (coefficients: Array<Float64>, converged: Bool) {
+        let (p, q) = count
+        let n = p + q
+        let dp = (p * p + p) / 2
+        let dq = (q * q + q) / 2
+        let d = dp + dq
+        precondition(m > 0)
+        precondition(p > 0 && q > 0)
+        precondition(lda >= m)
+        precondition(a.count >= (n - 1) * lda + m)
+        precondition(ε.isFinite && 0 < ε && ε < 1)
+        precondition(iteration >= 0)
+        let p² = switch p.multipliedReportingOverflow(by: p) {
+        case (let square, false):
+            square
+        default:
+            preconditionFailure()
+        }
+        let q² = switch q.multipliedReportingOverflow(by: q) {
+        case (let square, false):
+            square
+        default:
+            preconditionFailure()
+        }
+        let M² = p² + q²
+        let k = d - 1
+        let rank = min(m, k)
+        let l = gesvd(m, k,
+                      .none, m,
+                      .none,
+                      .init(bitPattern: ~0), m,
+                      .init(bitPattern: ~0), rank,
+                      .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(0 < l)
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: 4 * M² + 2 * n + 4 * d + m * d + m * rank + rank * k + rank + l + 2 * m) {
+            let (Gₘ, Hₘ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(0 * M²).prefix(M²)) {
+            case let M: (
+                UnsafeMutableBufferPointer(rebasing: M.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: M.suffix(q²))
+            )}
+            let (Gᵧ, Hᵧ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(1 * M²).prefix(M²)) {
+            case let C: (
+                UnsafeMutableBufferPointer(rebasing: C.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: C.suffix(q²))
+            )}
+            let (Gₗ, Hₗ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(2 * M²).prefix(M²)) {
+            case let L: (
+                UnsafeMutableBufferPointer(rebasing: L.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: L.suffix(q²))
+            )}
+            let (Gᵢ, Hᵢ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(3 * M²).prefix(M²)) {
+            case let L: (
+                UnsafeMutableBufferPointer(rebasing: L.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: L.suffix(q²))
+            )}
+            let (θ, g) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M²).prefix(2 * n)) {
+            case let W: (
+                UnsafeMutableBufferPointer(rebasing: W.prefix(n)),
+                UnsafeMutableBufferPointer(rebasing: W.suffix(n))
+            )}
+            let (v, e, u, w) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n).prefix(4 * d)) {
+            case let D: (
+                UnsafeMutableBufferPointer(rebasing: D[0*d..<1*d]),
+                UnsafeMutableBufferPointer(rebasing: D[1*d..<2*d]),
+                UnsafeMutableBufferPointer(rebasing: D[2*d..<3*d]),
+                UnsafeMutableBufferPointer(rebasing: D[3*d..<4*d])
+            )}
+            let j = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n + 4 * d).prefix(m * d))
+            let (S, U, V, ρ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n + 4 * d + m * d).prefix(m * rank + rank * k + rank + l)) {
+            case let SVD: (
+                UnsafeMutableBufferPointer(rebasing: SVD.prefix(rank)),
+                UnsafeMutableBufferPointer(rebasing: SVD.dropFirst(rank).prefix(m * rank)),
+                UnsafeMutableBufferPointer(rebasing: SVD.dropFirst(rank).dropFirst(m * rank).prefix(rank * k)),
+                UnsafeMutableBufferPointer(rebasing: SVD.suffix(l)),
+            )}
+            let (r, τ) = switch UnsafeMutableBufferPointer(rebasing: $0.suffix(2 * m)) {
+            case let R: (
+                UnsafeMutableBufferPointer(rebasing: R.prefix(m)),
+                UnsafeMutableBufferPointer(rebasing: R.suffix(m))
+            )}
+            vDSP.clear(&Gₘ[0..<p²])
+            vDSP_fill((1 - ε) / .init(p), Gₘ.baseAddress.unsafelyUnwrapped, p + 1, p)
+            vDSP.clear(&Hₘ[0..<q²])
+            vDSP_fill((1 - ε) / .init(q), Hₘ.baseAddress.unsafelyUnwrapped, q + 1, q)
+            var μ = 1 as Float64
+            var finished = false
+            path: while !finished, (μ * μ).isNormal {
+                var centered = false
+                newton: for () in repeatElement((), count: iteration) {
+                    coefficients(Gₘ, ε, .init(rebasing: θ.prefix(p)))
+                    coefficients(Hₘ, ε, .init(rebasing: θ.suffix(q)))
+                    gemv(m, n,
+                         1,
+                         a.baseAddress.unsafelyUnwrapped, lda, .N,
+                         θ.baseAddress.unsafelyUnwrapped, 1,
+                         0,
+                         r.baseAddress.unsafelyUnwrapped, 1)
+                    let objective = 0.5 * vDSP.sumOfSquares(r)
+                    gemv(m, n,
+                         1,
+                         a.baseAddress.unsafelyUnwrapped, lda, .T,
+                         r.baseAddress.unsafelyUnwrapped, 1,
+                         0,
+                         g.baseAddress.unsafelyUnwrapped, 1)
+                    adjoint(.init(rebasing: g.prefix(p)), Gᵧ)
+                    adjoint(.init(rebasing: g.suffix(q)), Hᵧ)
+                    guard case.some(let logdetG) = logdet(n: p, a: Gₘ, ld: p, w: Gₗ, ld: p),
+                          case.some(let logdetH) = logdet(n: q, a: Hₘ, ld: q, w: Hₗ, ld: q) else {
+                        assertionFailure("Initial Gram matrices must be positive definite")
+                        break path;
+                    }
+                    // Gᵧ ← Gₗ Gᵧ Gₗᵀ
+                    trmm(p, p, 1,
+                         Gₗ.baseAddress.unsafelyUnwrapped, p, .N, .U, .N, .L,
+                         Gᵧ.baseAddress.unsafelyUnwrapped, p)
+                    trmm(p, p, 1,
+                         Gₗ.baseAddress.unsafelyUnwrapped, p, .T, .U, .N, .R,
+                         Gᵧ.baseAddress.unsafelyUnwrapped, p)
+                    // Hᵧ ← Hₗ Hᵧ Hₗᵀ
+                    trmm(q, q, 1,
+                         Hₗ.baseAddress.unsafelyUnwrapped, q, .N, .U, .N, .L,
+                         Hᵧ.baseAddress.unsafelyUnwrapped, q)
+                    trmm(q, q, 1,
+                         Hₗ.baseAddress.unsafelyUnwrapped, q, .T, .U, .N, .R,
+                         Hᵧ.baseAddress.unsafelyUnwrapped, q)
+                    vDSP_add(Gᵧ.baseAddress.unsafelyUnwrapped, p + 1, -μ,
+                             Gᵧ.baseAddress.unsafelyUnwrapped, p + 1, p)
+                    vDSP_add(Hᵧ.baseAddress.unsafelyUnwrapped, q + 1, -μ,
+                             Hᵧ.baseAddress.unsafelyUnwrapped, q + 1, q)
+                    let barrierObjective = fma(-μ, logdetG + logdetH, objective)
+                    svec(n: p, a: Gᵧ, lda: p, v: .init(rebasing: v.prefix(dp)))
+                    svec(n: q, a: Hᵧ, lda: q, v: .init(rebasing: v.suffix(dq)))
+                    // Gᵢ ← I → Gₗ Gₗᵀ
+                    vDSP.clear(&Gᵢ[0..<p²])
+                    vDSP_fill(1, Gᵢ.baseAddress.unsafelyUnwrapped, p + 1, p)
+                    trmm(p, p, 1,
+                         Gₗ.baseAddress.unsafelyUnwrapped, p, .N, .U, .N, .L,
+                         Gᵢ.baseAddress.unsafelyUnwrapped, p)
+                    trmm(p, p, 1,
+                         Gₗ.baseAddress.unsafelyUnwrapped, p, .T, .U, .N, .R,
+                         Gᵢ.baseAddress.unsafelyUnwrapped, p)
+                    
+                    // Hᵢ ← I → Hₗ Hₗᵀ
+                    vDSP.clear(&Hᵢ[0..<q²])
+                    vDSP_fill(1, Hᵢ.baseAddress.unsafelyUnwrapped, q + 1, q)
+                    trmm(q, q, 1,
+                         Hₗ.baseAddress.unsafelyUnwrapped, q, .N, .U, .N, .L,
+                         Hᵢ.baseAddress.unsafelyUnwrapped, q)
+                    trmm(q, q, 1,
+                         Hₗ.baseAddress.unsafelyUnwrapped, q, .T, .U, .N, .R,
+                         Hᵢ.baseAddress.unsafelyUnwrapped, q)
+                    
+                    svec(n: p, a: Gᵢ, lda: p,
+                         v: .init(rebasing: e.prefix(dp)))
+                    svec(n: q, a: Hᵢ, lda: q,
+                         v: .init(rebasing: e.suffix(dq)))
+                    for row in 0..<m {
+                        // 縮後の入力行列 a の1行を取り出す
+                        copy(n,
+                             a.baseAddress.unsafelyUnwrapped.advanced(by: row), lda,
+                             g.baseAddress.unsafelyUnwrapped, 1)
+                        
+                        adjoint(.init(rebasing: g.prefix(p)), Gᵢ)
+                        adjoint(.init(rebasing: g.suffix(q)), Hᵢ)
+                        
+                        // Gᵢ ← Gₗ Gᵢ Gₗᵀ
+                        trmm(p, p, 1,
+                             Gₗ.baseAddress.unsafelyUnwrapped, p, .N, .U, .N, .L,
+                             Gᵢ.baseAddress.unsafelyUnwrapped, p)
+                        trmm(p, p, 1,
+                             Gₗ.baseAddress.unsafelyUnwrapped, p, .T, .U, .N, .R,
+                             Gᵢ.baseAddress.unsafelyUnwrapped, p)
+                        
+                        // Hᵢ ← Hₗ Hᵢ Hₗᵀ
+                        trmm(q, q, 1,
+                             Hₗ.baseAddress.unsafelyUnwrapped, q, .N, .U, .N, .L,
+                             Hᵢ.baseAddress.unsafelyUnwrapped, q)
+                        trmm(q, q, 1,
+                             Hₗ.baseAddress.unsafelyUnwrapped, q, .T, .U, .N, .R,
+                             Hᵢ.baseAddress.unsafelyUnwrapped, q)
+                        
+                        svec(n: p, a: Gᵢ, lda: p,
+                             v: .init(rebasing: u.prefix(dp)))
+                        svec(n: q, a: Hᵢ, lda: q,
+                             v: .init(rebasing: u.suffix(dq)))
+                        
+                        // j の1行へ格納。列優先なので行の stride は m
+                        copy(d,
+                             u.baseAddress.unsafelyUnwrapped, 1,
+                             j.baseAddress.unsafelyUnwrapped.advanced(by: row), m)
+                    }
+                    switch w.update(fromContentsOf: e) {
+                    case let eof:
+                        assert(w.startIndex.distance(to: eof) == e.count)
+                    }
+                    let ψ = larfg(
+                        d, w[0], 0,
+                        w.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1
+                    ).y
+                    w[0] = 1
+                    
+                    // j ← j T
+                    larf(m, d,
+                         w.baseAddress.unsafelyUnwrapped, 1, .R,
+                         ψ,
+                         j.baseAddress.unsafelyUnwrapped, m,
+                         τ.baseAddress)
+                    guard gesvd(m, k,
+                                j.baseAddress.unsafelyUnwrapped.advanced(by: m), m,
+                                S.baseAddress,
+                                U.baseAddress, m,
+                                V.baseAddress, rank,
+                                ρ.baseAddress, ρ.count
+                    ) == 0 else {
+                        assertionFailure("gesvd failed")
+                        break path
+                    }
+                    // e ← svec(I, I)
+                    vDSP.clear(&Gᵢ[0..<p²])
+                    vDSP_fill(1, Gᵢ.baseAddress.unsafelyUnwrapped, p + 1, p)
+                    vDSP.clear(&Hᵢ[0..<q²])
+                    vDSP_fill(1, Hᵢ.baseAddress.unsafelyUnwrapped, q + 1, q)
+
+                    svec(n: p, a: Gᵢ, lda: p,
+                         v: .init(rebasing: e.prefix(dp)))
+                    svec(n: q, a: Hᵢ, lda: q,
+                         v: .init(rebasing: e.suffix(dq)))
+
+                    // e ← T e
+                    larf(d, 1,
+                         w.baseAddress.unsafelyUnwrapped, 1, .L,
+                         ψ,
+                         e.baseAddress.unsafelyUnwrapped, d,
+                         τ.baseAddress)
+
+                    // ρ の先頭 rank 要素 ← Uᵀr
+                    gemv(m, rank, 1,
+                         U.baseAddress.unsafelyUnwrapped, m, .T,
+                         r.baseAddress.unsafelyUnwrapped, 1,
+                         0, ρ.baseAddress.unsafelyUnwrapped, 1)
+
+                    // τ の先頭 rank 要素 ← VT e[1...]
+                    gemv(rank, k, 1,
+                         V.baseAddress.unsafelyUnwrapped, rank, .N,
+                         e.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1,
+                         0, τ.baseAddress.unsafelyUnwrapped, 1)
+                    // τ ← −S * (ρ + S * τ) / (μ + S²)
+                    vDSP.add(multiplication: (S, τ[0..<rank]),
+                             ρ[0..<rank],
+                             result: &τ[0..<rank])
+                    vDSP.multiply(S, τ[0..<rank], result: &τ[0..<rank])
+                    vDSP.negative(τ[0..<rank], result: &τ[0..<rank])
+
+                    vDSP.multiply(S, S, result: &ρ[0..<rank])
+                    vDSP.add(μ, ρ[0..<rank], result: &ρ[0..<rank])
+                    vDSP.divide(τ[0..<rank], ρ[0..<rank],
+                                result: &τ[0..<rank])
+
+                    // u ← [0; e[1...] + V a]
+                    u[0] = 0
+                    copy(k,
+                         e.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1,
+                         u.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1)
+
+                    gemv(rank, k, 1,
+                         V.baseAddress.unsafelyUnwrapped, rank, .T,
+                         τ.baseAddress.unsafelyUnwrapped, 1,
+                         1, u.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1)
+                    
+                    // τ ← VT u[1...]
+                    gemv(rank, k, 1,
+                         V.baseAddress.unsafelyUnwrapped, rank, .N,
+                         u.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1,
+                         0, τ.baseAddress.unsafelyUnwrapped, 1)
+
+                    // ||C u[1...]||² = ||Σ VT u[1...]||²
+                    vDSP.multiply(S, τ[0..<rank], result: &τ[0..<rank])
+
+                    let decrementSquared = fma(
+                        μ, vDSP.sumOfSquares(u),
+                        vDSP.sumOfSquares(τ[0..<rank])
+                    )
+                    guard decrementSquared.isFinite else {
+                        break path
+                    }
+
+                    // u ← T u：反射前の whitened 座標へ戻す
+                    larf(d, 1,
+                         w.baseAddress.unsafelyUnwrapped, 1, .L,
+                         ψ,
+                         u.baseAddress.unsafelyUnwrapped, d,
+                         ρ.baseAddress)
+
+                    let slope = dot(d,
+                                    v.baseAddress.unsafelyUnwrapped, 1,
+                                    u.baseAddress.unsafelyUnwrapped, 1)
+                    assert(slope.isFinite)
+
+                    // whitened 方向を対称行列へ
+                    smat(n: p, v: .init(rebasing: u.prefix(dp)), a: Gᵧ, lda: p)
+                    smat(n: q, v: .init(rebasing: u.suffix(dq)), a: Hᵧ, lda: q)
+
+                    // ΔG ← Gₗᵀ S_G Gₗ
+                    trmm(p, p, 1,
+                         Gₗ.baseAddress.unsafelyUnwrapped, p, .N, .U, .N, .R,
+                         Gᵧ.baseAddress.unsafelyUnwrapped, p)
+                    trmm(p, p, 1,
+                         Gₗ.baseAddress.unsafelyUnwrapped, p, .T, .U, .N, .L,
+                         Gᵧ.baseAddress.unsafelyUnwrapped, p)
+
+                    // ΔH ← Hₗᵀ S_H Hₗ
+                    trmm(q, q, 1,
+                         Hₗ.baseAddress.unsafelyUnwrapped, q, .N, .U, .N, .R,
+                         Hᵧ.baseAddress.unsafelyUnwrapped, q)
+                    trmm(q, q, 1,
+                         Hₗ.baseAddress.unsafelyUnwrapped, q, .T, .U, .N, .L,
+                         Hᵧ.baseAddress.unsafelyUnwrapped, q)
+                    
+                    let scale = max(1, objective, μ * .init(n))
+                    let threshold = min(torelance * scale, μ * centering)
+                    if 0.5 * decrementSquared <= threshold {
+                        centered = true
+                        break newton
+                    }
+                    assert(slope < 0)
+                    var α = 1.0
+                    var accepted = slope == 0
+                    linesearch: while !accepted, (α * α).isNormal {
+                        vDSP.add(multiplication: (Gᵧ, α), Gₘ,
+                                 result: &Gᵢ[0..<p²])
+                        vDSP.add(multiplication: (Hᵧ, α), Hₘ,
+                                 result: &Hᵢ[0..<q²])
+                        guard case.some(let testLogdetG) = logdet(n: p, a: Gᵢ, ld: p, w: Gₗ, ld: p),
+                              case.some(let testLogdetH) = logdet(n: q, a: Hᵢ, ld: q, w: Hₗ, ld: q) else {
+                            α *= 0.5
+                            continue linesearch
+                        }
+                        coefficients(Gᵢ, ε, .init(rebasing: θ.prefix(p)))
+                        coefficients(Hᵢ, ε, .init(rebasing: θ.suffix(q)))
+                        gemv(m, n,
+                             1,
+                             a.baseAddress.unsafelyUnwrapped, lda, .N,
+                             θ.baseAddress.unsafelyUnwrapped, 1,
+                             0,
+                             r.baseAddress.unsafelyUnwrapped, 1)
+                        let testObjective = fma(-μ, testLogdetG + testLogdetH, 0.5 * vDSP.sumOfSquares(r))
+                        if testObjective.isFinite, testObjective <= fma(α * armijo, slope, barrierObjective) {
+                            switch Gₘ.update(fromContentsOf: Gᵢ) {
+                            case let eof:
+                                assert(Gₘ.startIndex.distance(to: eof) == Gᵢ.count)
+                            }
+                            switch Hₘ.update(fromContentsOf: Hᵢ) {
+                            case let eof:
+                                assert(Hₘ.startIndex.distance(to: eof) == Hᵢ.count)
+                            }
+                            accepted = true
+                            break linesearch
+                        }
+                        α *= 0.5
+                    } // end of line-search
+                    assert(accepted, "Line search failed")
+                }
+                guard centered else { break path }
+                let objective = 0.5 * vDSP.sumOfSquares(r)
+                let scale = max(1, objective)
+                if μ * .init(n) <= torelance * scale {
+                    finished = true
+                    break path
+                } // end of newton
+                μ *= reduction
+            } // end of path
+            coefficients(Gₘ, ε, .init(rebasing: θ.prefix(p)))
+            coefficients(Hₘ, ε, .init(rebasing: θ.suffix(q)))
+            return (coefficients: .init(θ), converged: finished)
+        }
+    }
+    @inlinable // SPD v1
+    static func fit_v1(m: Int, n count: (p: Int, q: Int),
                     a: UnsafeMutableBufferPointer<Float64>, lda: Int,
                     armijo: Float64 = 0.01,
                     iteration: Int = 42, // newton iteration
