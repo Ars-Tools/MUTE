@@ -593,7 +593,7 @@ extension Linear {
     @inlinable
     static func logdet(n: Int,
                        a: UnsafeMutableBufferPointer<Float64>, ld lda: Int,
-                       _ w: UnsafeMutableBufferPointer<Float64>, ld ldw: Int) -> Optional<Float64> {
+                       w: UnsafeMutableBufferPointer<Float64>, ld ldw: Int) -> Optional<Float64> {
         assert(0..<lda ~= n - 1)
         assert(0..<ldw ~= n - 1)
         assert(n * lda <= a.count)
@@ -608,7 +608,7 @@ extension Linear {
             }
             return logdet.isFinite ? .some(logdet) : .none
         case let info:
-            precondition(0 < info, "potrf: invalid argument \(info)")
+            assert(0 < info, "potrf: invalid argument \(info)")
             return.none
         }
     }
@@ -802,9 +802,10 @@ extension Linear {
                          g.baseAddress.unsafelyUnwrapped, 1)
                     adjoint(.init(rebasing: g.prefix(p)), Gᵧ)
                     adjoint(.init(rebasing: g.suffix(q)), Hᵧ)
-                    guard case.some(let logdetG) = logdet(n: p, a: Gₘ, ld: p, Gₗ, ld: p),
-                          case.some(let logdetH) = logdet(n: q, a: Hₘ, ld: q, Hₗ, ld: q) else {
-                        assert("Initial Gram matrices must be positive definite")
+                    guard case.some(let logdetG) = logdet(n: p, a: Gₘ, ld: p, w: Gₗ, ld: p),
+                          case.some(let logdetH) = logdet(n: q, a: Hₘ, ld: q, w: Hₗ, ld: q) else {
+                        assertionFailure("Initial Gram matrices must be positive definite")
+                        break path;
                     }
                     vDSP_copy(p, p,
                               Gₗ.baseAddress.unsafelyUnwrapped, p,
@@ -856,7 +857,7 @@ extension Linear {
                     }
                     switch potrs(d, 2, β.baseAddress.unsafelyUnwrapped, d, .U, u.baseAddress.unsafelyUnwrapped, d) {
                     case let info:
-                        assert(info == 0, "potrs failed \(info) for (β, rhs)")
+                        assert(info == 0, "potrs failed \(info) for β and rhs")
                     }
                     let eu = dot(d,
                                  e.baseAddress.unsafelyUnwrapped, 1,
@@ -888,7 +889,7 @@ extension Linear {
                         centered = true
                         break newton
                     }
-                    precondition(slope < 0)
+                    assert(slope < 0)
                     var α = 1.0
                     var accepted = slope == 0
                     linesearch: while !accepted, (α * α).isNormal {
@@ -896,8 +897,8 @@ extension Linear {
                                  result: &Gᵢ[0..<p²])
                         vDSP.add(multiplication: (Hᵧ, α), Hₘ,
                                  result: &Hᵢ[0..<q²])
-                        guard case.some(let testLogdetG) = logdet(n: p, a: Gᵢ, ld: p, Gₗ, ld: p),
-                              case.some(let testLogdetH) = logdet(n: q, a: Hᵢ, ld: q, Hₗ, ld: q) else {
+                        guard case.some(let testLogdetG) = logdet(n: p, a: Gᵢ, ld: p, w: Gₗ, ld: p),
+                              case.some(let testLogdetH) = logdet(n: q, a: Hᵢ, ld: q, w: Hₗ, ld: q) else {
                             α *= 0.5
                             continue linesearch
                         }
@@ -924,7 +925,7 @@ extension Linear {
                         }
                         α *= 0.5
                     } // end of line-search
-                    precondition(accepted, "Line search failed")
+                    assert(accepted, "Line search failed")
                 }
                 guard centered else { break path }
                 let objective = 0.5 * vDSP.sumOfSquares(r)
@@ -1025,7 +1026,7 @@ extension Linear {
                            frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
                            weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
                            minimum ε: Float64,
-                           count: (p: Int, q: Int)) -> (coefficients: Array<Float64>, converged: Bool) {
+                           count: (p: Int, q: Int)) -> (coefficients: Direct.Power, converged: Bool) {
         let m = ω.count
         precondition(m == x.count)
         precondition(m == y.count)
@@ -1075,16 +1076,24 @@ extension Linear {
                 }
             }
             switch geqrf(m, n, M.baseAddress, m, s.baseAddress, z.baseAddress, z.count) {
-            case 0:
+            case let info:
+                assert(info == 0, "geqrf ends with \(info)")
                 for (col, len) in repeatElement(min(m, n), count: n).enumerated() {
                     M[col*m+col+1..<col*m+len].update(repeating: .zero)
                 }
-            case let info:
-                assertionFailure("geqrf ends with \(info)")
             }
-            return fit(m: n, n: (p, q),
-                       a: M, lda: m,
-                       minimum: ε)
+            return switch fit(m: n, n: (p, q),
+                              a: M, lda: m,
+                              minimum: ε) {
+            case (let θ, let coveraged):
+                (
+                    Direct.Power(raw: (
+                        .init(θ.prefix(p)),
+                        .init(θ.suffix(q))
+                    )),
+                    coveraged
+                )
+            }
         }
     }
     
