@@ -15,6 +15,7 @@ import func MKL.vDSP_copy
 import func MKL.vDSP_add
 import func BLAS.dot
 import func BLAS.ger
+import func BLAS.axpy
 import func BLAS.copy
 import func BLAS.trmv
 import func BLAS.trmm
@@ -32,6 +33,7 @@ import func LAPACK.gglse
 import func LAPACK.larf
 import func LAPACK.larfg
 import func Layout.concat
+import typealias Dispatch.DispatchQueue
 import simd
 // MARK: Non-Linear Fit
 extension Linear {
@@ -568,7 +570,7 @@ extension Linear { // GGLSE
 extension Linear {
     @usableFromInline
     static let sqrt2: Float64 = 2.squareRoot()
-    @inlinable@_transparent
+    @inlinable@inline(__always)@_transparent
     static func coefficients(_ K: UnsafeMutableBufferPointer<Float64>,
                              _ ε: Float64,
                              _ θ: UnsafeMutableBufferPointer<Float64>) {
@@ -583,7 +585,7 @@ extension Linear {
             }
         }
     }
-    @inlinable
+    @inlinable@inline(__always)@_transparent
     static func adjoint(_ g: UnsafeMutableBufferPointer<Float64>,
                         _ C: UnsafeMutableBufferPointer<Float64>) {
         let n = g.count
@@ -594,7 +596,7 @@ extension Linear {
             }
         }
     }
-    @inlinable
+    @inlinable@inline(__always)@_transparent
     static func logdet(n: Int,
                        a: UnsafeMutableBufferPointer<Float64>, ld lda: Int,
                        w: UnsafeMutableBufferPointer<Float64>, ld ldw: Int) -> Optional<Float64> {
@@ -616,7 +618,7 @@ extension Linear {
             return.none
         }
     }
-    @inlinable
+    @inlinable@inline(__always)@_transparent
     static func svec(n: Int,
                      a: UnsafeMutableBufferPointer<Float64>, lda: Int,
                      v: UnsafeMutableBufferPointer<Float64>) {
@@ -634,7 +636,7 @@ extension Linear {
             index += 1
         }
     }
-    @inlinable
+    @inlinable@inline(__always)@_transparent
     static func smat(n: Int, v: UnsafeMutableBufferPointer<Float64>,
                      a: UnsafeMutableBufferPointer<Float64>, lda: Int) {
         assert(0..<lda ~= n - 1)
@@ -652,7 +654,7 @@ extension Linear {
             }
         }
     }
-    @inlinable
+    @inlinable@inline(__always)@_transparent
     static func jacobian(m: Int, n: Int,
                          a: UnsafeMutableBufferPointer<Float64>, ld lda: Int,
                          j: UnsafeMutableBufferPointer<Float64>, ld ldj: Int) {
@@ -666,29 +668,59 @@ extension Linear {
             }
         }
     }
-    @inlinable
+    @inlinable@inline(__always)@_transparent
     static func addBarrierHessian(n: Int, μ: Float64,
                                   K: UnsafeMutableBufferPointer<Float64>, ld ldK: Int,
                                   Β: UnsafeMutableBufferPointer<Float64>, ld ldΒ: Int) {
-        var a = 0
-        for j in 0..<n {
-            for i in 0...j {
-                let sa = i == j ? 1 : sqrt2
-                var b = 0
-                for l in 0..<n {
-                    for k in 0...l {
-                        if a <= b {
-                            let sb = l == k ? 1 : sqrt2
-                            let weight = dot(
-                                SIMD2<Float64>(K[k * ldK + i], K[l * ldK + i]),
-                                SIMD2<Float64>(K[l * ldK + j], K[k * ldK + j])
-                            )
-                            Β[b * ldΒ + a] += 0.5 * μ * sa * sb * weight
-                        }
-                        b += 1
+//        var a = 0
+//        for j in 0..<n {
+//            for i in 0...j {
+//                let sa = i == j ? 1 : sqrt2
+//                var b = 0
+//                for l in 0..<n {
+//                    for k in 0...l {
+//                        if a <= b {
+//                            let sb = l == k ? 1 : sqrt2
+//                            let weight = dot(
+//                                SIMD2<Float64>(K[k * ldK + i], K[l * ldK + i]),
+//                                SIMD2<Float64>(K[l * ldK + j], K[k * ldK + j])
+//                            )
+//                            Β[b * ldΒ + a] += 0.5 * μ * sa * sb * weight
+//                        }
+//                        b += 1
+//                    }
+//                }
+//                a += 1
+//            }
+//        }
+        nonisolated(unsafe) let kp = K.baseAddress.unsafelyUnwrapped
+        nonisolated(unsafe) let bp = Β.baseAddress.unsafelyUnwrapped
+        DispatchQueue.concurrentPerform(iterations: n) { l in
+            let firstB = l * (l + 1) / 2
+            for k in 0...l {
+                let b = firstB + k
+                let sb = l == k ? 1 : sqrt2
+                let factor = 0.5 * μ * sb * sqrt2
+                for j in 0...l {
+                    let end = j == l ? k + 1 : j + 1
+                    let count = min(j, end)
+                    let dest = bp.advanced(by: b * ldΒ + j * (j + 1) / 2)
+                    // i < j：sa = √2
+                    if 0 < count {
+                        axpy(count,
+                             factor * kp[l * ldK + j],
+                             kp.advanced(by: k * ldK), 1,
+                             dest, 1)
+                        axpy(count,
+                             factor * kp[k * ldK + j],
+                             kp.advanced(by: l * ldK), 1,
+                             dest, 1)
+                    }
+                    // i == j：sa = 1、weight = 2 K[j,k] K[j,l]
+                    if j < end {
+                        dest[j] += μ * sb * kp[k * ldK + j] * kp[l * ldK + j]
                     }
                 }
-                a += 1
             }
         }
     }
@@ -797,7 +829,6 @@ extension Linear {
                          θ.baseAddress.unsafelyUnwrapped, 1,
                          0,
                          r.baseAddress.unsafelyUnwrapped, 1)
-                    let objective = 0.5 * vDSP.sumOfSquares(r)
                     gemv(m, n,
                          1,
                          a.baseAddress.unsafelyUnwrapped, lda, .T,
@@ -811,6 +842,7 @@ extension Linear {
                         assertionFailure("Initial Gram matrices must be positive definite")
                         break path;
                     }
+                    let objective = 0.5 * vDSP.sumOfSquares(r)
                     // Gᵧ ← Gₗ Gᵧ Gₗᵀ
                     trmm(p, p, 1,
                          Gₗ.baseAddress.unsafelyUnwrapped, p, .N, .U, .N, .L,
@@ -947,8 +979,7 @@ extension Linear {
                          e.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1,
                          0, τ.baseAddress.unsafelyUnwrapped, 1)
                     // τ ← −S * (ρ + S * τ) / (μ + S²)
-                    vDSP.add(multiplication: (S, τ[0..<rank]),
-                             ρ[0..<rank],
+                    vDSP.add(multiplication: (S, τ[0..<rank]), ρ[0..<rank],
                              result: &τ[0..<rank])
                     vDSP.multiply(S, τ[0..<rank], result: &τ[0..<rank])
                     vDSP.negative(τ[0..<rank], result: &τ[0..<rank])
@@ -960,9 +991,10 @@ extension Linear {
 
                     // u ← [0; e[1...] + V a]
                     u[0] = 0
-                    copy(k,
-                         e.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1,
-                         u.baseAddress.unsafelyUnwrapped.advanced(by: 1), 1)
+                    switch u.dropFirst().update(fromContentsOf: e.dropFirst()) {
+                    case let eof:
+                        assert(eof == u.endIndex)
+                    }
 
                     gemv(rank, k, 1,
                          V.baseAddress.unsafelyUnwrapped, rank, .T,
@@ -978,24 +1010,19 @@ extension Linear {
                     // ||C u[1...]||² = ||Σ VT u[1...]||²
                     vDSP.multiply(S, τ[0..<rank], result: &τ[0..<rank])
 
-                    let decrementSquared = fma(
-                        μ, vDSP.sumOfSquares(u),
-                        vDSP.sumOfSquares(τ[0..<rank])
-                    )
+                    let decrementSquared = fma(μ, vDSP.sumOfSquares(u), vDSP.sumOfSquares(τ[0..<rank]))
                     guard decrementSquared.isFinite else {
                         break path
                     }
-
+                    
                     // u ← T u：反射前の whitened 座標へ戻す
                     larf(d, 1,
                          w.baseAddress.unsafelyUnwrapped, 1, .L,
                          ψ,
                          u.baseAddress.unsafelyUnwrapped, d,
                          ρ.baseAddress)
-
-                    let slope = dot(d,
-                                    v.baseAddress.unsafelyUnwrapped, 1,
-                                    u.baseAddress.unsafelyUnwrapped, 1)
+                    
+                    let slope = vDSP.dot(u, v)
                     assert(slope.isFinite)
 
                     // whitened 方向を対称行列へ
@@ -1018,14 +1045,12 @@ extension Linear {
                          Hₗ.baseAddress.unsafelyUnwrapped, q, .T, .U, .N, .L,
                          Hᵧ.baseAddress.unsafelyUnwrapped, q)
                     
-                    let scale = max(1, objective, μ * .init(n))
-                    let threshold = min(torelance * scale, μ * centering)
-                    if 0.5 * decrementSquared <= threshold {
+                    if 0.5 * decrementSquared <= min(μ * centering, torelance * max(1, objective, μ * .init(n))) {
                         centered = true
                         break newton
                     }
                     assert(slope < 0)
-                    var α = 1.0
+                    var α = 1 as Float64
                     var accepted = slope == 0
                     linesearch: while !accepted, (α * α).isNormal {
                         vDSP.add(multiplication: (Gᵧ, α), Gₘ,
@@ -1063,9 +1088,7 @@ extension Linear {
                     assert(accepted, "Line search failed")
                 }
                 guard centered else { break path }
-                let objective = 0.5 * vDSP.sumOfSquares(r)
-                let scale = max(1, objective)
-                if μ * .init(n) <= torelance * scale {
+                if μ * .init(n) <= torelance * max(1, 0.5 * vDSP.sumOfSquares(r)) {
                     finished = true
                     break path
                 } // end of newton
