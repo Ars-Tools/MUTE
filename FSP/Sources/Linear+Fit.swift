@@ -625,15 +625,14 @@ extension Linear {
         assert(0..<lda ~= n - 1)
         assert(n * lda + n - lda <= a.count)
         assert(( n * n + n ) / 2 <= v.count)
-        var index = 0
+//        DispatchQueue.concurrentPerform(iterations: n) { col in
         for col in 0..<n {
-            let base = col * lda
-            for row in 0..<col {
-                v[index] = a[base + row] * sqrt2
-                index += 1
+            if 0 < col {
+                vDSP.multiply(sqrt2,
+                              a[col*lda..<col*lda+col],
+                              result: &v[col*(col+1)/2..<col*(col+1)/2+col])
             }
-            v[index] = a[base + col]
-            index += 1
+            v[col*(col+1)/2+col] = a[col*lda+col]
         }
     }
     @inlinable@inline(__always)@_transparent
@@ -642,29 +641,31 @@ extension Linear {
         assert(0..<lda ~= n - 1)
         assert(( n * n + n ) / 2 <= v.count)
         assert(n * lda + n - lda <= a.count)
-        var index = 0
+//        DispatchQueue.concurrentPerform(iterations: n) { col in
         for col in 0..<n {
-            for row in 0...col {
-                let value = row == col
-                    ? v[index]
-                    : v[index] / sqrt2
-                a[col * lda + row] = value
-                a[row * lda + col] = value
-                index += 1
+            if 0 < col {
+                vDSP.divide(v[col*(col+1)/2..<col*(col+1)/2+col],
+                            sqrt2,
+                            result: &a[col*lda..<col*lda+col])
+                copy(col,
+                     a.baseAddress.unsafelyUnwrapped.advanced(by: col * lda), 1,
+                     a.baseAddress.unsafelyUnwrapped.advanced(by: col), lda)
             }
+            a[col*lda+col] = v[col*(col+1)/2+col]
         }
     }
     @inlinable@inline(__always)@_transparent
     static func jacobian(m: Int, n: Int,
                          a: UnsafeMutableBufferPointer<Float64>, ld lda: Int,
                          j: UnsafeMutableBufferPointer<Float64>, ld ldj: Int) {
-        var cursor = 0
+//        DispatchQueue.concurrentPerform(iterations: n) { col in
         for col in 0..<n {
+            let idx = col * (col + 1) / 2
             for row in 0...col {
+                let index = (idx + row) * ldj
                 vDSP.multiply(row != col ? sqrt2 : 1,
                               a.dropFirst((col - row) * lda).prefix(m),
-                              result: &j[cursor..<cursor+m])
-                cursor += ldj
+                              result: &j[index..<index + m])
             }
         }
     }
