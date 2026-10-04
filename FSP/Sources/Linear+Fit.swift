@@ -10,17 +10,25 @@ import protocol Accelerate.AccelerateMutableBuffer
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import func Accelerate.vDSP_mmovD
+import func MKL.vDSP_fill
+import func MKL.vDSP_copy
 import func BLAS.dot
 import func BLAS.ger
 import func BLAS.copy
+import func BLAS.trmv
 import func BLAS.gemv
+import func BLAS.gemm
+import func BLAS.syrk
+import func LAPACK.potrf
+import func LAPACK.potrs
+import func LAPACK.potri
 import func LAPACK.gels
 import func LAPACK.geqrf
 import func LAPACK.gesvd
 import func LAPACK.gesvj
 import func LAPACK.gglse
 import func Layout.concat
-import func simd.log
+import simd
 // MARK: Non-Linear Fit
 extension Linear {
     public struct FitOption {
@@ -129,31 +137,8 @@ extension Linear {
             vForce.sincos(Yi, sinResult: &Yi[0..<N], cosResult: &Yr[0..<N])
             vDSP.multiply(Wr, Yr, result: &Yr[0..<N])
             vDSP.multiply(Wr, Yi, result: &Yi[0..<N])
-            
         }
-    }
-}
-// MARK: Compaction
-extension Linear {
-    @inlinable
-    static func compact(M: UnsafeMutableBufferPointer<Float64>, ld: Int, rows: Int, cols: Int) {
-        assert(cols <= rows)
-        let size = geqrf(rows, cols,
-                         .none, ld,
-                         .none,
-                         .none as Optional<UnsafeMutablePointer<Float64>>, 0)
-        assert(0 <= size)
-        let diag = min(rows, cols)
-        withUnsafeTemporaryAllocation(of: Float64.self, capacity: size + diag) {
-            let info = geqrf(rows, cols,
-                             M.baseAddress, ld,
-                             $0.baseAddress.map { $0.advanced(by: size) },
-                             $0.baseAddress, size)
-            assert(0 == info)
-        }
-        for col in 0..<cols {
-            M[col*ld+col+1..<col*ld+diag].update(repeating: .zero)
-        }
+        assertionFailure("WIP")
     }
 }
 // MARK: Complex Fit
@@ -367,7 +352,7 @@ extension Linear {
     }
 }
 // MARK: Power Fit
-extension Linear {
+extension Linear { // GGLSE
     @inlinable//@inline(__always)@_transparent // LS with constrains (internal sub-routine)
     static func fit(m: Int, n: Int,
                     a: some AccelerateBuffer<Float64>, lda: Int,
@@ -577,7 +562,386 @@ extension Linear {
     }
 }
 extension Linear {
-    // without constrains, deprecated
+    @usableFromInline
+    static let sqrt2: Float64 = 2.squareRoot()
+    @inlinable@_transparent
+    static func coefficients(_ K: UnsafeMutableBufferPointer<Float64>,
+                             _ ε: Float64,
+                             _ θ: UnsafeMutableBufferPointer<Float64>) {
+        let n = θ.count
+        assert(n * n <= K.count)
+        vDSP.clear(&θ[0..<n])
+        θ[0] = ε
+        for col in 0..<n {
+            θ[0] += K[col * n + col]
+            for row in 0..<col {
+                θ[0 + col - row] += 2 * K[col * n + row]
+            }
+        }
+    }
+    @inlinable
+    static func adjoint(_ g: UnsafeMutableBufferPointer<Float64>,
+                        _ C: UnsafeMutableBufferPointer<Float64>) {
+        let n = g.count
+        assert(n * n <= C.count)
+        for col in 0..<n {
+            for row in 0..<n {
+                C[col * n + row] = g[abs(col - row)]
+            }
+        }
+    }
+    @inlinable
+    static func logdet(n: Int,
+                       a: UnsafeMutableBufferPointer<Float64>, ld lda: Int,
+                       _ w: UnsafeMutableBufferPointer<Float64>, ld ldw: Int) -> Optional<Float64> {
+        assert(0..<lda ~= n - 1)
+        assert(0..<ldw ~= n - 1)
+        assert(n * lda <= a.count)
+        assert(n * ldw <= w.count)
+        vDSP_copy(n, n,
+                  a.baseAddress.unsafelyUnwrapped, lda,
+                  w.baseAddress.unsafelyUnwrapped, ldw)
+        switch potrf(n, w.baseAddress.unsafelyUnwrapped, ldw, .U) {
+        case 0:
+            let logdet = stride(from: 0, to: n * ldw, by: ldw + 1).reduce(0 as Float64) {
+                fma(2, log(w[$1]), $0)
+            }
+            return logdet.isFinite ? .some(logdet) : .none
+        case let info:
+            precondition(0 < info, "potrf: invalid argument \(info)")
+            return.none
+        }
+    }
+    @inlinable
+    static func svec(n: Int,
+                     a: UnsafeMutableBufferPointer<Float64>, lda: Int,
+                     v: UnsafeMutableBufferPointer<Float64>) {
+        assert(0..<lda ~= n - 1)
+        assert(n * lda + n - lda <= a.count)
+        assert(( n * n + n ) / 2 <= v.count)
+        var index = 0
+        for col in 0..<n {
+            let base = col * lda
+            for row in 0..<col {
+                v[index] = a[base + row] * sqrt2
+                index += 1
+            }
+            v[index] = a[base + col]
+            index += 1
+        }
+    }
+    @inlinable
+    static func smat(n: Int, v: UnsafeMutableBufferPointer<Float64>,
+                     a: UnsafeMutableBufferPointer<Float64>, lda: Int) {
+        assert(0..<lda ~= n - 1)
+        assert(( n * n + n ) / 2 <= v.count)
+        assert(n * lda + n - lda <= a.count)
+        var index = 0
+        for col in 0..<n {
+            for row in 0...col {
+                let value = row == col
+                    ? v[index]
+                    : v[index] / sqrt2
+                a[col * lda + row] = value
+                a[row * lda + col] = value
+                index += 1
+            }
+        }
+    }
+    @inlinable
+    static func jacobian(m: Int, n: Int,
+                         a: UnsafeMutableBufferPointer<Float64>, ld lda: Int,
+                         j: UnsafeMutableBufferPointer<Float64>, ld ldj: Int) {
+        var cursor = 0
+        for col in 0..<n {
+            for row in 0...col {
+                vDSP.multiply(row != col ? sqrt2 : 1,
+                              a.dropFirst((col - row) * lda).prefix(m),
+                              result: &j[cursor..<cursor+m])
+                cursor += ldj
+            }
+        }
+    }
+    @inlinable
+    static func addBarrierHessian(n: Int, μ: Float64,
+                                  K: UnsafeMutableBufferPointer<Float64>, ld ldK: Int,
+                                  Β: UnsafeMutableBufferPointer<Float64>, ld ldΒ: Int) {
+        var a = 0
+        for j in 0..<n {
+            for i in 0...j {
+                let sa = i == j ? 1 : sqrt2
+                var b = 0
+                for l in 0..<n {
+                    for k in 0...l {
+                        if a <= b {
+                            let sb = l == k ? 1 : sqrt2
+                            let weight = dot(
+                                SIMD2<Float64>(K[k * ldK + i], K[l * ldK + i]),
+                                SIMD2<Float64>(K[l * ldK + j], K[k * ldK + j])
+                            )
+                            Β[b * ldΒ + a] += 0.5 * μ * sa * sb * weight
+                        }
+                        b += 1
+                    }
+                }
+                a += 1
+            }
+        }
+    }
+    @inlinable // SPD
+    static func fit(m: Int, n count: (p: Int, q: Int),
+                    a: UnsafeMutableBufferPointer<Float64>, lda: Int,
+                    armijo: Float64 = 0.01,
+                    iteration: Int = 42, // newton iteration
+                    torelance: Float64 = 1e-8,
+                    centering: Float64 = 0.01,
+                    reduction: Float64 = 0.2,
+                    minimum ε: Float64) ->  (coefficients: Array<Float64>, converged: Bool) {
+        let (p, q) = count
+        let n = p + q
+        let dp = (p * p + p) / 2
+        let dq = (q * q + q) / 2
+        let d = dp + dq
+        precondition(m > 0)
+        precondition(p > 0 && q > 0)
+        precondition(lda >= m)
+        precondition(a.count >= (n - 1) * lda + m)
+        precondition(ε.isFinite && 0 < ε && ε < 1)
+        precondition(iteration >= 0)
+        let p² = switch p.multipliedReportingOverflow(by: p) {
+        case (let square, false):
+            square
+        default:
+            preconditionFailure()
+        }
+        let q² = switch q.multipliedReportingOverflow(by: q) {
+        case (let square, false):
+            square
+        default:
+            preconditionFailure()
+        }
+        let M² = p² + q²
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: 4 * M² + 2 * n + 4 * d + m * d + d * d + m) {
+            let (Gₘ, Hₘ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(0 * M²).prefix(M²)) {
+            case let M: (
+                UnsafeMutableBufferPointer(rebasing: M.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: M.suffix(q²))
+            )}
+            let (Gᵧ, Hᵧ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(1 * M²).prefix(M²)) {
+            case let C: (
+                UnsafeMutableBufferPointer(rebasing: C.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: C.suffix(q²))
+            )}
+            let (Gₗ, Hₗ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(2 * M²).prefix(M²)) {
+            case let L: (
+                UnsafeMutableBufferPointer(rebasing: L.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: L.suffix(q²))
+            )}
+            let (Gᵢ, Hᵢ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(3 * M²).prefix(M²)) {
+            case let L: (
+                UnsafeMutableBufferPointer(rebasing: L.prefix(p²)),
+                UnsafeMutableBufferPointer(rebasing: L.suffix(q²))
+            )}
+            let (θ, g) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M²).prefix(2 * n)) {
+            case let W: (
+                UnsafeMutableBufferPointer(rebasing: W.prefix(n)),
+                UnsafeMutableBufferPointer(rebasing: W.suffix(n))
+            )}
+            let (v, e, u, w) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n).prefix(4 * d)) {
+            case let D: (
+                UnsafeMutableBufferPointer(rebasing: D[0*d..<1*d]),
+                UnsafeMutableBufferPointer(rebasing: D[1*d..<2*d]),
+                UnsafeMutableBufferPointer(rebasing: D[2*d..<3*d]),
+                UnsafeMutableBufferPointer(rebasing: D[3*d..<4*d])
+            )}
+            let j = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n + 4 * d).prefix(m * d))
+            let β = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n + 4 * d + m * d).prefix(d * d))
+            let r = UnsafeMutableBufferPointer(rebasing: $0.suffix(m))
+            vDSP.clear(&Gₘ[0..<p²])
+            vDSP_fill((1 - ε) / .init(p), Gₘ.baseAddress.unsafelyUnwrapped, p + 1, p)
+            vDSP.clear(&Hₘ[0..<q²])
+            vDSP_fill((1 - ε) / .init(q), Hₘ.baseAddress.unsafelyUnwrapped, q + 1, q)
+            vDSP.clear(&e[0..<d])
+            switch (
+                UnsafeMutableBufferPointer(rebasing: e.prefix(dp)),
+                UnsafeMutableBufferPointer(rebasing: e.suffix(dq))
+            ) {
+            case (let ep, let eq):
+                for col in 0..<p {
+                    ep[col * (col + 1) / 2 + col] = 1
+                }
+                for col in 0..<q {
+                    eq[col * (col + 1) / 2 + col] = 1
+                }
+            }
+            jacobian(m: m, n: p,
+                     a: .init(rebasing: a.dropFirst(0 * lda)), ld: lda,
+                     j: .init(rebasing: j.dropFirst( 0 * m)), ld: m)
+            jacobian(m: m, n: q,
+                     a: .init(rebasing: a.dropFirst(p * lda)), ld: lda,
+                     j: .init(rebasing: j.dropFirst(dp * m)), ld: m)
+            var μ = 1 as Float64
+            var finished = false
+            path: while !finished, (μ * μ).isNormal {
+                var centered = false
+                newton: for () in repeatElement((), count: iteration) {
+                    coefficients(Gₘ, ε, .init(rebasing: θ.prefix(p)))
+                    coefficients(Hₘ, ε, .init(rebasing: θ.suffix(q)))
+                    gemv(m, n,
+                         1,
+                         a.baseAddress.unsafelyUnwrapped, lda, .N,
+                         θ.baseAddress.unsafelyUnwrapped, 1,
+                         0,
+                         r.baseAddress.unsafelyUnwrapped, 1)
+                    let objective = 0.5 * vDSP.sumOfSquares(r)
+                    gemv(m, n,
+                         1,
+                         a.baseAddress.unsafelyUnwrapped, lda, .T,
+                         r.baseAddress.unsafelyUnwrapped, 1,
+                         0,
+                         g.baseAddress.unsafelyUnwrapped, 1)
+                    adjoint(.init(rebasing: g.prefix(p)), Gᵧ)
+                    adjoint(.init(rebasing: g.suffix(q)), Hᵧ)
+                    guard case.some(let logdetG) = logdet(n: p, a: Gₘ, ld: p, Gₗ, ld: p),
+                          case.some(let logdetH) = logdet(n: q, a: Hₘ, ld: q, Hₗ, ld: q) else {
+                        assert("Initial Gram matrices must be positive definite")
+                    }
+                    vDSP_copy(p, p,
+                              Gₗ.baseAddress.unsafelyUnwrapped, p,
+                              Gᵢ.baseAddress.unsafelyUnwrapped, p)
+                    switch potri(p, Gᵢ.baseAddress.unsafelyUnwrapped, p, .U) {
+                    case let info:
+                        assert(info == 0, "potri failed \(info) for G")
+                    }
+                    for col in 1..<p {
+                        copy(col,
+                             Gᵢ.baseAddress.unsafelyUnwrapped.advanced(by: col * p), 1,
+                             Gᵢ.baseAddress.unsafelyUnwrapped.advanced(by: col), p)
+                    }
+                    vDSP_copy(q, q,
+                              Hₗ.baseAddress.unsafelyUnwrapped, q,
+                              Hᵢ.baseAddress.unsafelyUnwrapped, q)
+                    switch potri(q, Hᵢ.baseAddress.unsafelyUnwrapped, q, .U) {
+                    case let info:
+                        assert(info == 0, "potri failed \(info) for H")
+                    }
+                    for col in 1..<q {
+                        copy(col,
+                             Hᵢ.baseAddress.unsafelyUnwrapped.advanced(by: col * q), 1,
+                             Hᵢ.baseAddress.unsafelyUnwrapped.advanced(by: col), q)
+                    }
+                    let barrierObjective = fma(-μ, logdetG + logdetH, objective)
+                    vDSP.add(multiplication: (Gᵢ, -μ), Gᵧ, result: &Gᵧ[0..<p²])
+                    vDSP.add(multiplication: (Hᵢ, -μ), Hᵧ, result: &Hᵧ[0..<q²])
+                    svec(n: p, a: Gᵧ, lda: p, v: .init(rebasing: v.prefix(dp)))
+                    svec(n: q, a: Hᵧ, lda: q, v: .init(rebasing: v.suffix(dq)))
+                    switch u.update(fromContentsOf: v) {
+                    case let eof:
+                        assert(u.startIndex.distance(to: eof) == v.count)
+                    }
+                    switch w.update(fromContentsOf: e) {
+                    case let eof:
+                        assert(w.startIndex.distance(to: eof) == e.count)
+                    }
+                    syrk(d, m,
+                         1,
+                         j.baseAddress.unsafelyUnwrapped, m, .T,
+                         0,
+                         β.baseAddress.unsafelyUnwrapped, d, .U)
+                    addBarrierHessian(n: p, μ: μ, K: Gᵢ, ld: p, Β: β, ld: d)
+                    addBarrierHessian(n: q, μ: μ, K: Hᵢ, ld: q, Β: .init(rebasing: β.dropFirst(dp * d + dp)), ld: d)
+                    switch potrf(d, β.baseAddress.unsafelyUnwrapped, d, .U) {
+                    case let info:
+                        assert(info == 0, "potrf failed \(info) for β")
+                    }
+                    switch potrs(d, 2, β.baseAddress.unsafelyUnwrapped, d, .U, u.baseAddress.unsafelyUnwrapped, d) {
+                    case let info:
+                        assert(info == 0, "potrs failed \(info) for (β, rhs)")
+                    }
+                    let eu = dot(d,
+                                 e.baseAddress.unsafelyUnwrapped, 1,
+                                 u.baseAddress.unsafelyUnwrapped, 1)
+                    let ew = dot(d,
+                                 e.baseAddress.unsafelyUnwrapped, 1,
+                                 w.baseAddress.unsafelyUnwrapped, 1)
+                    assert(eu.isFinite)
+                    assert(ew.isFinite && 0 < ew)
+                    vDSP.add(multiplication: (w, eu / ew), multiplication: (u, -1), result: &u[0..<d])
+                    smat(n: p, v: .init(rebasing: u.prefix(dp)), a: Gᵧ, lda: p)
+                    smat(n: q, v: .init(rebasing: u.suffix(dq)), a: Hᵧ, lda: q)
+                    let slope = dot(d,
+                                    v.baseAddress.unsafelyUnwrapped, 1,
+                                    u.baseAddress.unsafelyUnwrapped, 1)
+                    assert(slope.isFinite)
+                    switch w.update(fromContentsOf: u) {
+                    case let eof:
+                        assert(w.startIndex.distance(to: eof) == u.count)
+                    }
+                    trmv(d,
+                         β.baseAddress.unsafelyUnwrapped, d, .N, .U, .N,
+                         w.baseAddress.unsafelyUnwrapped, 1)
+                    let decrementSquared = vDSP.sumOfSquares(w)
+                    assert(decrementSquared.isFinite)
+                    let scale = max(1, objective, μ * .init(n))
+                    let threshold = min(torelance * scale, μ * centering)
+                    if 0.5 * decrementSquared <= threshold {
+                        centered = true
+                        break newton
+                    }
+                    precondition(slope < 0)
+                    var α = 1.0
+                    var accepted = slope == 0
+                    linesearch: while !accepted, (α * α).isNormal {
+                        vDSP.add(multiplication: (Gᵧ, α), Gₘ,
+                                 result: &Gᵢ[0..<p²])
+                        vDSP.add(multiplication: (Hᵧ, α), Hₘ,
+                                 result: &Hᵢ[0..<q²])
+                        guard case.some(let testLogdetG) = logdet(n: p, a: Gᵢ, ld: p, Gₗ, ld: p),
+                              case.some(let testLogdetH) = logdet(n: q, a: Hᵢ, ld: q, Hₗ, ld: q) else {
+                            α *= 0.5
+                            continue linesearch
+                        }
+                        coefficients(Gᵢ, ε, .init(rebasing: θ.prefix(p)))
+                        coefficients(Hᵢ, ε, .init(rebasing: θ.suffix(q)))
+                        gemv(m, n,
+                             1,
+                             a.baseAddress.unsafelyUnwrapped, lda, .N,
+                             θ.baseAddress.unsafelyUnwrapped, 1,
+                             0,
+                             r.baseAddress.unsafelyUnwrapped, 1)
+                        let testObjective = fma(-μ, testLogdetG + testLogdetH, 0.5 * vDSP.sumOfSquares(r))
+                        if testObjective.isFinite, testObjective <= fma(α * armijo, slope, barrierObjective) {
+                            switch Gₘ.update(fromContentsOf: Gᵢ) {
+                            case let eof:
+                                assert(Gₘ.startIndex.distance(to: eof) == Gᵢ.count)
+                            }
+                            switch Hₘ.update(fromContentsOf: Hᵢ) {
+                            case let eof:
+                                assert(Hₘ.startIndex.distance(to: eof) == Hᵢ.count)
+                            }
+                            accepted = true
+                            break linesearch
+                        }
+                        α *= 0.5
+                    } // end of line-search
+                    precondition(accepted, "Line search failed")
+                }
+                guard centered else { break path }
+                let objective = 0.5 * vDSP.sumOfSquares(r)
+                let scale = max(1, objective)
+                if μ * .init(n) <= torelance * scale {
+                    finished = true
+                    break path
+                } // end of newton
+                μ *= reduction
+            } // end of path
+            coefficients(Gₘ, ε, .init(rebasing: θ.prefix(p)))
+            coefficients(Hₘ, ε, .init(rebasing: θ.suffix(q)))
+            return (coefficients: .init(θ), converged: finished)
+        }
+    }
+}
+extension Linear {
 //    @inlinable // Power LS (SVD)
 //    static func fit(X x: some AccelerateBuffer<Float64>, /* XX */
 //                    Y y: some AccelerateBuffer<Float64>, /* YY */
@@ -655,6 +1019,76 @@ extension Linear {
 //        }
 //    }
     // Power LS with P(t), Q(t) >= ε for every t in [-1, 1].
+    @inlinable
+    public static func fit(xx x: some AccelerateBuffer<Float64>,
+                           yy y: some AccelerateBuffer<Float64>,
+                           frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
+                           weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
+                           minimum ε: Float64,
+                           count: (p: Int, q: Int)) -> (coefficients: Array<Float64>, converged: Bool) {
+        let m = ω.count
+        precondition(m == x.count)
+        precondition(m == y.count)
+        precondition(m == w.count)
+        precondition(0 <= count.p)
+        precondition(0 <= count.q)
+        precondition(ε.isFinite && 0 < ε && ε < 1)
+        let (p, q) = switch count {
+        case (let p, let q):
+            (p + 1, q + 1)
+        }
+        let n = p + q
+        precondition(n <= m)
+        precondition(x.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
+        precondition(y.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
+        precondition(ω.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
+        precondition(w.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
+        let l = geqrf(m, n,
+                      .none, m,
+                      .none,
+                      .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(0 < l)
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + min(m, n) + max(m, n, l)) {
+            let M = UnsafeMutableBufferPointer(rebasing: $0.prefix(m * n))
+            let s = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(min(m, n)))
+            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + min(m, n)).prefix(max(m, n, l)))
+            // M[l,:] = sqrt(w[l]/(x^2 + y^2)) [x[l]T_b, -y[l]T_a].
+            vForce.sqrt(w, result: &z[0..<m])
+            vDSP.hypot(x, y, result: &M[p * m ..< p * m + m])
+            vDSP.divide(x, M[p * m ..< p * m + m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.multiply(z[0..<m], M[0 * m ..< 0 * m + m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.invertedClip(M[0 * m ..< 0 * m + m], to: 0...0, result: &M[0 * m ..< 0 * m + m])
+            vDSP.divide(y, M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            vDSP.multiply(z[0..<m], M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            vDSP.invertedClip(M[p * m ..< p * m + m], to: 0...0, result: &M[p * m ..< p * m + m])
+            vDSP.negative(M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            for k in 1..<max(p, q) {
+                vDSP.multiply(.init(2 * k), ω, result: &z[0..<m])
+                vForce.cosPi(z[0..<m], result: &z[0..<m])
+                if k < p {
+                    let r = (0 + k) * m ..< (0 + k) * m + m
+                    vDSP.multiply(z[0..<m], M[0 * m ..< 0 * m + m], result: &M[r])
+                }
+                if k < q {
+                    let r = (p + k) * m ..< (p + k) * m + m
+                    vDSP.multiply(z[0..<m], M[p * m ..< p * m + m], result: &M[r])
+                }
+            }
+            switch geqrf(m, n, M.baseAddress, m, s.baseAddress, z.baseAddress, z.count) {
+            case 0:
+                for (col, len) in repeatElement(min(m, n), count: n).enumerated() {
+                    M[col*m+col+1..<col*m+len].update(repeating: .zero)
+                }
+            case let info:
+                assertionFailure("geqrf ends with \(info)")
+            }
+            return fit(m: n, n: (p, q),
+                       a: M, lda: m,
+                       minimum: ε)
+        }
+    }
+    
+    // Power LS with P(t), Q(t) >= ε for every t in [-1, 1].
     // The otherwise homogeneous scale is fixed symmetrically by p[0] + q[0] = 2.
     @inlinable
     public static func fit(xx x: some AccelerateBuffer<Float64>,
@@ -681,7 +1115,7 @@ extension Linear {
         precondition(y.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
         precondition(ω.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
         precondition(w.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
-        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + 2 * m) {
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + 2 * max(m, n)) {
             let M = UnsafeMutableBufferPointer(rebasing: $0.prefix(m * n))
             let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(max(m, n)))
             // M[l,:] = sqrt(w[l]/(x^2 + y^2)) [x[l]T_b, -y[l]T_a].
