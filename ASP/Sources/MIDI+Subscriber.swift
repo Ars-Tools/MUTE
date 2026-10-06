@@ -6,7 +6,7 @@
 //
 @preconcurrency import CoreAudioKit
 @preconcurrency import Combine
-import MIDI
+import WSP
 // An AudioUnit to subscribe some MIDI source out of the AUGraph to receive MIDI messages
 public final class MIDISubscriber: AUAudioUnit, @unchecked Sendable {
 	let input: AUAudioUnitBus

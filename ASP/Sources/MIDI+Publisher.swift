@@ -5,7 +5,7 @@
 //  Created by Kota on 7/21/R7.
 //
 @preconcurrency import CoreAudioKit
-import MIDI
+import WSP
 // An AudioUnit which creates MIDI virtual source to publish midi messages from the AUGraph
 public final class MIDIPublisher: AUAudioUnit {
 	let input: AUAudioUnitBus
@@ -47,7 +47,7 @@ extension MIDIPublisher {
 		{ [audioUnitMIDIProtocol, scheduleMIDIEventListBlock] t, b, s, d in
 			let status = switch MSG_1_0(buffer: UnsafeBufferPointer(start: d, count: s)) {
 			case.some(let msg):
-				MIDI.Buffer(msg: CollectionOfOne(msg), as: audioUnitMIDIProtocol, at: .init(AUEventSampleTimeImmediate)).withUnsafeEventListPointer {
+				WSP.Buffer(msg: CollectionOfOne(msg), as: audioUnitMIDIProtocol, at: .init(AUEventSampleTimeImmediate)).withUnsafeEventListPointer {
 					scheduleMIDIEventListBlock(AUEventSampleTimeImmediate, b, $0)
 				}
 			case.none:

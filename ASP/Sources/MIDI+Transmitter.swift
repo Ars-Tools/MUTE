@@ -6,7 +6,7 @@
 //
 @preconcurrency import CoreAudioKit
 @preconcurrency import Combine
-import MIDI
+import WSP
 // An AudioUnit to transmit MIDI messages to some MIDI destination out of the AUGraph
 public final class MIDITransmitter: AUAudioUnit {
 	let input: AUAudioUnitBus
@@ -95,7 +95,7 @@ extension MIDITransmitter {
 		{ [audioUnitMIDIProtocol, scheduleMIDIEventListBlock] t, b, s, d in
 			let status = switch MSG_1_0(buffer: UnsafeBufferPointer(start: d, count: s)) {
 			case.some(let msg):
-				MIDI.Buffer(msg: CollectionOfOne(msg), as: audioUnitMIDIProtocol, at: .init(AUEventSampleTimeImmediate)).withUnsafeEventListPointer {
+				WSP.Buffer(msg: CollectionOfOne(msg), as: audioUnitMIDIProtocol, at: .init(AUEventSampleTimeImmediate)).withUnsafeEventListPointer {
 					scheduleMIDIEventListBlock(AUEventSampleTimeImmediate, b, $0)
 				}
 			case.none:

@@ -5,7 +5,7 @@
 //  Created by Kota on 7/20/R7.
 //
 @preconcurrency import CoreAudioKit
-import MIDI
+import WSP
 // An AudioUnit which creates MIDI virtual destination to receive midi messages and send into the AUGraph
 public final class MIDIReceiver: AUAudioUnit {
 	let input: AUAudioUnitBus
