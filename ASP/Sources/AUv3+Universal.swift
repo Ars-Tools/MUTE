@@ -14,7 +14,7 @@ import let AudioUnit.kAudioUnitErr_CannotDoInCurrentContext
 import let AudioUnit.AUEventSampleTimeImmediate
 import typealias Synchronization.Atomic
 import typealias AVFoundation.AVAudioFormat
-import typealias MIDI.Proxy
+import typealias WSP.Proxy
 import typealias CoreMIDI.MIDIEventList
 import func CoreMIDI.MIDIEventListInit
 import func CoreMIDI.MIDIEventListAdd
@@ -35,7 +35,7 @@ import os.log
 @dynamicMemberLookup
 open class Universal: AUAudioUnit {
 	var bus: (i: Array<Input.`Protocol`>, o: Array<Output.`Protocol`>) = (.init(), .init())
-	var midi: Array<(i: MIDI.Proxy, o: MIDI.Proxy)> = .init()
+	var midi: Array<(i: WSP.Proxy, o: WSP.Proxy)> = .init()
 	let timeSignaturePublisher: PassthroughSubject<SIMD2<Float64>, Never> = .init()
 	let beatPublisher: PassthroughSubject<SIMD2<Float64>, Never> = .init()
 	private(set) var cancellables: Set<AnyCancellable> = .init()
