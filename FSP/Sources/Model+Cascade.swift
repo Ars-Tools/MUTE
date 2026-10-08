@@ -1,8 +1,8 @@
 //
-//  Linear+Biquad+Cascade.swift
+//  Model+Cascade.swift
 //  MUTE
 //
-//  Created by Kota on 9/3/26.
+//  Created by Kota on 10/7/26.
 //
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
@@ -14,16 +14,16 @@ import func simd.fma
 import typealias Numerics.Complex128
 import typealias Dense.MatBuf
 import typealias Optimise.Graph
-extension Linear {
+extension Model {
     public typealias Cascade = Array<Biquad>
 }
-extension Linear.Cascade {
+extension Model.Cascade {
     @inlinable
     public var ⁻¹: Self {
         map(\.⁻¹)
     }
 }
-extension Linear.Cascade {
+extension Model.Cascade {
     @inlinable@inline(__always)@_transparent
     static func Quadratics(z: Array<Complex128>, r: Array<Float64>) -> Array<SIMD3<Float64>> {
         var p = Array<SIMD3<Float64>>()
@@ -63,7 +63,7 @@ extension Linear.Cascade {
         return p
     }
     @inlinable
-    public init(zpk: Linear.ZPK) {
+    public init(zpk: Model.ZPK) {
         var b = Self.Quadratics(z: zpk.z.0, r: zpk.z.1)
         var a = Self.Quadratics(z: zpk.p.0, r: zpk.p.1)
         let c = Swift.max(b.count, a.count)
@@ -74,7 +74,7 @@ extension Linear.Cascade {
         var table = MatBuf(shape: (c, c), with: 0.0)
         for (row, zero) in b.enumerated() {
             for (col, pole) in a.enumerated() {
-                let δ₋₁ = switch Linear.Biquad(raw: (zero, pole)).𝒢 {
+                let δ₋₁ = switch Model.Biquad(raw: (zero, pole)).𝒢 {
                 case let 𝒢:
                     ( 𝒢.y - 𝒢.x ) / 𝒢.x // = 𝒢.y / 𝒢.x  - 1
                 }
@@ -109,40 +109,34 @@ extension Linear.Cascade {
         }
     }
 }
-extension Linear.Cascade {
+extension Model.Cascade {
     @inlinable
-    public init(decompose direct: Linear.Direct) {
+    public init(decompose direct: Model.Direct) {
         self.init(zpk: direct.zpk)
     }
 }
-extension Linear.Cascade {
+extension Model.Cascade {
     @inlinable
-    public var zpk: Linear.ZPK {
-        reduce(into: ((Array<Complex128>(), Array<Float64>()), (Array<Complex128>(), Array<Float64>()), .none)) {
+    public var zpk: Model.ZPK {
+        reduce(into: .init()) {
             switch $1.zero {
-            case let root where root.0.imag.isZero:
-                assert(root.1.imag.isZero)
-                $0.0.1.append(root.0.real)
-                $0.0.1.append(root.1.real)
-            case let root:
-                assert(0 > root.0.imag)
-                assert(0 < root.1.imag)
-                $0.0.0.append(root.1)
+            case.complex(let real, let imag):
+                $0.z.0.append(.init(real: real, imag: imag))
+            case.real(let r₀, let r₁):
+                $0.z.1.append(r₀)
+                $0.z.1.append(r₁)
             }
             switch $1.pole {
-            case let root where root.0.imag.isZero:
-                assert(root.1.imag.isZero)
-                $0.1.1.append(root.0.real)
-                $0.1.1.append(root.1.real)
-            case let root:
-                assert(0 > root.0.imag)
-                assert(0 < root.1.imag)
-                $0.1.0.append(root.1)
+            case.complex(let real, let imag):
+                $0.p.0.append(.init(real: real, imag: imag))
+            case.real(let r₀, let r₁):
+                $0.p.1.append(r₀)
+                $0.p.1.append(r₁)
             }
         }
     }
 }
-extension Linear.Cascade {
+extension Model.Cascade {
     @inlinable
     public var serialized: Array<Float64> {
         flatMap(\.serialized)
