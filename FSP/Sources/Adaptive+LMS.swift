@@ -10,6 +10,7 @@
 //
 //  Created by Kota on 8/13/R7.
 //
+import func DSP.`repeat`
 import typealias CoreMedia.CMTime
 @preconcurrency import protocol Combine.Publisher
 import protocol DSP.Stream

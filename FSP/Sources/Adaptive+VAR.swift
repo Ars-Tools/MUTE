@@ -8,6 +8,7 @@ import typealias CoreMedia.CMTime
 import typealias Auxiliary.Autorelease
 import protocol DSP.Stream
 import typealias DSP.Instance
+@preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Just
 import KSP
 @usableFromInline

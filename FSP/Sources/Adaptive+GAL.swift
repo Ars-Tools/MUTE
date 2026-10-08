@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 8/15/R7.
 //
+import func DSP.`repeat`
 import typealias CoreMedia.CMTime
 import protocol DSP.Stream
 import typealias DSP.Instance
