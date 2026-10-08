@@ -1,8 +1,8 @@
 //
-//  Linear+Direct+Power.swift
+//  Model+Direct+Power.swift
 //  MUTE
 //
-//  Created by Kota on 9/7/26.
+//  Created by Kota on 10/7/26.
 //
 import typealias Foundation.KeyPathComparator
 import typealias Accelerate.vDSP
@@ -24,7 +24,7 @@ import func MKL.vDSP_fill
 import func BLAS.copy
 import func LAPACK.hseqr
 import func Layout.concat
-extension Linear.Direct {
+extension Model.Direct {
     @usableFromInline
     struct ChebyshevPolynomial {
         @usableFromInline let rawValue: Array<Float64>
@@ -34,7 +34,7 @@ extension Linear.Direct {
         @usableFromInline let q: ChebyshevPolynomial
     }
 }
-extension Linear.Direct.ChebyshevPolynomial {
+extension Model.Direct.ChebyshevPolynomial {
     /// Lazily generates `T₀(x), T₁(x), …` without an upper degree bound.
     @inlinable
     static func basis(at x: Float64) -> some Sequence<Float64> {
@@ -46,7 +46,7 @@ extension Linear.Direct.ChebyshevPolynomial {
         }
     }
 }
-extension Linear.Direct.ChebyshevPolynomial {
+extension Model.Direct.ChebyshevPolynomial {
     @inlinable
     package init(_ coefficients: Array<Float64>) {
         rawValue = coefficients
@@ -57,9 +57,9 @@ extension Linear.Direct.ChebyshevPolynomial {
         rawValue = .init(Self.basis(at: x).prefix(degree + 1))
     }
 }
-extension Linear.Direct.Power {
+extension Model.Direct.Power {
     @inlinable
-    init(raw: (p: Linear.Direct.ChebyshevPolynomial, q: Linear.Direct.ChebyshevPolynomial)) {
+    init(raw: (p: Model.Direct.ChebyshevPolynomial, q: Model.Direct.ChebyshevPolynomial)) {
         (p, q) = raw
     }
     @inlinable
@@ -67,7 +67,7 @@ extension Linear.Direct.Power {
         self.init(raw: (.init(raw.p), .init(raw.q)))
     }
 }
-extension Linear.Direct.ChebyshevPolynomial {
+extension Model.Direct.ChebyshevPolynomial {
     @inlinable
     func callAsFunction(_ x: Float64) -> Float64 {
         assert(!rawValue.isEmpty)
@@ -79,7 +79,7 @@ extension Linear.Direct.ChebyshevPolynomial {
         return fma(-x, b₂, b₁)
     }
 }
-extension Linear.Direct.ChebyshevPolynomial {
+extension Model.Direct.ChebyshevPolynomial {
     @inlinable
     var derivative: Self {
         guard rawValue.count > 1 else {
@@ -173,7 +173,7 @@ extension Linear.Direct.ChebyshevPolynomial {
         }.unsafelyUnwrapped
     }
 }
-extension Linear.Direct.Power {
+extension Model.Direct.Power {
     /*
     @inlinable
     var zpk: Linear.ZPK {
@@ -271,7 +271,7 @@ extension Linear.Direct.Power {
     }
     */
     @inlinable
-    public var zpkMinimumPhase: Linear.ZPK {
+    public var zpkMinimumPhase: Model.ZPK {
         let p = p.rawValue
         let q = q.rawValue
         assert(!p.isEmpty)
@@ -412,6 +412,10 @@ extension Linear.Direct.Power {
                 logG += vDSP.sum($0[0..<eof])
             }
         }
-        return ((zc, zr), (pc, pr), .some(exp(logG)))
+        return.init(raw: (
+            (zc, zr),
+            (pc, pr),
+            .some(exp(logG))
+        ))
     }
 }
