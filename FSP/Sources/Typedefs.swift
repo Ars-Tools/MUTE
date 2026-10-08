@@ -12,8 +12,3 @@ enum Error: Swift.Error & Sendable {
 	case lackOfResource(String)
 	case failedToAllocate(Any.Type)
 }
-//@usableFromInline
-//struct SplitComplex<Part: AccelerateBuffer<Float64>> {
-//	@usableFromInline let r: Part
-//	@usableFromInline let i: Part
-//}
