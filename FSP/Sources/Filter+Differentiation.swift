@@ -7,6 +7,14 @@
 import struct Synchronization.Mutex
 import func Layout.broadcast
 import func KSP.calculus_differentiation
+import protocol DSP.Stream
+import typealias DSP.Instance
+import typealias CLK.CMTime
+import func DSP.φ
+prefix operator ∂
+public prefix func ∂(x: Stream) -> some Stream { // diff(f(t)) without reset trigger
+    filter(x, sos: .raw(b: .init( 1, 0, -1), a: .init( 1, 1, 0)))
+}
 @usableFromInline
 enum Differentiation {
 	@usableFromInline
