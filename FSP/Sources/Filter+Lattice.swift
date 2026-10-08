@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 5/11/26.
 //
+import func DSP.`repeat`
 import typealias Accelerate.vDSP
 import protocol Accelerate.AccelerateBuffer
 import protocol Accelerate.AccelerateMutableBuffer
@@ -20,7 +21,7 @@ import typealias Auxiliary.Autorelease
 import typealias Synchronization.Mutex
 import func simd.fma
 @preconcurrency import protocol Combine.Publisher
-extension Special {
+extension Filter {
     @usableFromInline
     enum Lattice {
         @usableFromInline
@@ -36,7 +37,7 @@ extension Special {
         }
     }
 }
-extension Special.Lattice.Kr: Stream {
+extension Filter.Lattice.Kr: Stream {
     @inlinable
     var count: Int {
         x₀.count
@@ -75,7 +76,7 @@ extension Special.Lattice.Kr: Stream {
         }
     }
 }
-extension Special.Lattice.Ar: Stream {
+extension Filter.Lattice.Ar: Stream {
     @inlinable
     var count: Int {
         x₀.count
@@ -102,7 +103,7 @@ extension Special.Lattice.Ar: Stream {
     }
 }
 public func filter(_ source: Stream, stg pₙ: some Publisher<(Int, some Filter.Kernel<Float64>), Never> & Sendable, order: Int) -> some Stream {
-    Special.Lattice.Kr(x₀: source, p₀: pₙ, order: order)
+    Filter.Lattice.Kr(x₀: source, p₀: pₙ, order: order)
 }
 public func filter(_ source: Stream, stg pₙ: some Publisher<some Filter.Kernel<Float64>, Never>, order: Int) -> some Stream {
     filter(source, stg: pₙ.repeat(count: source.count), order: order)
@@ -118,6 +119,6 @@ public func filter(_ source: Stream, stg pₙ: Float64...) -> some Stream {
     filter(source, stg: pₙ)
 }
 public func filter(_ source: Stream, stg parcor: Stream) -> some Stream {
-    Special.Lattice.Ar(x₀: source, p₀: parcor)
+    Filter.Lattice.Ar(x₀: source, p₀: parcor)
 }
 
