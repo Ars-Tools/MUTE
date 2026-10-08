@@ -98,9 +98,10 @@ extension Model.Direct {
                 while let (r, i) = iter.next() {
                     if i.isZero {
                         zr.append(r)
-                    } else if let c = iter.next() { // sweep conj
-                        assert(c == (r, -i))
+                    } else if case.some((r, -i)) = iter.next() { // sweep conj
                         zc.append(.init(real: r, imag: i.magnitude))
+                    } else {
+                        assertionFailure()
                     }
                 }
             }
@@ -133,5 +134,9 @@ extension Model.Direct {
             (pc, pr),
             .some(b[0] / a[0])
         ))
+    }
+    @inlinable
+    public var zpkMinimumPhase: Model.ZPK {
+        .init(minimum: zpk)
     }
 }
