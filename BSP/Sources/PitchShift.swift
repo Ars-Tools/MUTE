@@ -16,8 +16,9 @@ import Accelerate.vecLib
 import typealias Auxiliary.Autorelease
 import typealias Synchronization.Atomic
 import typealias Synchronization.Mutex
-import MKL
-import vFORCE
+import func MKL.vDSP_div
+import func vFORCE.vvsincos
+import typealias ESP.DFT
 @usableFromInline
 enum PitchShift {
     @usableFromInline
@@ -42,13 +43,14 @@ extension PitchShift.Kr: DSP.Stream {
     func callAsFunction(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
         let count = count
-        let log2n = 11
+        let log2n = 12
         let frame = 1 << ( log2n - 0 )
-        let shift = 1 << ( log2n - 3 )
+        let shift = 1 << ( log2n - 4 )
         let window = Array<Float64>(unsafeUninitializedCapacity: frame) {
             $1 = $0.count
-            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/2], isHalfWindow: false)
-            vDSP.clear(&$0[$1/2..<$1])
+            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0, isHalfWindow: false)
+//            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/2], isHalfWindow: false)
+//            vDSP.clear(&$0[$1/2..<$1])
         }
         let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
             vDSP_destroy_fftsetupD($0)
@@ -59,7 +61,8 @@ extension PitchShift.Kr: DSP.Stream {
         let cancel = rate.sink {
             factor.store(max(0.5, min(2.0, $0)), ordering: .releasing)
         }
-        return { [cancel] in
+        instance.store(cancel, interval: interval, capacity: capacity)
+        return {
             let factor = factor.load(ordering: .acquiring)
             let offset = $0.samples(for: interval)
             let remain = offset + shift - 1
@@ -121,98 +124,99 @@ extension PitchShift.Kr: DSP.Stream {
             o.flush(cursor: offset, length: $1)
         }
     }
-    @inlinable
-    func callAsFunction0(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
-        let stream = count
-        let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
-        let log2n = 12
-        let period = 1 << ( log2n - 0 )
-        let hoplen = 1 << ( log2n - 4 )
-        let window = Array<Float64>(unsafeUninitializedCapacity: period) {
-            $1 = $0.count
-//            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0, isHalfWindow: false)
-            vDSP.clear(&$0)
-            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/2], isHalfWindow: false)
-        }
-        let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
-            vDSP_destroy_fftsetupD($0)
-        }
-        let i = Buffer(stream: stream, period: capacity + 2 * period)
-        let o = Buffer(stream: stream, period: capacity + 2 * period)
-        let factor = Mutex<(Array<Float64>, Array<Float64>)>((.init(repeating: .zero, count: period), .init(repeating: .zero, count: period)))
-        let cancel = rate.sink {
-            let ω = max(0.5, min(2.0, $0))
-            factor.withLock {
-                vDSP.formRamp(withInitialValue: 0, increment: ω, result: &$0.0)
-                vDSP.divide($0.0, .init(period) / 4.0, result: &$0.1)
-                vDSP.clip($0.1, to: 0.0 ... 2.0, result: &$0.1)
-                vForce.cosPi($0.1, result: &$0.1)
-                vDSP.add(multiplication: ($0.1, -0.5), 0.5, result: &$0.1)
-            }
-        }
-        return {
-            let (phasor, weight) = withExtendedLifetime(cancel) { factor.withLock(\.self) }
-            let offset = $0.samples(for: interval)
-            let remain = offset - offset.quotientAndRemainder(dividingBy: hoplen).remainder
-            let cursor = stride(from: remain, to: remain + $1, by: hoplen)
-            kernel($0, $1, $2, $3)
-            i.copy(cursor: offset + period, length: $1, source: $2, stride: $3)
-            withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * stream + 4 ) * period) {
-                var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * stream + 0 ) * period),
-                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * stream + 0 ) * period))
-                var w = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 0 ) * period),
-                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 2 ) * period))
-                let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * stream + 0 ) * period)
-                for cursor in cursor {
-                    //
-                    vDSP_vsaddD(phasor, 1, withUnsafePointer(to: Float64(cursor), \.self), z.realp, 1, .init(period))
-                    
-                    // radius
-                    i.read(cursor: z.realp, length: period, target: z.realp, stride: period)
-                    for r in stride(from: z.realp, to: z.realp.advanced(by: stream * period), by: period) {
-                        vDSP_vmulD(r, 1, window, 1, r, 1, .init(period))
-                    }
-                    vDSP_vclrD(z.imagp, 1, .init(stream * period))
-                    vDSP_fftm_ziptD(dft.pointer,
-                                    &z, 1, period,
-                                    &w,
-                                    .init(log2n), .init(stream),
-                                    .init(kFFTDirection_Forward))
-                    vDSP_zvabsD(&z, 1, λ, 1, .init(stream * period))
-                    
-                    // radian
-                    o.copy(cursor: cursor, length: period, target: z.realp, stride: period)
-                    for r in stride(from: z.realp, to: z.realp.advanced(by: stream * period), by: period) {
-                        vDSP_vmulD(r, 1, window, 1, r, 1, .init(period))
-                    }
-                    vDSP_vclrD(z.imagp, 1, .init(stream * period))
-                    vDSP_fftm_ziptD(dft.pointer,
-                                    &z, 1, period,
-                                    &w,
-                                    .init(log2n), .init(stream),
-                                    .init(kFFTDirection_Forward))
-                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(stream * period))
-                    
-                    // synth
-                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(stream * period), \.self))
-                    vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(stream * period))
-                    vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(stream * period))
-                    vDSP_fftm_ziptD(dft.pointer,
-                                    &z, 1, period,
-                                    &w,
-                                    .init(log2n), .init(stream),
-                                    .init(kFFTDirection_Inverse))
-                    vDSP_vsdivD(z.realp, 1,
-                                withUnsafePointer(to: Float64(period), \.self),
-                                z.realp, 1,
-                                .init(stream * period))
-                    o.blend(cursor: cursor, length: period, weight: window, source: z.realp, stride: period)
-                }
-            }
-            o.copy(cursor: offset, length: $1, target: $2, stride: $3)
-            o.flush(cursor: offset, length: $1)
-        }
-    }
+//    @inlinable
+//    func callAsFunction0(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
+//        let stream = count
+//        let kernel = try source(interval: interval, capacity: capacity, instance: &instance)
+//        let log2n = 12
+//        let period = 1 << ( log2n - 0 )
+//        let hoplen = 1 << ( log2n - 4 )
+//        let window = Array<Float64>(unsafeUninitializedCapacity: period) {
+//            $1 = $0.count
+////            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0, isHalfWindow: false)
+//            vDSP.clear(&$0)
+//            vDSP.formWindow(usingSequence: .hanningDenormalized, result: &$0[0..<$1/2], isHalfWindow: false)
+//        }
+//        let dft = Autorelease.Opaque(pointer: vDSP_create_fftsetupD(.init(log2n), .init(kFFTRadix2)).unsafelyUnwrapped) {
+//            vDSP_destroy_fftsetupD($0)
+//        }
+//        let i = Buffer(stream: stream, period: capacity + 2 * period)
+//        let o = Buffer(stream: stream, period: capacity + 2 * period)
+//        let factor = Mutex<(Array<Float64>, Array<Float64>)>((.init(repeating: .zero, count: period), .init(repeating: .zero, count: period)))
+//        let cancel = rate.sink {
+//            let ω = max(0.5, min(2.0, $0))
+//            factor.withLock {
+//                vDSP.formRamp(withInitialValue: 0, increment: ω, result: &$0.0)
+//                vDSP.divide($0.0, .init(period) / 4.0, result: &$0.1)
+//                vDSP.clip($0.1, to: 0.0 ... 2.0, result: &$0.1)
+//                vForce.cosPi($0.1, result: &$0.1)
+//                vDSP.add(multiplication: ($0.1, -0.5), 0.5, result: &$0.1)
+//            }
+//        }
+//        instance.store(cancel, interval: interval, capacity: capacity)
+//        return {
+//            let weight = factor.withLock(\.self)
+//            let offset = $0.samples(for: interval)
+//            let remain = offset - offset.quotientAndRemainder(dividingBy: hoplen).remainder
+//            let cursor = stride(from: remain, to: remain + $1, by: hoplen)
+//            kernel($0, $1, $2, $3)
+//            i.copy(cursor: offset + period, length: $1, source: $2, stride: $3)
+//            withUnsafeTemporaryAllocation(of: Float64.self, capacity: ( 3 * stream + 4 ) * period) {
+//                var z = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 0 * stream + 0 ) * period),
+//                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 1 * stream + 0 ) * period))
+//                var w = DSPDoubleSplitComplex(realp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 0 ) * period),
+//                                              imagp: $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 3 * stream + 2 ) * period))
+//                let λ = $0.baseAddress.unsafelyUnwrapped.advanced(by: ( 2 * stream + 0 ) * period)
+//                for cursor in cursor {
+//                    //
+//                    vDSP_vsaddD(phasor, 1, withUnsafePointer(to: Float64(cursor), \.self), z.realp, 1, .init(period))
+//                    
+//                    // radius
+//                    i.read(cursor: z.realp, length: period, target: z.realp, stride: period)
+//                    for r in stride(from: z.realp, to: z.realp.advanced(by: stream * period), by: period) {
+//                        vDSP_vmulD(r, 1, window, 1, r, 1, .init(period))
+//                    }
+//                    vDSP_vclrD(z.imagp, 1, .init(stream * period))
+//                    vDSP_fftm_ziptD(dft.pointer,
+//                                    &z, 1, period,
+//                                    &w,
+//                                    .init(log2n), .init(stream),
+//                                    .init(kFFTDirection_Forward))
+//                    vDSP_zvabsD(&z, 1, λ, 1, .init(stream * period))
+//                    
+//                    // radian
+//                    o.copy(cursor: cursor, length: period, target: z.realp, stride: period)
+//                    for r in stride(from: z.realp, to: z.realp.advanced(by: stream * period), by: period) {
+//                        vDSP_vmulD(r, 1, window, 1, r, 1, .init(period))
+//                    }
+//                    vDSP_vclrD(z.imagp, 1, .init(stream * period))
+//                    vDSP_fftm_ziptD(dft.pointer,
+//                                    &z, 1, period,
+//                                    &w,
+//                                    .init(log2n), .init(stream),
+//                                    .init(kFFTDirection_Forward))
+//                    vDSP_zvphasD(&z, 1, z.imagp, 1, .init(stream * period))
+//                    
+//                    // synth
+//                    vvsincos(z.imagp, z.realp, z.imagp, withUnsafePointer(to: Int32(stream * period), \.self))
+//                    vDSP_vmulD(λ, 1, z.realp, 1, z.realp, 1, .init(stream * period))
+//                    vDSP_vmulD(λ, 1, z.imagp, 1, z.imagp, 1, .init(stream * period))
+//                    vDSP_fftm_ziptD(dft.pointer,
+//                                    &z, 1, period,
+//                                    &w,
+//                                    .init(log2n), .init(stream),
+//                                    .init(kFFTDirection_Inverse))
+//                    vDSP_vsdivD(z.realp, 1,
+//                                withUnsafePointer(to: Float64(period), \.self),
+//                                z.realp, 1,
+//                                .init(stream * period))
+//                    o.blend(cursor: cursor, length: period, weight: window, source: z.realp, stride: period)
+//                }
+//            }
+//            o.copy(cursor: offset, length: $1, target: $2, stride: $3)
+//            o.flush(cursor: offset, length: $1)
+//        }
+//    }
     @inlinable
     func callAsFunction1(interval: CMTime, capacity: Int, instance: inout Instance) throws -> @Sendable (CMTime, Int, UnsafeMutablePointer<Float64>, Int) -> Void {
         let stream = count
@@ -365,9 +369,4 @@ public func pitchshift(_ source: Stream, rate: some Publisher<Float64, Never> & 
 }
 public func pitchshift(_ source: Stream, rate: Float64) -> some Stream {
     pitchshift(source, rate: Just(rate))
-}
-extension Buffer {
-    public func pitchshift() {
-        
-    }
 }
