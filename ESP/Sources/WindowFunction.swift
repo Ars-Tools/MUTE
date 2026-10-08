@@ -73,8 +73,7 @@ extension WindowFunction {
                 assert(eof == $0.endIndex)
             }
         case.Chebyshev(let α):
-            let scale = __exp10(α)
-            fatalError()
+            fatalError("not implemented")
         }
     }
     @inlinable@_transparent
