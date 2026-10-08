@@ -4,6 +4,7 @@
 //
 //  Created by Kota on 8/14/R7.
 //
+import typealias ESP.Polynomial
 import typealias Accelerate.vDSP
 import protocol DSP.Stream
 import protocol DSP.Frequency
@@ -109,7 +110,7 @@ func papoulisPolynomial(order n: Int) -> Array<Float64> {
 @inlinable
 func papoulisPoles(order n: Int) -> Array<Complex128> {
     let tolerance = sqrt(Float64.ulpOfOne)
-    let poles = roots(poly: papoulis(order: n)).filter {
+    let poles = Polynomial.roots(poly: papoulis(order: n)).filter {
         $0.real < -tolerance
     }
     assert(poles.count == n)
