@@ -4,6 +4,8 @@
 //
 //  Created by Kota on 8/13/R7.
 //
+import typealias ESP.Polynomial
+import protocol Accelerate.AccelerateBuffer
 import protocol DSP.Stream
 import protocol DSP.Frequency
 import func DSP.filter
@@ -26,7 +28,7 @@ func bessel(count: Int) -> Array<Int> {
 }
 @inlinable
 func bessel(lpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(SIMD3<Float64>, SIMD3<Float64>)>) {
-	let r = roots(poly: bessel(count: order).map(Float64.init))
+	let r = Polynomial.roots(poly: bessel(count: order).map(Float64.init))
 	let q = order.isMultiple(of: 2) ? 0 : 1
     assert(r.prefix(q).allSatisfy { $0.imag.magnitude < .ulpOfOne })
 	return (r.prefix(q).map {
@@ -37,7 +39,7 @@ func bessel(lpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(
 }
 @inlinable
 func bessel(hpf order: Int) -> (Array<(SIMD2<Float64>, SIMD2<Float64>)>, Array<(SIMD3<Float64>, SIMD3<Float64>)>) {
-	let r = roots(poly: bessel(count: order).map(Float64.init))
+	let r = Polynomial.roots(poly: bessel(count: order).map(Float64.init))
 	let q = order.isMultiple(of: 2) ? 0 : 1
     assert(r.prefix(q).allSatisfy { $0.imag.magnitude < .ulpOfOne })
     return (r.prefix(q).map {
