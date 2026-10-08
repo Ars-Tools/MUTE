@@ -17,13 +17,13 @@ extension Sequence {
 		concat(suffix(count), dropLast(count))
 	}
     @inlinable@_transparent
-	func prefix(count: Int) -> some Publisher<(Int, Element), Never> & Sendable {
+	package func prefix(count: Int) -> some Publisher<(Int, Element), Never> & Sendable {
 		prefix(count).enumerated().publisher.map(\.self)
 	}
 }
 extension Sequence where Element: Numeric {
     @inlinable@_transparent
-	public var cumulative: some Sequence<Element> {
+	package var cumulative: some Sequence<Element> {
 		sequence(state: (makeIterator(), Element.zero)) { state in
 			state.0.next().map { element in
 				defer { state.1 += element }
@@ -34,7 +34,7 @@ extension Sequence where Element: Numeric {
 }
 extension Sequence where Element: BinaryInteger {
     @inlinable@_transparent
-    public var cumulatedRanges: some Sequence<Range<Element>> {
+    package var cumulatedRanges: some Sequence<Range<Element>> {
         sequence(state: (makeIterator(), Element.zero)) { state in
             state.0.next().map { element in
                 defer { state.1 += element }
