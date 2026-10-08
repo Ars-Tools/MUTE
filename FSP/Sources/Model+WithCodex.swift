@@ -4,9 +4,8 @@ import BLAS
 import LAPACK
 import func Darwin.log
 
-extension Linear { public enum WithCodex {} }
-
-extension Linear.WithCodex {
+extension Model { public enum WithCodex {} }
+extension Model.WithCodex {
     public enum FitStatus { case optimal, iterationLimit, numericalFailure }
 
     /// Neither method drops singular directions or changes the least-squares norm.
@@ -51,7 +50,7 @@ extension Linear.WithCodex {
             for (j, column) in selected.enumerated() {
                 for i in 0..<rows { a[i+j*rows] = matrix[i+column*rows] }
             }
-            let r = try Linear.WithCodex.qrFactor(&a, rows: rows, columns: selected.count)
+            let r = try Model.WithCodex.qrFactor(&a, rows: rows, columns: selected.count)
             return CompressedModel(matrix: r, rows: min(rows, selected.count), count: lower,
                                    residualScale: residualScale)
         }
@@ -69,7 +68,7 @@ extension Linear.WithCodex {
     /// residualScale². Multiplying by this positive scale preserves the optimizer.
     /// Certificates are floating-point estimates, not interval proofs.
     public struct FitResult {
-        public let power: Linear.Direct.Power
+        public let power: Model.Direct.Power
         public let status: FitStatus
         public let iterations: Int
         public let objective: Float64
@@ -163,7 +162,7 @@ extension Linear.WithCodex {
     public static func fit(xx x: some AccelerateBuffer<Double>, yy y: some AccelerateBuffer<Double>,
                            frequency omega: some AccelerateBuffer<Double>, weight: some AccelerateBuffer<Double>,
                            iteration: Int? = nil, barrierFloor: Double = 1e-14,
-                           minimum: Double, count: (p: Int, q: Int)) -> Linear.Direct.Power {
+                           minimum: Double, count: (p: Int, q: Int)) -> Model.Direct.Power {
         fit(xx: x, yy: y, frequency: omega, weight: weight,
             compression: .tsqr(blockRows: 1024), iteration: iteration,
             barrierFloor: barrierFloor, minimum: minimum, count: count)
@@ -173,7 +172,7 @@ extension Linear.WithCodex {
     public static func fit(xx x: some AccelerateBuffer<Double>, yy y: some AccelerateBuffer<Double>,
                            frequency omega: some AccelerateBuffer<Double>, weight: some AccelerateBuffer<Double>,
                            compression: Compression, iteration: Int? = nil, barrierFloor: Double = 1e-14,
-                           minimum: Double, count: (p: Int, q: Int)) -> Linear.Direct.Power {
+                           minimum: Double, count: (p: Int, q: Int)) -> Model.Direct.Power {
         let r = fitResult(xx: x, yy: y, frequency: omega, weight: weight,
                           compression: compression, iteration: iteration, barrierFloor: barrierFloor,
                           minimum: minimum, count: count)
@@ -208,7 +207,7 @@ extension Linear.WithCodex {
         }
     }
 
-    private static func identity(_ count: (p: Int, q: Int)) -> Linear.Direct.Power {
+    private static func identity(_ count: (p: Int, q: Int)) -> Model.Direct.Power {
         var p = [Double](repeating: 0, count: count.p + 1)
         var q = [Double](repeating: 0, count: count.q + 1)
         p[0] = 1; q[0] = 1
