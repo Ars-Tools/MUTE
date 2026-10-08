@@ -7,18 +7,15 @@
 import typealias Foundation.KeyPathComparator
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
-import typealias Numerics.Complex128
-import func Complex.add
-import func Complex.sub
-import func Complex.mul
-import func Complex.div
-import func Complex.libcsqrt
+import Numerics
 import func simd.__cospi
 import func simd.pow
 import func simd.fma
 import func simd.log
 import func simd.exp
-import func simd.length_squared
+import func simd.hypot
+import func simd.simd_precise_recip
+import func simd.copysign
 import func MKL.vDSP_add
 import func MKL.vDSP_fill
 import func BLAS.copy
@@ -309,8 +306,8 @@ extension Model.Direct.Power {
             let i = $0.extracting(1 * m * m + 1 * m ..< 1 * m * m + 2 * m)
             let w = $0.extracting(1 * m * m + 2 * m ..< 1 * m * m + 2 * m + l)
             if 1 < p.count {
-                w[0] = 0.5.squareRoot()
                 w.dropFirst().initialize(repeating: 0.5)
+                w.prefix(1).initialize(repeating: 0.5.squareRoot())
                 vDSP.clear(&h[0..<h.count])
                 copy(n.x - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: 1), m + 1)
                 copy(n.x - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: m), m + 1)
@@ -326,30 +323,31 @@ extension Model.Direct.Power {
                 var iter = zip(r, i).prefix(n.x).makeIterator()
                 while let (r, i) = iter.next() {
                     if i.isZero {
-                        assert(1.0.isLessThanOrEqualTo(r.magnitude))
-                        let x = Complex128.RawValue(.init(r: r, i: .zero))
-                        let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
-                        let lhs = add(x, s)
-                        let rhs = sub(x, s)
-                        let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
-                        assert(length_squared(z.vector).isLess(than: 1))
-                        zr.append(z.r)
+                        zr.append(simd_precise_recip(r + copysign(fma(r, r, -1).squareRoot(), r)))
                     } else if case.some((r, -i)) = iter.next() { // sweep conj
-                        let x = Complex128.RawValue(.init(r: r, i: i.magnitude))
-                        let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
-                        let lhs = add(x, s)
-                        let rhs = sub(x, s)
-                        let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
-                        assert(length_squared(z.vector).isLess(than: 1))
-                        zc.append(.init(real: z.r, imag: z.i.magnitude))
+                        let a = fma(r, r, -fma(i, i, 1))
+                        let d = hypot(a, 2 * r * i)
+                        let sr: Float64
+                        let si: Float64
+                        if 0.isLessThanOrEqualTo(a) {
+                            sr = copysign((0.5 * d + 0.5 * a).squareRoot(), r)
+                            si = r * i.magnitude / sr
+                        } else {
+                            si =          (0.5 * d - 0.5 * a).squareRoot()
+                            sr = r * i.magnitude / si
+                        }
+                        let u = Complex128(real: r + sr, imag: i.magnitude + si)
+                        zc.append(u / u.magnitudeSquared)
                     } else {
                         assertionFailure()
                     }
                 }
+                assert(zr.allSatisfy { $0.isLessThanOrEqualTo(1) })
+                assert(zc.allSatisfy { $0.magnitudeSquared.isLessThanOrEqualTo(1) })
             }
             if 1 < q.count {
-                w[0] = 0.5.squareRoot()
                 w.dropFirst().initialize(repeating: 0.5)
+                w.prefix(1).initialize(repeating: 0.5.squareRoot())
                 vDSP.clear(&h[0..<h.count])
                 copy(n.y - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: 1), m + 1)
                 copy(n.y - 1, w.baseAddress.unsafelyUnwrapped, 1, h.baseAddress.unsafelyUnwrapped.advanced(by: m), m + 1)
@@ -365,26 +363,27 @@ extension Model.Direct.Power {
                 var iter = zip(r, i).prefix(n.y).makeIterator()
                 while let (r, i) = iter.next() {
                     if i.isZero {
-                        assert(1.0.isLessThanOrEqualTo(r.magnitude))
-                        let x = Complex128.RawValue(.init(r: r, i: .zero))
-                        let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
-                        let lhs = add(x, s)
-                        let rhs = sub(x, s)
-                        let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
-                        assert(length_squared(z.vector).isLess(than: 1))
-                        pr.append(z.r)
+                        pr.append(simd_precise_recip(r + copysign(fma(r, r, -1).squareRoot(), r)))
                     } else if case.some((r, -i)) = iter.next() { // sweep conj
-                        let x = Complex128.RawValue(.init(r: r, i: i.magnitude))
-                        let s = mul(libcsqrt(add(x, 1)), libcsqrt(sub(x, 1)))
-                        let lhs = add(x, s)
-                        let rhs = sub(x, s)
-                        let z = div(1, length_squared(lhs.vector) < length_squared(rhs.vector) ? rhs : lhs)
-                        assert(length_squared(z.vector).isLess(than: 1))
-                        pc.append(.init(real: z.r, imag: z.i.magnitude))
+                        let a = fma(r, r, -fma(i, i, 1))
+                        let d = hypot(a, 2 * r * i)
+                        let sr: Float64
+                        let si: Float64
+                        if 0.isLessThanOrEqualTo(a) {
+                            sr = copysign((0.5 * d + 0.5 * a).squareRoot(), r)
+                            si = r * i.magnitude / sr
+                        } else {
+                            si =          (0.5 * d - 0.5 * a).squareRoot()
+                            sr = r * i.magnitude / si
+                        }
+                        let u = Complex128(real: r + sr, imag: i.magnitude + si)
+                        pc.append(u / u.magnitudeSquared)
                     } else {
                         assertionFailure()
                     }
                 }
+                assert(pr.allSatisfy { $0.isLessThanOrEqualTo(1) })
+                assert(pc.allSatisfy { $0.magnitudeSquared.isLessThanOrEqualTo(1) })
             }
             // gain
             switch $0.update(fromContentsOf: zc.map { ($0 - 1).magnitudeSquared }) {
