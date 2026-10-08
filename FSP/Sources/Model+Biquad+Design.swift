@@ -1,11 +1,12 @@
 //
-//  Linear+Biquad+Design.swift
+//  Model+Biquad+Design.swift
 //  MUTE
 //
-//  Created by Kota on 9/4/26.
+//  Created by Kota on 10/7/26.
 //
 import func simd.fma
 import func simd.exp10
+import func simd.exp
 import func simd.expm1
 import func simd.sqrt
 import func simd.sinh
@@ -18,7 +19,7 @@ import let Darwin.M_LN10
 import typealias DSP.Filter
 import protocol DSP.Frequency
 // MARK: BPF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable@inline(__always)@_transparent
     static func BPF(ω₀: Float64, Q⁻¹: Float64) -> Self {
         // b₀ =  α
@@ -48,7 +49,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: LPF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable@inline(__always)@_transparent
     static func LPF(ω₀: Float64, Q⁻¹: Float64) -> Self {
         // b₀ = 0.5 * ( 1 - cos(ω₀) ) =     sin²( 0.5 * ω₀ )
@@ -78,7 +79,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: HPF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable@inline(__always)@_transparent
     static func HPF(ω₀: Float64, Q⁻¹: Float64) -> Self {
         // b₀ = 0.5 * ( 1 + cos(ω₀) ) =     cos²( 0.5 * ω₀ )
@@ -108,7 +109,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: APF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable@inline(__always)@_transparent
     static func APF(ω₀: Float64, Q⁻¹: Float64) -> Self {
         // b₀ = 1 - α = a₂
@@ -138,7 +139,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: BSF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable@inline(__always)@_transparent
     static func BSF(ω₀: Float64, Q⁻¹: Float64) -> Self {
         // b₀ = 1
@@ -168,7 +169,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: LSF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable @inline(__always) @_transparent
     static func LSF(
         ω₀: Float64,
@@ -246,7 +247,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: HSF
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable @inline(__always) @_transparent
     static func HSF(
         ω₀: Float64,
@@ -322,7 +323,7 @@ extension Linear.Biquad {
     }
 }
 // MARK: PEQ
-extension Linear.Biquad {
+extension Model.Biquad {
     @inlinable @inline(__always) @_transparent
     static func PEQ(
         z: __double2,
@@ -387,24 +388,28 @@ extension Linear.Biquad {
         )
     }
 }
-extension DSP.Filter {
-    @usableFromInline
-    enum Design {
-        @usableFromInline
-        enum Kr<Ω: Publisher<Frequency, Never>, Q: Publisher<Float64, Never>> {
-            case lpf(ω₀: Ω, Q: Q)
-            case hpf(ω₀: Ω, Q: Q)
-            case bpf(ω₀: Ω, Q: Q)
-        }
-        @usableFromInline
-        enum Ar {
-            
-        }
+// MARK: EMA
+extension Model.Biquad {
+    @inlinable
+    public static func EMA(timeConstant samples: Int) -> Self {
+        precondition(samples > 0)
+        let exponent = -1.00 / .init(samples)
+        return.init(raw: (
+            .init(-expm1(exponent), 0, 0),
+            .init(1, -exp(exponent), 0)
+        ))
+    }
+    @inlinable
+    public static func EMA(
+        dB attenuation: Float64,
+        in samples: Int
+    ) -> Self {
+        precondition(samples > 0)
+        precondition(attenuation.isFinite && attenuation > 0)
+        let exponent = -0.05 / .init(samples) * attenuation * M_LN10
+        return.init(raw: (
+            .init(-expm1(exponent), 0, 0),
+            .init(1, -exp(exponent), 0)
+        ))
     }
 }
-//extension Array: DSP.Filter.TransferFunction<Float64>, DSP.Filter.BiquadSeries<Float64> where Element == DSP.Filter.Design {
-//    public typealias Series = 
-//    public typealias Sections = Arr
-//    
-//    
-//}
