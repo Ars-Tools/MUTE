@@ -7,7 +7,7 @@
 import typealias Synchronization.Mutex
 import protocol Accelerate.AccelerateBuffer
 import typealias Numerics.Complex128
-public enum DFT: Sendable {}
+public enum DFT {}
 extension DFT {
     public protocol `Protocol`: Sendable {
         @inlinable
@@ -35,6 +35,47 @@ extension DFT {
                      y: UnsafeMutablePointer<Complex128>, ld ldy: Int,
                      nrhs: Int)
     }
+}
+extension DFT {
+    public protocol Container<Value> {
+        associatedtype Value: DFT.`Protocol`
+        @inlinable
+        subscript(_: Int) -> Optional<Value> { get }
+        @inlinable
+        mutating func updateValue(_: Value, forKey: Int) -> Optional<Value>
+        @inlinable
+        mutating func removeAll(keepingCapacity: Bool)
+    }
+}
+extension Dictionary: DFT.Container<Value> where Key == Int, Value: DFT.`Protocol` {}
+extension Mutex where Value: DFT.Container {
+    @inlinable
+    public subscript(_ count: Int) -> Value.Value {
+        withLock {
+            switch $0[count] {
+            case.some(let dft):
+                dft
+            case.none:
+                switch Value.Value(count: count) {
+                case let dft:
+                    $0.updateValue(dft, forKey: count) ?? dft
+                }
+            }
+        }
+    }
+    @inlinable
+    public func flush() {
+        withLock {
+            $0.removeAll(keepingCapacity: false)
+        }
+    }
+}
+// MARK: Shared Instance
+extension DFT.BFS {
+    public static let shared: Mutex<Dictionary<Int, DFT.BFS>> = .init(.init())
+}
+extension DFT.DFS {
+    public static let shared: Mutex<Dictionary<Int, DFT.DFS>> = .init(.init())
 }
 extension DFT.`Protocol` {
     @inlinable@_transparent
