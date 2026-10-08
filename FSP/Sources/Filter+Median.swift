@@ -1,27 +1,29 @@
 //
-//  Special+Median.swift
+//  Filter+Median.swift
 //  MUTE
 //
-//  Created by Kota on 5/11/26.
+//  Created by Kota on 10/7/26.
 //
 import typealias CoreMedia.CMTime
 import func KSP.median_filter_create
 import func KSP.median_filter_destroy
 import func KSP.median_filter
 import protocol DSP.Stream
+import typealias DSP.Filter
 import typealias DSP.Instance
 import typealias Auxiliary.Autorelease
 @preconcurrency import protocol Combine.Publisher
-extension Special {
+extension Filter {
     @usableFromInline
     enum Median {
+        @usableFromInline
         struct He {
             @usableFromInline let source: Stream
             @usableFromInline let length: Int
         }
     }
 }
-extension Special.Median.He: Stream {
+extension Filter.Median.He: Stream {
     @inlinable
     var count: Int {
         source.count
@@ -39,5 +41,5 @@ extension Special.Median.He: Stream {
     }
 }
 public func filter(_ source: Stream, median length: Int) -> some Stream {
-    Special.Median.He(source: source, length: length)
+    Filter.Median.He(source: source, length: length)
 }
