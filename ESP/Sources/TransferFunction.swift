@@ -8,6 +8,9 @@ import protocol Accelerate.AccelerateBuffer
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
 import typealias Numerics.Complex128
+import func simd.fma
+import func simd.log
+import func simd.exp
 import func BLAS.gemv
 import func BLAS.copy
 import func MKL.vDSP_clr
@@ -231,5 +234,58 @@ extension TransferFunction {
     public static func response(frequency: some AccelerateBuffer<Float64>,
                                 cascade: (Float64, Float64, Float64, Float64, Float64)...) -> Array<Complex128> {
         response(frequency: frequency, cascade: cascade)
+    }
+}
+// MARK: 1st-order mean power
+extension TransferFunction {
+    @inlinable
+    public static func gain(b₀: Float64,
+                            b₁: Float64,
+                            a₁: Float64) -> Float64 {
+        let c = fma(-a₁, b₀, b₁)
+        let d = fma(-a₁, a₁, 1)   // 1 - a₁²
+        return fma(c, c / d, b₀ * b₀)
+    }
+    @_disfavoredOverload
+    @inlinable@inline(__always)@_transparent
+    public static func gain(_ coefficients: (b₀: Float64,
+                                             b₁: Float64,
+                                             a₁: Float64)...) -> Float64 {
+        coefficients.count < 4 ? coefficients.map(gain).reduce(1, *) :
+        exp(vDSP.sum(vForce.log(coefficients.map(gain(b₀:b₁:a₁:)))))
+    }
+}
+// MARK: 2nd-order mean power
+extension TransferFunction {
+    @inlinable
+    public static func gain(b₀: Float64,
+                            b₁: Float64,
+                            b₂: Float64,
+                            a₁: Float64,
+                            a₂: Float64) -> Float64 {
+        // H(z) = (b₀ + b₁z⁻¹ + b₂z⁻²)
+        //      / (1  + a₁z⁻¹ + a₂z⁻²)
+        let d = (1 - a₂) * fma(1 + a₂, 1 + a₂, -a₁ * a₁)
+        
+        let c₁ = fma(-a₁, b₀, b₁)
+        let c₂ = fma(-a₂, b₀, b₂)
+        
+        let p = (1 + a₂) / d
+        let q = -a₁ / d
+        
+        return fma(p,
+                   fma(c₁, c₁, c₂ * c₂),
+                   fma(2 * q, c₁ * c₂, b₀ * b₀)
+        )
+    }
+    @_disfavoredOverload
+    @inlinable@inline(__always)@_transparent
+    public static func gain(_ coefficients: (b₀: Float64,
+                                             b₁: Float64,
+                                             b₂: Float64,
+                                             a₁: Float64,
+                                             a₂: Float64)...) -> Float64 {
+        coefficients.count < 4 ? coefficients.map(gain).reduce(1, *) :
+        exp(vDSP.sum(vForce.log(coefficients.map(gain(b₀:b₁:b₂:a₁:a₂:)))))
     }
 }
