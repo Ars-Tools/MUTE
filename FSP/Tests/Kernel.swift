@@ -18,8 +18,10 @@ struct KernelTestCases {
         arguments: [1024]
     )
     func fit(count: Int) {
-        let (b0, b1, b2, a1, a2) = BiquadFilter.Design.peq(ω₀: AngularFrequency(rawValue: .init(numerator: 1, denominator: 9)), quality: 0.5.squareRoot(), gain: 12)
-            .coefficients(for: .zero)
+        let (b0, b1, b2, a1, a2) = switch Model.Biquad.PEQ(ω₀: 1/9.0, Q: 0.5.squareRoot(), dB: 12).normalized {
+        case let k:
+            (k[0], k[1], k[2], k[3], k[4])
+        }
         print(b0, b1, b2, a1, a2)
         var S = SIMD4<Float64>()
         let x = repeatElement(-1.0 ... 1.0, count: count).map(Float64.random(in:))
@@ -38,30 +40,17 @@ struct KernelTestCases {
         let dft = DFT.BFS(count: count)
         let magY = y.withUnsafeTemporaryComplexBuffer(dft.forward).map(\.magnitude)
         let minY = ESP.Hilbert.Transformer(dft: dft).MinimumPhase(response: magY)
-        do {
-            let (b, a) = Utils.fit(response: minY, kernel: (2, 2))
-            print(b, a, separator: ", ")
-            #expect(roots(poly: b).map(\.magnitude).allSatisfy { $0 < 1 })
-            #expect(roots(poly: a).map(\.magnitude).allSatisfy { $0 < 1 })
-        }
-        do {
-            let r = minY.map(\.real)
-            let i = minY.map(\.imag)
-            let (b, a) = Utils.fit(response: (r, i),
-                                   kernel: (2, 2),
-                                   iteration: 12)
-            print(b, a, separator: ", ")
-            #expect(roots(poly: b).map(\.magnitude).allSatisfy { $0 < 1 })
-            #expect(roots(poly: a).map(\.magnitude).allSatisfy { $0 < 1 })
-        }
-        do {
-            let (b, a) = Utils.Fit(response: minY,
-                                   iteration: 1,
-                                   kernel: (2, 2))
-            print(b, a, separator: ", ")
-//            #expect(roots(poly: b).map(\.magnitude).allSatisfy { $0 < 1 })
-//            #expect(roots(poly: a).map(\.magnitude).allSatisfy { $0 < 1 })
-        }
+        let fit = Model.fit(x: (r: Array(repeating: 1.0, count: count),
+                                i: Array(repeating: 0.0, count: count)),
+                            y: (r: minY.map(\.real), i: minY.map(\.imag)),
+                            frequency: (0..<count).map { Float64($0) / Float64(count) },
+                            weight: Array(repeating: 1.0, count: count),
+                            count: (2, 2))
+        print(fit.b, fit.a, separator: ", ")
+        #expect(fit.b.count == 3)
+        #expect(fit.a.count == 3)
+        #expect(Polynomial.roots(poly: fit.b).map(\.magnitude).allSatisfy { $0 < 1 })
+        #expect(Polynomial.roots(poly: fit.a).map(\.magnitude).allSatisfy { $0 < 1 })
     }
 	@Test
 	func kernel() {

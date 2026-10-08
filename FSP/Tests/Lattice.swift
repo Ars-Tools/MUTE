@@ -24,17 +24,17 @@ struct Lattice {
 	}
 	@Test
 	func lpcCoef() {
-		let r = 0.99
-		let θ = Float64.random(in: 0.2 ... 0.8)
-		let y = gen(count: 1024, r: r, θ: θ)
+        let r = 0.99
+        let θ = Float64.random(in: 0.1 ... 0.9)
+        let y = gen(count: 2048, r: r, θ: θ)
 		let a = [1, -2.0 * r * __cospi(θ), r * r]
-		let á = ar(signal: y, order: 2)
+		let á = Model.fit(response: y, order: 2)
 		#expect(vDSP.rootMeanSquare(vDSP.subtract(á, a).dropFirst()) < 1e-1)
 	}
 	@Test
 	func parcorConv() {
 		let r = 0.99
-		let θ = 0.25 * .pi
+		let θ = 0.25
 		let y = gen(count: 2048, r: r, θ: θ)
 		let a = [1, -2.0 * r * __cospi(θ), r * r]
 		let rls = lsl_create(2)
@@ -49,11 +49,14 @@ struct Lattice {
 			P[$0 + y.count - 1]
 		}
 		print(a, c)
-		print(ar(signal: y, order: 2), "<- Levinson-Durbin")
-		print(parcor(ar: ar(signal: y, order: 2)), "<- Analytical PARCOR")
-		
-		print(ar(parcor: parcor(ar: ar(signal: y, order: 2))), "<- Analytical AR")
-		print(ar(parcor: c))
-		print(parcor(ar: ar(parcor: c)))
+        let ar = Model.fit(response: y, order: 2)
+        print(ar, "<- Levinson Durbin")
+        let parcor = Model.PARCOR(ar: ar)
+        print(parcor, "<- Analytical PARCOR")
+        print(Model.AR(parcor: parcor))
+//
+//		print(ar(parcor: parcor(ar: ar(signal: y, order: 2))), "<- Analytical AR")
+//		print(ar(parcor: c))
+//		print(parcor(ar: ar(parcor: c)))
 	}
 }

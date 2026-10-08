@@ -7,6 +7,7 @@
 import Testing
 import DSP
 import simd
+import typealias ESP.Polynomial
 @testable import FSP
 @Suite
 struct PrototypeTestCase {
@@ -34,15 +35,7 @@ struct PrototypeTestCase {
 	func blt() {
 		let p = legendre(count: 4)
 		print(p)
-		let r = roots(poly: p)
+		let r = Polynomial.roots(poly: p)
 		print(r)
-	}
-	@Test
-	func polynomial() {
-		let c = [1, -3, -5, -3, 1] as Array<Float64>
-		let p = roots(poly: c)
-		print(p)
-		let q = poly(roots: p)
-		print(q)
 	}
 }

@@ -40,27 +40,4 @@ struct UtilTestCases {
 //		print("mp=", exp(hilbert(freq: vForce.log(response))))
 		
 	}
-    @Test
-    func response() {
-        let sos = BiquadFilter.Design.hpf(ω₀: AngularFrequency(rawValue: .init(numerator: 1, denominator: 16)), quality: 6).coefficients(for: .zero)
-//        let response = Utils.Response(frequency: Ramp.arange(in: 0...1, count: 256),
-//                                      b: [sos.b₀, sos.b₁, sos.b₂],
-//                                      a: [1, sos.a₁, sos.a₂])
-        print(sos)
-        print(response)
-    }
-    @Test
-    func response_sos() {
-        let sos = [
-            .peq(ω₀: AngularFrequency(numerator: 1, denominator: 12), quality: 2, gain: 12),
-            .peq(ω₀: AngularFrequency(numerator: 2, denominator: 12), quality: 2, gain: 12),
-            .peq(ω₀: AngularFrequency(numerator: 4, denominator: 12), quality: 2, gain: 12)
-        ] as Array<BiquadFilter.Design>
-        let response = Utils.Response(frequency: Array(unsafeUninitializedCapacity: 256) {
-            $1 = $0.count
-            vDSP.formRamp(withInitialValue: 0, increment: 1, result: &$0[0..<$1])
-            vDSP.divide($0, .init($1), result: &$0[0..<$1])
-        }, sos: sos.map { $0.coefficients(for: .zero) })
-        print(response)
-    }
 }
