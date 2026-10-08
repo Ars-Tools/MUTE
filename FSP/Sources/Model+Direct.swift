@@ -1,8 +1,8 @@
 //
-//  Linear+Direct.swift
+//  Model+Direct.swift
 //  MUTE
 //
-//  Created by Kota on 9/3/26.
+//  Created by Kota on 10/7/26.
 //
 import protocol Accelerate.AccelerateBuffer
 import typealias Accelerate.vDSP
@@ -12,20 +12,21 @@ import func MKL.vDSP_fill
 import func LAPACK.hseqr
 import func Darwin.pow
 import typealias ESP.Convolvers
-extension Linear {
-    public struct Direct: Filter {
+extension Model {
+    public struct Direct: Linear {
         public let b: Array<Float64>
         public let a: Array<Float64>
     }
 }
-extension Linear.Direct {
+extension Model.Direct {
     @inlinable
     package init(raw: (b: Array<Float64>, a: Array<Float64>)) {
         (b, a) = raw
     }
 }
-extension Linear.Direct {
-    public init(zpk: Linear.ZPK) {
+extension Model.Direct {
+    @inlinable
+    public init(zpk: Model.ZPK) {
         let g = zpk.k ?? 1
         b = zpk.z.0.reduce(zpk.z.1.reduce(Array<Float64>(arrayLiteral: g)) {
             Convolvers.convolve(x: $0, y: [1, -$1])
@@ -39,15 +40,15 @@ extension Linear.Direct {
         }
     }
 }
-extension Linear.Direct {
+extension Model.Direct {
     @inlinable
     public var ⁻¹: Self {
         .init(raw: (a, b))
     }
 }
-extension Linear.Direct {
+extension Model.Direct {
     @inlinable
-    public var zpk: Linear.ZPK {
+    public var zpk: Model.ZPK {
         assert(!b.isEmpty)
         assert(!a.isEmpty)
         let n = SIMD2<Int>(b.count, a.count) &- 1 // len(zero), len(pole)
@@ -127,6 +128,10 @@ extension Linear.Direct {
                 }
             }
         }
-        return ((zc, zr), (pc, pr), b[0] / a[0])
+        return.init(raw: (
+            (zc, zr),
+            (pc, pr),
+            .some(b[0] / a[0])
+        ))
     }
 }
