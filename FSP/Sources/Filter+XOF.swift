@@ -1,8 +1,8 @@
 //
-//  Special+Linkwitz-Riley.swift
+//  Filter+XOF.swift
 //  MUTE
 //
-//  Created by Kota on 5/11/26.
+//  Created by Kota on 10/8/26.
 //
 @preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Just
@@ -16,7 +16,7 @@ import typealias DSP.Filter
 public func filter(_ source: Stream, xof M: Array<some Publisher<Frequency, Never>>) -> some Stream {
     let Q = Just(0.5.squareRoot())
     return filter(`repeat`(source, count: M.count+1), sos: (0..<M.count+1).map { channel in
-        Filter.Cascade.Rn(rawValue: (0..<M.count).reduce(into: Array<Filter.Cascade.Rn.Section>()) { accum, index in
+        Model.Cascade.Rn(rawValue: (0..<M.count).reduce(into: Array<Model.Cascade.Rn.Section>()) { accum, index in
             if channel < index {
                 accum.append(.apf(ω₀: M[index], Q: Q))
                 accum.append(.identity)
