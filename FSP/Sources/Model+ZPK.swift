@@ -4,7 +4,8 @@
 //
 //  Created by Kota on 10/7/26.
 //
-import typealias Numerics.Complex128
+import Numerics
+import func simd.simd_precise_recip
 extension Model {
     public struct ZPK: Linear {
         public enum Root: Sendable {
@@ -26,12 +27,34 @@ extension Model.ZPK {
         (z, p, k) = raw
     }
     @inlinable
-    init(rebalance: (
-         z: (pair: Array<Complex128>, real: Array<Float64>),
-         p: (pair: Array<Complex128>, real: Array<Float64>),
-         k: Optional<Float64>
-    )) {
-        (z, p, k) = rebalance
+    init(minimum phase: Self) {
+        z = (
+            phase.z.0.map {
+                switch $0.magnitudeSquared {
+                case ..<1:
+                    $0
+                case let n²:
+                    $0 / n²
+                }
+            },
+            phase.z.1.map {
+                $0.isLess(than: 1) ? $0 : simd_precise_recip($0)
+            }
+        )
+        p = (
+            phase.p.0.map {
+                switch $0.magnitudeSquared {
+                case ..<1:
+                    $0
+                case let n²:
+                    $0 / n²
+                }
+            },
+            phase.p.1.map {
+                $0.isLess(than: 1) ? $0 : simd_precise_recip($0)
+            }
+        )
+        k = phase.k
     }
     @inlinable
     init(gain: Optional<Float64> = .none) {
