@@ -1,8 +1,8 @@
 //
-//  Special+Duffing.swift
+//  Filter+Duffing.swift
 //  MUTE
 //
-//  Created by Kota on 5/11/26.
+//  Created by Kota on 10/7/26.
 //
 import typealias CoreMedia.CMTime
 import typealias Synchronization.Mutex
@@ -13,7 +13,7 @@ import func KSP.duffing_filter_convolve_static
 @preconcurrency import protocol Combine.Publisher
 @preconcurrency import typealias Combine.Publishers
 @preconcurrency import typealias Combine.Just
-extension Special {
+extension Filter {
     @usableFromInline
     enum Duffing {
         @usableFromInline
@@ -24,7 +24,7 @@ extension Special {
         }
     }
 }
-extension Special.Duffing.Kr: Stream {
+extension Filter.Duffing.Kr: Stream {
     @inlinable
     var count: Int {
         source.count
@@ -76,22 +76,22 @@ extension Special.Duffing.Kr: Stream {
     }
 }
 public func filter(_ source: Stream, sos sections: some Filter.BiquadSeries<Float64>, duffing αβ: some Publisher<SIMD2<Float64>, Never> & Sendable) -> some Stream {
-    Special.Duffing.Kr(source: source, design: sections, signal: αβ)
+    Filter.Duffing.Kr(source: source, design: sections, signal: αβ)
 }
 public func filter(_ source: Stream, sos sections: some Filter.BiquadSeries<Float64>, duffing αβ: SIMD2<Float64>) -> some Stream {
-    Special.Duffing.Kr(source: source, design: sections, signal: Just(αβ))
+    Filter.Duffing.Kr(source: source, design: sections, signal: Just(αβ))
 }
-public func filter(_ source: Stream, sos sections: some Sequence<Filter.Cascade.Rn.Section>, duffing αβ: some Publisher<SIMD2<Float64>, Never> & Sendable) -> some Stream {
-    filter(source, sos: Filter.Cascade.Rn(rawValue: .init(sections)), duffing: αβ)
+public func filter(_ source: Stream, sos sections: some Sequence<Model.Cascade.Rn.Section>, duffing αβ: some Publisher<SIMD2<Float64>, Never> & Sendable) -> some Stream {
+    filter(source, sos: Model.Cascade.Rn(rawValue: .init(sections)), duffing: αβ)
 }
-public func filter(_ source: Stream, sos sections: some Sequence<Filter.Cascade.Rn.Section>, duffing αβ: SIMD2<Float64>) -> some Stream {
-    filter(source, sos: Filter.Cascade.Rn(rawValue: .init(sections)), duffing: Just(αβ))
-}
-@_disfavoredOverload
-public func filter(_ source: Stream, sos sections: Filter.Cascade.Rn.Section..., duffing αβ: some Publisher<SIMD2<Float64>, Never> & Sendable) -> some Stream {
-    filter(source, sos: Filter.Cascade.Rn(rawValue: sections), duffing: αβ)
+public func filter(_ source: Stream, sos sections: some Sequence<Model.Cascade.Rn.Section>, duffing αβ: SIMD2<Float64>) -> some Stream {
+    filter(source, sos: Model.Cascade.Rn(rawValue: .init(sections)), duffing: Just(αβ))
 }
 @_disfavoredOverload
-public func filter(_ source: Stream, sos sections: Filter.Cascade.Rn.Section..., duffing αβ: SIMD2<Float64>) -> some Stream {
-    filter(source, sos: Filter.Cascade.Rn(rawValue: sections), duffing: Just(αβ))
+public func filter(_ source: Stream, sos sections: Model.Cascade.Rn.Section..., duffing αβ: some Publisher<SIMD2<Float64>, Never> & Sendable) -> some Stream {
+    filter(source, sos: Model.Cascade.Rn(rawValue: sections), duffing: αβ)
+}
+@_disfavoredOverload
+public func filter(_ source: Stream, sos sections: Model.Cascade.Rn.Section..., duffing αβ: SIMD2<Float64>) -> some Stream {
+    filter(source, sos: Model.Cascade.Rn(rawValue: sections), duffing: Just(αβ))
 }
