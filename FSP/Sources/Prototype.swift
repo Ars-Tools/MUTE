@@ -584,7 +584,7 @@ func filter(_ source: Stream,
             Bₛ: Array<Float64>,
             Aₛ: Array<Float64>) -> some DSP.Stream {
     filter(source,
-           iir: ω₀.lazy.map {
+           iir: ω₀.map {
         Prototype.TransferFunction.Rn(ω₀: Just($0), Bₛ: Bₛ, Aₛ: Aₛ)
     })
 }
@@ -639,7 +639,7 @@ func filter(_ source: Stream,
             H₁: some Sequence<(SIMD2<Float64>, SIMD2<Float64>)>,
             H₂: some Sequence<(SIMD3<Float64>, SIMD3<Float64>)>) -> some DSP.Stream {
     let Hₛ = H₂ + H₁.map { (SIMD3<Float64>($0.x, $0.y, 0), SIMD3<Float64>($1.x, $1.y, 0)) }
-    return filter(source, sos: ω₀.lazy.map {
+    return filter(source, sos: ω₀.map {
         Prototype.BiquadSeries.Rn(ω₀: Just($0), Hₛ: Hₛ)
     }, count: .some(Hₛ.count))
 }
