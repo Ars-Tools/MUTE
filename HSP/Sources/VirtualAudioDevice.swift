@@ -48,6 +48,13 @@ extension VirtualAudioInputDeviceProtocol {
     public var timestampPeriod: UInt32 { 16_384 }
 }
 
+@usableFromInline
+struct VirtualAudioDeviceRenderState {
+    var block: AUInternalRenderBlock
+    var bytesPerFrame: Int
+    var channels: UInt32
+}
+
 /// Adapts an application-defined input device to HAL properties, transactions, and clock.
 /// Copies share the same control/clock state and active render block.
 public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: AudioServerPlugInDriverInterfaceProtocol {
@@ -65,8 +72,8 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
     public var timestampPeriod: UInt32 { device.timestampPeriod }
     // HAL serializes stopped-I/O configuration against rendering. Keep the
     // active block shared between copies without acquiring a render-time lock.
-    private let renderBlock: Autorelease.Object<AUInternalRenderBlock>
-    private let bytesPerFrame: Int
+    private let renderState: Autorelease.Object<VirtualAudioDeviceRenderState>
+
     public var format: AVAudioFormat { stateLock.withLockUnchecked(\.currentFormat) }
 
     @usableFromInline
@@ -102,7 +109,7 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
     private let ticksPerSecond: Double
 
     /// The first format is initially active. Formats must be interleaved native
-    /// Float32 PCM, with the same channel count and positive integral rates.
+    /// PCM, with the same channel count and positive integral rates.
     public init(device: Device, maximumFramesToRender: AUAudioFrameCount) {
         precondition(maximumFramesToRender > 0)
         self.device = device
@@ -112,7 +119,8 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         let initial: AVAudioFormat = formats[0]
         precondition(
             formats.allSatisfy {
-                $0.commonFormat == AVAudioCommonFormat.pcmFormatFloat32 && $0.isInterleaved
+                $0.commonFormat != AVAudioCommonFormat.otherFormat && $0.isInterleaved
+                    && $0.streamDescription.pointee.mBytesPerFrame > 0
                     && $0.channelCount == initial.channelCount && $0.channelCount > 0
                     && $0.sampleRate.isFinite && $0.sampleRate > 0
                     && $0.sampleRate < Double(UInt64.max) && $0.sampleRate.rounded() == $0.sampleRate
@@ -122,13 +130,13 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         clockLock = OSAllocatedUnfairLock<ClockState>(
             initialState: ClockState(
                 anchorHost: mach_absolute_time(), sampleRate: initial.sampleRate))
-        renderBlock = Autorelease.Object<AUInternalRenderBlock>(object: UnsafeMutablePointer<AUInternalRenderBlock>.allocate(capacity: 1)) {
+        renderState = Autorelease.Object<VirtualAudioDeviceRenderState>(object: UnsafeMutablePointer<VirtualAudioDeviceRenderState>.allocate(capacity: 1)) {
             $0.deinitialize(count: 1)
             $0.deallocate()
         }
-        renderBlock.reference.initialize(to: device.makeRenderBlock(
-            format: initial, maximumFramesToRender: maximumFramesToRender))
-        bytesPerFrame = Int(initial.streamDescription.pointee.mBytesPerFrame)
+        renderState.reference.initialize(to: VirtualAudioDeviceRenderState(
+            block: device.makeRenderBlock(format: initial, maximumFramesToRender: maximumFramesToRender),
+            bytesPerFrame: Int(initial.streamDescription.pointee.mBytesPerFrame), channels: initial.channelCount))
         var info: mach_timebase_info_data_t = mach_timebase_info_data_t()
         mach_timebase_info(&info)
         ticksPerSecond = 1e9 * Double(info.denom) / Double(info.numer)
@@ -188,15 +196,18 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
     ) -> OSStatus {
         guard object == ObjectID.device else { return kAudioHardwareBadObjectError }
         let state: VirtualAudioDevice<Device> = self
-        guard let formatIndex: Int = state.formats.firstIndex(where: { $0.sampleRate == Double(action) }) else {
+        // Configuration actions identify a complete advertised format, including sample width.
+        guard action > 0, action <= UInt64(state.formats.count) else {
             return kAudioHardwareIllegalOperationError
         }
+        let formatIndex: Int = Int(action - 1)
         let changed: Bool = state.stateLock.withLock { control in
             guard control.runningClients == 0 else { return false }
             let format: AVAudioFormat = state.formats[formatIndex]
             control.currentFormat = format
-            state.renderBlock.reference.pointee = state.device.makeRenderBlock(
-                format: format, maximumFramesToRender: state.maximumFramesToRender)
+            state.renderState.reference.pointee = VirtualAudioDeviceRenderState(
+                block: state.device.makeRenderBlock(format: format, maximumFramesToRender: state.maximumFramesToRender),
+                bytesPerFrame: Int(format.streamDescription.pointee.mBytesPerFrame), channels: format.channelCount)
             state.resetClock(sampleRate: format.sampleRate, running: false)
             return true
         }
@@ -347,25 +358,26 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         guard frames <= maximumFramesToRender else { return kAudioUnitErr_TooManyFramesToProcess }
         guard let buffer: UnsafeMutableRawPointer = buffer else { return kAudioHardwareIllegalOperationError }
         let state: VirtualAudioDevice<Device> = self
+        let render: VirtualAudioDeviceRenderState = state.renderState.reference.pointee
+        guard Int(frames) <= Int(UInt32.max) / render.bytesPerFrame else {
+            return kAudioHardwareIllegalOperationError
+        }
+        let byteCount: Int = Int(frames) * render.bytesPerFrame
         let time: AudioTimeStamp = cycle.pointee.mInputTime
         guard time.mFlags.contains(AudioTimeStampFlags.sampleTimeValid), time.mSampleTime.isFinite else {
-            memset(buffer, 0, Int(frames) * state.bytesPerFrame)
+            memset(buffer, 0, byteCount)
             return kAudioHardwareIllegalOperationError
         }
         // The AU generator sees bus 0 and the HAL input timestamp. HAL has no
         // AU event list or upstream input bus, so both optional inputs are nil.
-        guard Int(frames) <= Int(UInt32.max) / state.bytesPerFrame else {
-            return kAudioHardwareIllegalOperationError
-        }
-        let byteCount: Int = Int(frames) * state.bytesPerFrame
-        let channels: UInt32 = UInt32(state.bytesPerFrame / MemoryLayout<Float32>.stride)
+        let channels: UInt32 = render.channels
         var output: AudioBufferList = AudioBufferList(
             mNumberBuffers: 1,
             mBuffers: AudioBuffer(mNumberChannels: channels,
                                   mDataByteSize: UInt32(byteCount), mData: buffer))
         var flags: AudioUnitRenderActionFlags = []
         var timestamp: AudioTimeStamp = time
-        let status: AUAudioUnitStatus = state.renderBlock.reference.pointee(
+        let status: AUAudioUnitStatus = render.block(
             &flags, &timestamp, frames, 0, &output, nil, nil)
         guard status == noErr else { return status }
         if flags.contains(AudioUnitRenderActionFlags.unitRenderAction_OutputIsSilence) {
@@ -581,7 +593,9 @@ extension VirtualAudioDevice {
             case kAudioDevicePropertyNominalSampleRate:
                 PropertyValue.float64(stateLock.withLock(\.currentFormat.sampleRate))
             case kAudioDevicePropertyAvailableNominalSampleRates:
-                PropertyValue.ranges(formats.map { AudioValueRange(mMinimum: $0.sampleRate, mMaximum: $0.sampleRate) })
+                PropertyValue.ranges(Array<Double>(Set<Double>(formats.map(\.sampleRate))).sorted().map {
+                    AudioValueRange(mMinimum: $0, mMaximum: $0)
+                })
             case kAudioDevicePropertyPreferredChannelsForStereo:
                 PropertyValue.ids([1, min(2, formats[0].channelCount)])
             case kAudioDevicePropertyZeroTimeStampPeriod:
@@ -639,40 +653,42 @@ extension VirtualAudioDevice {
             return noErr
         }
 
-        let rate: Double
+        let available: Array<AVAudioFormat> = formats
+        let (current, hasHost): (AVAudioFormat, Bool) = stateLock.withLockUnchecked {
+            ($0.currentFormat, $0.host != nil)
+        }
+        let formatIndex: Int?
         if a.mSelector == kAudioDevicePropertyNominalSampleRate {
             guard size == MemoryLayout<Double>.size else { return kAudioHardwareBadPropertySizeError }
-            rate = data.load(as: Double.self)
+            let rate: Double = data.load(as: Double.self)
+            // Keep the current sample representation when changing only the rate.
+            formatIndex = available.firstIndex {
+                $0.sampleRate == rate && $0.commonFormat == current.commonFormat
+            } ?? available.firstIndex { $0.sampleRate == rate }
         } else {
             guard size == MemoryLayout<AudioStreamBasicDescription>.size else {
                 return kAudioHardwareBadPropertySizeError
             }
             let candidate: AudioStreamBasicDescription = data.load(as: AudioStreamBasicDescription.self)
-            guard
-                formats.contains(where: {
-                    let expected: AudioStreamBasicDescription = $0.streamDescription.pointee
-                    return candidate.mSampleRate == expected.mSampleRate
-                        && candidate.mFormatID == expected.mFormatID
-                        && candidate.mFormatFlags == expected.mFormatFlags
-                        && candidate.mBytesPerPacket == expected.mBytesPerPacket
-                        && candidate.mFramesPerPacket == expected.mFramesPerPacket
-                        && candidate.mBytesPerFrame == expected.mBytesPerFrame
-                        && candidate.mChannelsPerFrame == expected.mChannelsPerFrame
-                        && candidate.mBitsPerChannel == expected.mBitsPerChannel
-                })
-            else { return kAudioDeviceUnsupportedFormatError }
-            rate = candidate.mSampleRate
+            formatIndex = available.firstIndex {
+                let expected: AudioStreamBasicDescription = $0.streamDescription.pointee
+                return candidate.mSampleRate == expected.mSampleRate
+                    && candidate.mFormatID == expected.mFormatID
+                    && candidate.mFormatFlags == expected.mFormatFlags
+                    && candidate.mBytesPerPacket == expected.mBytesPerPacket
+                    && candidate.mFramesPerPacket == expected.mFramesPerPacket
+                    && candidate.mBytesPerFrame == expected.mBytesPerFrame
+                    && candidate.mChannelsPerFrame == expected.mChannelsPerFrame
+                    && candidate.mBitsPerChannel == expected.mBitsPerChannel
+            }
         }
-        guard formats.contains(where: { $0.sampleRate == rate }) else {
-            return kAudioDeviceUnsupportedFormatError
-        }
-        let (current, hasHost): (Double, Bool) = stateLock.withLock { ($0.currentFormat.sampleRate, $0.host != nil) }
-        guard rate != current else { return noErr }
+        guard let formatIndex: Int = formatIndex else { return kAudioDeviceUnsupportedFormatError }
+        guard !available[formatIndex].isEqual(current) else { return noErr }
         guard hasHost else { return kAudioHardwareIllegalOperationError }
-        // HAL performs stop/configure/restart. Never mutate the rate in a property setter.
+        // HAL performs stop/configure/restart. Never mutate the format in a property setter.
         DispatchQueue.global().async { [self] in
             guard let host: AudioServerPlugInHostRef = stateLock.withLockUnchecked(\.host) else { return }
-            _ = host.pointee.RequestDeviceConfigurationChange(host, ObjectID.device, UInt64(rate), nil)
+            _ = host.pointee.RequestDeviceConfigurationChange(host, ObjectID.device, UInt64(formatIndex) + 1, nil)
         }
         return noErr
     }
