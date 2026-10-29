@@ -1,13 +1,13 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.4
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 import PackageDescription
 let package = Package(
     name: "MUTE",
 	platforms: [
-        .iOS(.v26),
-		.tvOS(.v26),
-		.macCatalyst(.v26),
-		.macOS(.v26)
+        .iOS(.v27),
+		.tvOS(.v27),
+		.macCatalyst(.v27),
+		.macOS(.v27)
 	],
     products: [
         .library(
@@ -34,6 +34,10 @@ let package = Package(
             targets: ["GSP"]
         ),
         .library(
+            name: "MUTE.HSP",
+            targets: ["HSP"]
+        ),
+        .library(
             name: "MUTE.ISP",
             targets: ["ISP"]
         )
@@ -44,28 +48,6 @@ let package = Package(
         .package(url: "https://github.com/ars-tools/muge", branch: "release"),
     ],
     targets: [
-        .executableTarget(
-            name: "HSP",
-            dependencies: [
-                "ASP",
-                "BSP",
-                "DSP",
-                "FSP"
-            ],
-            path: "HSP/Sources",
-            cSettings: [
-                .define("ACCELERATE_NEW_LAPACK"),
-                .define("ACCELERATE_LAPACK_ILP64")
-            ],
-            linkerSettings: [
-                .unsafeFlags([
-                    "-Xlinker", "-sectcreate",
-                    "-Xlinker", "__TEXT",
-                    "-Xlinker", "__info_plist",
-                    "-Xlinker", "\(Context.packageDirectory)/HSP/Info.plist",
-                ], .when(platforms: [.macOS])),
-            ],
-        ),
 		.target(
 			name: "ASP",
 			dependencies: ["DSP", "WSP"],
@@ -243,6 +225,17 @@ let package = Package(
             ]
         ),
         .target(
+            name: "HSP",
+            dependencies: [
+                .product(name: "MUCE.Auxiliary", package: "MUCE"),
+            ],
+            path: "HSP/Sources",
+            cSettings: [
+                .define("ACCELERATE_NEW_LAPACK"),
+                .define("ACCELERATE_LAPACK_ILP64")
+            ]
+        ),
+        .target(
             name: "ISP",
             dependencies: ["DSP", "ESP", "FSP"],
             path: "ISP/Sources",
@@ -284,6 +277,7 @@ let package = Package(
             name: "PSP",
             dependencies: [
                 "DSP",
+                "ESP",
                 "KSP",
                 .product(name: "MUSE.Essentials", package: "MUSE"),
                 .product(name: "MUCE.Auxiliary", package: "MUCE"),
