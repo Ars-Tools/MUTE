@@ -37,7 +37,7 @@ public protocol VirtualAudioInputDeviceProtocol: Sendable {
     var formats: Array<AVAudioFormat> { get }
     var timestampPeriod: UInt32 { get }
 
-    func makeRenderBlock(
+    func auInternalRenderBlock(
         format: AVAudioFormat, maximumFramesToRender: AUAudioFrameCount
     ) -> AUInternalRenderBlock
 }
@@ -135,9 +135,9 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             $0.deallocate()
         }
         renderState.reference.initialize(to: VirtualAudioDeviceRenderState(
-            block: device.makeRenderBlock(format: initial, maximumFramesToRender: maximumFramesToRender),
+            block: device.auInternalRenderBlock(format: initial, maximumFramesToRender: maximumFramesToRender),
             bytesPerFrame: Int(initial.streamDescription.pointee.mBytesPerFrame), channels: initial.channelCount))
-        var info: mach_timebase_info_data_t = mach_timebase_info_data_t()
+        var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
         ticksPerSecond = 1e9 * Double(info.denom) / Double(info.numer)
     }
@@ -206,7 +206,7 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             let format: AVAudioFormat = state.formats[formatIndex]
             control.currentFormat = format
             state.renderState.reference.pointee = VirtualAudioDeviceRenderState(
-                block: state.device.makeRenderBlock(format: format, maximumFramesToRender: state.maximumFramesToRender),
+                block: state.device.auInternalRenderBlock(format: format, maximumFramesToRender: state.maximumFramesToRender),
                 bytesPerFrame: Int(format.streamDescription.pointee.mBytesPerFrame), channels: format.channelCount)
             state.resetClock(sampleRate: format.sampleRate, running: false)
             return true
