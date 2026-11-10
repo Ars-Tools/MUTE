@@ -1347,6 +1347,92 @@ extension Model {
             }
         }
     }
+
+    /// Fits positive power polynomials with a total P/Q slope budget in dB/octave.
+    /// The slope budget is split equally between P and Q; certification is
+    /// conservative near Nyquist. `count` specifies their polynomial degrees.
+    /// Returns the minimum reciprocal condition estimate from the equality QR,
+    /// or NaN if no estimate was computed.
+    @inlinable
+    public static func fit(xx x: some AccelerateBuffer<Float64>,
+                           yy y: some AccelerateBuffer<Float64>,
+                           frequency ω: some AccelerateBuffer<Float64>, // normalized angular frequency, [0, 0.5] a.k.a. [0, π] or [0, 1) a.k.a. [0, 2π)
+                           weight w: some AccelerateBuffer<Float64>, // weight factor for each frequency ω
+                           minimum ε: Float64,
+                           slope: Float64,
+                           count: (p: Int, q: Int)) -> (coefficients: Direct.Power, converged: Bool, rcond: Float64) {
+        let m = ω.count
+        precondition(m == x.count)
+        precondition(m == y.count)
+        precondition(m == w.count)
+        precondition(0 <= count.p)
+        precondition(0 <= count.q)
+        precondition(ε.isFinite && 0 < ε && ε < 1)
+        precondition(slope.isFinite && slope > 0)
+        let (p, q) = switch count {
+        case (let p, let q):
+            (p + 1, q + 1)
+        }
+        let n = p + q
+        precondition(n <= m)
+        precondition(x.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
+        precondition(y.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
+        precondition(ω.withUnsafeBufferPointer { $0.allSatisfy(\.isFinite) })
+        precondition(w.withUnsafeBufferPointer { $0.allSatisfy { $0.isFinite && 0 <= $0 } })
+        let l = geqrf(m, n,
+                      .none, m,
+                      .none,
+                      .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(0 < l)
+        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: m * n + min(m, n) + max(m, n, l)) {
+            let M = UnsafeMutableBufferPointer(rebasing: $0.prefix(m * n))
+            let s = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n).prefix(min(m, n)))
+            let z = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(m * n + min(m, n)).prefix(max(m, n, l)))
+            // M[l,:] = sqrt(w[l]/(x^2 + y^2)) [x[l]T_b, -y[l]T_a].
+            vForce.sqrt(w, result: &z[0..<m])
+            vDSP.hypot(x, y, result: &M[p * m ..< p * m + m])
+            vDSP.divide(x, M[p * m ..< p * m + m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.multiply(z[0..<m], M[0 * m ..< 0 * m + m], result: &M[0 * m ..< 0 * m + m])
+            vDSP.invertedClip(M[0 * m ..< 0 * m + m], to: 0...0, result: &M[0 * m ..< 0 * m + m])
+            vDSP.divide(y, M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            vDSP.multiply(z[0..<m], M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            vDSP.invertedClip(M[p * m ..< p * m + m], to: 0...0, result: &M[p * m ..< p * m + m])
+            vDSP.negative(M[p * m ..< p * m + m], result: &M[p * m ..< p * m + m])
+            for k in 1..<max(p, q) {
+                vDSP.multiply(.init(2 * k), ω, result: &z[0..<m])
+                vForce.cosPi(z[0..<m], result: &z[0..<m])
+                if k < p {
+                    let r = (0 + k) * m ..< (0 + k) * m + m
+                    vDSP.multiply(z[0..<m], M[0 * m ..< 0 * m + m], result: &M[r])
+                }
+                if k < q {
+                    let r = (p + k) * m ..< (p + k) * m + m
+                    vDSP.multiply(z[0..<m], M[p * m ..< p * m + m], result: &M[r])
+                }
+            }
+            switch geqrf(m, n, M.baseAddress, m, s.baseAddress, z.baseAddress, z.count) {
+            case let info:
+                assert(info == 0, "geqrf ends with \(info)")
+                for (col, len) in repeatElement(min(m, n), count: n).enumerated() {
+                    M[col*m+col+1..<col*m+len].update(repeating: .zero)
+                }
+            }
+            return switch fit(m: n, n: (p, q),
+                              a: M, lda: m,
+                              minimum: ε,
+                              slope: slope) {
+            case (let θ, let converged, let rcond):
+                (
+                    Direct.Power(raw: (
+                        .init(θ.prefix(p)),
+                        .init(θ.suffix(q))
+                    )),
+                    converged,
+                    rcond
+                )
+            }
+        }
+    }
     
     // Power LS with P(t), Q(t) >= ε for every t in [-1, 1].
     // The otherwise homogeneous scale is fixed symmetrically by p[0] + q[0] = 2.
