@@ -7,17 +7,24 @@
 import protocol Accelerate.AccelerateBuffer
 import typealias Accelerate.vDSP
 import typealias Accelerate.vForce
+import typealias Accelerate.__LAPACK_int
+import enum Auxiliary.Workspace
 import func simd.fma
 import func simd.log
+import func simd.recip
 import func MKL.vDSP_copy
 import func MKL.vDSP_fill
 import func MKL.vDSP_add
+import func MKL.vDSP_ramp
 import func BLAS.copy
+import func BLAS.scal
+import func BLAS.nrm2
 import func BLAS.axpy
 import func BLAS.dot
 import func BLAS.syrk
 import func BLAS.trmv
 import func BLAS.trmm
+import func BLAS.trsv
 import func BLAS.gemv
 import func BLAS.gemm
 import func LAPACK.larf
@@ -27,6 +34,8 @@ import func LAPACK.potrs
 import func LAPACK.potri
 import func LAPACK.geqrf
 import func LAPACK.gesvd
+import func LAPACK.ormqr
+import func LAPACK.trcon
 extension Model {
     @usableFromInline
     static let sqrt2: Float64 = 2.squareRoot()
@@ -49,11 +58,17 @@ extension Model {
     static func adjoint(_ g: UnsafeMutableBufferPointer<Float64>,
                         _ C: UnsafeMutableBufferPointer<Float64>) {
         let n = g.count
+        assert(0 < n)
         assert(n * n <= C.count)
-        for col in 0..<n {
-            for row in 0..<n {
-                C[col * n + row] = g[abs(col - row)]
-            }
+        let source = g.baseAddress.unsafelyUnwrapped
+        let result = C.baseAddress.unsafelyUnwrapped
+        for (idx, vec) in stride(from: 0, to: n * n, by: n).lazy.map(result.advanced(by:)).enumerated() {
+            copy(idx,
+                 source.advanced(by: 1), -1,
+                 vec, 1)
+            copy(n - idx,
+                 source, 1,
+                 vec.advanced(by: idx), 1)
         }
     }
     @inlinable@inline(__always)@_transparent
@@ -85,13 +100,11 @@ extension Model {
         assert(0..<lda ~= n - 1)
         assert(n * lda + n - lda <= a.count)
         assert(( n * n + n ) / 2 <= v.count)
-//        DispatchQueue.concurrentPerform(iterations: n) { col in
+        //        DispatchQueue.concurrentPerform(iterations: n) { col in
         for col in 0..<n {
-            if 0 < col {
-                vDSP.multiply(sqrt2,
-                              a[col*lda..<col*lda+col],
-                              result: &v[col*(col+1)/2..<col*(col+1)/2+col])
-            }
+            vDSP.multiply(sqrt2,
+                          a[col*lda..<col*lda+col],
+                          result: &v[col*(col+1)/2..<col*(col+1)/2+col])
             v[col*(col+1)/2+col] = a[col*lda+col]
         }
     }
@@ -101,16 +114,14 @@ extension Model {
         assert(0..<lda ~= n - 1)
         assert(( n * n + n ) / 2 <= v.count)
         assert(n * lda + n - lda <= a.count)
-//        DispatchQueue.concurrentPerform(iterations: n) { col in
+        //        DispatchQueue.concurrentPerform(iterations: n) { col in
         for col in 0..<n {
-            if 0 < col {
-                vDSP.divide(v[col*(col+1)/2..<col*(col+1)/2+col],
-                            sqrt2,
-                            result: &a[col*lda..<col*lda+col])
-                copy(col,
-                     a.baseAddress.unsafelyUnwrapped.advanced(by: col * lda), 1,
-                     a.baseAddress.unsafelyUnwrapped.advanced(by: col), lda)
-            }
+            vDSP.divide(v[col*(col+1)/2..<col*(col+1)/2+col],
+                        sqrt2,
+                        result: &a[col*lda..<col*lda+col])
+            copy(col,
+                 a.baseAddress.unsafelyUnwrapped.advanced(by: col * lda), 1,
+                 a.baseAddress.unsafelyUnwrapped.advanced(by: col * 1), lda)
             a[col*lda+col] = v[col*(col+1)/2+col]
         }
     }
@@ -129,62 +140,6 @@ extension Model {
             }
         }
     }
-//    @inlinable@inline(__always)@_transparent
-//    static func addBarrierHessian(n: Int, μ: Float64,
-//                                  K: UnsafeMutableBufferPointer<Float64>, ld ldK: Int,
-//                                  Β: UnsafeMutableBufferPointer<Float64>, ld ldΒ: Int) {
-//        var a = 0
-//        for j in 0..<n {
-//            for i in 0...j {
-//                let sa = i == j ? 1 : sqrt2
-//                var b = 0
-//                for l in 0..<n {
-//                    for k in 0...l {
-//                        if a <= b {
-//                            let sb = l == k ? 1 : sqrt2
-//                            let weight = dot(
-//                                SIMD2<Float64>(K[k * ldK + i], K[l * ldK + i]),
-//                                SIMD2<Float64>(K[l * ldK + j], K[k * ldK + j])
-//                            )
-//                            Β[b * ldΒ + a] += 0.5 * μ * sa * sb * weight
-//                        }
-//                        b += 1
-//                    }
-//                }
-//                a += 1
-//            }
-//        }
-//        nonisolated(unsafe) let kp = K.baseAddress.unsafelyUnwrapped
-//        nonisolated(unsafe) let bp = Β.baseAddress.unsafelyUnwrapped
-//        DispatchQueue.concurrentPerform(iterations: n) { l in
-//            let firstB = l * (l + 1) / 2
-//            for k in 0...l {
-//                let b = firstB + k
-//                let sb = l == k ? 1 : sqrt2
-//                let factor = 0.5 * μ * sb * sqrt2
-//                for j in 0...l {
-//                    let end = j == l ? k + 1 : j + 1
-//                    let count = min(j, end)
-//                    let dest = bp.advanced(by: b * ldΒ + j * (j + 1) / 2)
-//                    // i < j：sa = √2
-//                    if 0 < count {
-//                        axpy(count,
-//                             factor * kp[l * ldK + j],
-//                             kp.advanced(by: k * ldK), 1,
-//                             dest, 1)
-//                        axpy(count,
-//                             factor * kp[k * ldK + j],
-//                             kp.advanced(by: l * ldK), 1,
-//                             dest, 1)
-//                    }
-//                    // i == j：sa = 1、weight = 2 K[j,k] K[j,l]
-//                    if j < end {
-//                        dest[j] += μ * sb * kp[k * ldK + j] * kp[l * ldK + j]
-//                    }
-//                }
-//            }
-//        }
-//    }
     @inlinable // SPD
     static func fit(m: Int, n count: (p: Int, q: Int),
                     a: UnsafeMutableBufferPointer<Float64>, lda: Int,
@@ -227,52 +182,28 @@ extension Model {
                       .init(bitPattern: ~0), rank,
                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
         assert(0 < l)
-        return withUnsafeTemporaryAllocation(of: Float64.self, capacity: 4 * M² + 2 * n + 4 * d + m * d + m * rank + rank * k + rank + l + 2 * m) {
-            let (Gₘ, Hₘ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(0 * M²).prefix(M²)) {
-            case let M: (
-                UnsafeMutableBufferPointer(rebasing: M.prefix(p²)),
-                UnsafeMutableBufferPointer(rebasing: M.suffix(q²))
-            )}
-            let (Gᵧ, Hᵧ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(1 * M²).prefix(M²)) {
-            case let C: (
-                UnsafeMutableBufferPointer(rebasing: C.prefix(p²)),
-                UnsafeMutableBufferPointer(rebasing: C.suffix(q²))
-            )}
-            let (Gₗ, Hₗ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(2 * M²).prefix(M²)) {
-            case let L: (
-                UnsafeMutableBufferPointer(rebasing: L.prefix(p²)),
-                UnsafeMutableBufferPointer(rebasing: L.suffix(q²))
-            )}
-            let (Gᵢ, Hᵢ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(3 * M²).prefix(M²)) {
-            case let L: (
-                UnsafeMutableBufferPointer(rebasing: L.prefix(p²)),
-                UnsafeMutableBufferPointer(rebasing: L.suffix(q²))
-            )}
-            let (θ, g) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M²).prefix(2 * n)) {
-            case let W: (
-                UnsafeMutableBufferPointer(rebasing: W.prefix(n)),
-                UnsafeMutableBufferPointer(rebasing: W.suffix(n))
-            )}
-            let (v, e, u, w) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n).prefix(4 * d)) {
-            case let D: (
-                UnsafeMutableBufferPointer(rebasing: D[0*d..<1*d]),
-                UnsafeMutableBufferPointer(rebasing: D[1*d..<2*d]),
-                UnsafeMutableBufferPointer(rebasing: D[2*d..<3*d]),
-                UnsafeMutableBufferPointer(rebasing: D[3*d..<4*d])
-            )}
-            let j = UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n + 4 * d).prefix(m * d))
-            let (S, U, V, ρ) = switch UnsafeMutableBufferPointer(rebasing: $0.dropFirst(4 * M² + 2 * n + 4 * d + m * d).prefix(m * rank + rank * k + rank + l)) {
-            case let SVD: (
-                UnsafeMutableBufferPointer(rebasing: SVD.prefix(rank)),
-                UnsafeMutableBufferPointer(rebasing: SVD.dropFirst(rank).prefix(m * rank)),
-                UnsafeMutableBufferPointer(rebasing: SVD.dropFirst(rank).dropFirst(m * rank).prefix(rank * k)),
-                UnsafeMutableBufferPointer(rebasing: SVD.suffix(l)),
-            )}
-            let (r, τ) = switch UnsafeMutableBufferPointer(rebasing: $0.suffix(2 * m)) {
-            case let R: (
-                UnsafeMutableBufferPointer(rebasing: R.prefix(m)),
-                UnsafeMutableBufferPointer(rebasing: R.suffix(m))
-            )}
+        return Workspace.alloc(of: Float64.self, capacity: 4 * M² + 2 * n + 4 * d + m * d + m * rank + rank * k + rank + l + 2 * m) {
+            let Gₘ = $0.consume(prefix: p²)
+            let Hₘ = $0.consume(prefix: q²)
+            let Gᵧ = $0.consume(prefix: p²)
+            let Hᵧ = $0.consume(prefix: q²)
+            let Gₗ = $0.consume(prefix: p²)
+            let Hₗ = $0.consume(prefix: q²)
+            let Gᵢ = $0.consume(prefix: p²)
+            let Hᵢ = $0.consume(prefix: q²)
+            let θ = $0.consume(prefix: n)
+            let g = $0.consume(prefix: n)
+            let v = $0.consume(prefix: d)
+            let e = $0.consume(prefix: d)
+            let u = $0.consume(prefix: d)
+            let w = $0.consume(prefix: d)
+            let j = $0.consume(prefix: m * d)
+            let U = $0.consume(prefix: m * rank)
+            let V = $0.consume(prefix: rank * k)
+            let S = $0.consume(prefix: rank)
+            let ρ = $0.consume(prefix: l)
+            let r = $0.consume(prefix: m)
+            let τ = $0.consume(prefix: m)
             vDSP.clear(&Gₘ[0..<p²])
             vDSP_fill((1 - ε) / .init(p), Gₘ.baseAddress.unsafelyUnwrapped, p + 1, p)
             vDSP.clear(&Hₘ[0..<q²])
@@ -512,7 +443,7 @@ extension Model {
                     }
                     assert(slope < 0)
                     var α = 1 as Float64
-                    var accepted = slope == 0
+                    var accepted = slope.isZero
                     linesearch: while !accepted, (α * α).isNormal {
                         vDSP.add(multiplication: (Gᵧ, α), Gₘ,
                                  result: &Gᵢ[0..<p²])
@@ -813,6 +744,454 @@ extension Model {
 //            return (coefficients: .init(θ), converged: finished)
 //        }
 //    }
+}
+extension Model {
+    @usableFromInline
+    enum SlopeFit {
+        // Packed blocks: P, P−, P+, Q, Q−, Q+. No metadata arrays are needed.
+        @inlinable@inline(__always)
+        static func Block(_ block: Int, n count: (p: Int, q: Int)) -> (n: Int, matrix: Int, coefficient: Int, vector: Int) {
+            let (p, q) = count
+            let p² = p * p
+            let q² = q * q
+            let dp = ( p² + p ) / 2
+            let dq = ( q² + q ) / 2
+            return block < 3 ?
+            (p, block * p², block * p, block * dp) :
+            (q, 3 * p² + ( block - 3 ) * q², 3 * p + ( block - 3 ) * q, 3 * dp + ( block - 3 ) * dq)
+        }
+
+        /// Eᵀz=b, where z contains the six Gram coefficient vectors without ε.
+        /// Normalize the slope polynomials by ℓ so slack matrices start with trace 1.
+        @inlinable
+        static func Equalities(n count: (p: Int, q: Int),
+                               minimum ε: Float64,
+                               slope ℓ: Float64,
+                               a: UnsafeMutableBufferPointer<Float64>,
+                               b: UnsafeMutableBufferPointer<Float64>) {
+            let nc = 3 * (count.p + count.q)
+            vDSP.clear(&a[0..<a.count])
+            vDSP.clear(&b[0..<b.count])
+            a[0] = 1
+            a[3*count.p] = 1
+            b[0] = fma(-ε, 2, 2)
+            let invℓ = recip(ℓ)
+            let matrix = a.baseAddress.unsafelyUnwrapped
+            for side in 0..<2 {
+                let base = Block(3*side, n: count)
+                for signIndex in 0..<2 {
+                    let sign = Float64(signOf: signIndex == 0 ? -1 : 1, magnitudeOf: invℓ)
+                    let slack = Block(3*side+1+signIndex, n: count)
+                    let first = 1 + (side == 0 ? 0 : 2*count.p) + signIndex*base.n
+                    b[first] = ε
+                    // sign = ±1/ℓ. For k > row, the coefficients of
+                    // -2*sign*(1-t)T'_k alternate as ±4k/ℓ (±2k/ℓ for row zero).
+                    for row in 0..<base.n {
+                        let column = matrix.advanced(by: (first+row)*nc)
+                        column.advanced(by: slack.coefficient+row).pointee = 1
+                        let coefficients = column.advanced(by: base.coefficient)
+                        coefficients.advanced(by: row).pointee = fma(sign, Float64(2 * row), -1)
+                        let remaining = base.n - row - 1
+                        let scale = row == 0 ? 2 * sign : 4 * sign
+                        if remaining > 0 {
+                            vDSP_ramp(-scale * Float64(row+1), -2 * scale,
+                                      coefficients.advanced(by: row+1), 2, (remaining+1)/2)
+                        }
+                        if remaining > 1 {
+                            vDSP_ramp( scale * Float64(row+2),  2 * scale,
+                                      coefficients.advanced(by: row+2), 2, (remaining+0)/2)
+                        }
+                    }
+                }
+            }
+            for col in b.indices {
+                let column = matrix.advanced(by: col*nc)
+                let scale = nrm2(nc, column, 1)
+                scal(nc, 1 / scale, column, 1)
+                b[col] /= scale
+            }
+        }
+        @inlinable
+        @discardableResult
+        static func Residual(m: Int, n count: (p: Int, q: Int),
+                             a: UnsafeMutableBufferPointer<Float64>, lda: Int,
+                             gram: UnsafeMutableBufferPointer<Float64>, minimum ε: Float64,
+                             z: UnsafeMutableBufferPointer<Float64>,
+                             θ: UnsafeMutableBufferPointer<Float64>,
+                             r: UnsafeMutableBufferPointer<Float64>) -> Float64 {
+            for block in 0..<6 {
+                let x = Block(block, n: count)
+                Model.coefficients(.init(rebasing: gram[x.matrix..<x.matrix+x.n*x.n]), 0,
+                                   .init(rebasing: z[x.coefficient..<x.coefficient+x.n]))
+            }
+            copy(count.p,
+                 z.baseAddress.unsafelyUnwrapped, 1,
+                 θ.baseAddress.unsafelyUnwrapped, 1)
+            copy(count.q,
+                 z.baseAddress.unsafelyUnwrapped.advanced(by: 3 * count.p), 1,
+                 θ.baseAddress.unsafelyUnwrapped.advanced(by: 1 * count.p), 1)
+            θ[0] += ε
+            θ[count.p] += ε
+            gemv(m, count.p+count.q,
+                 1,
+                 a.baseAddress.unsafelyUnwrapped, lda, .N,
+                 θ.baseAddress.unsafelyUnwrapped, 1,
+                 0,
+                 r.baseAddress.unsafelyUnwrapped, 1)
+            return 0.5 * vDSP.sumOfSquares(r)
+        }
+
+        @inlinable
+        static func Logdet(n count: (p: Int, q: Int),
+                           a: UnsafeMutableBufferPointer<Float64>,
+                           w: UnsafeMutableBufferPointer<Float64>) -> Optional<Float64> {
+            let value = (0..<6).reduce(0 as Float64) {
+                let x = Block($1, n: count)
+                let range = x.matrix..<x.matrix+x.n*x.n
+                return switch Model.logdet(n: x.n,
+                                           a: .init(rebasing: a[range]), ld: x.n,
+                                           w: .init(rebasing: w[range]), ld: x.n) {
+                case.some(let value):
+                    $0 + value
+                case.none:
+                    .nan
+                }
+            }
+            return value.isFinite ? .some(value) : .none
+        }
+
+        // All coefficient blocks outside the selected pair must be zero.
+        @inlinable
+        static func Whiten(n count: (p: Int, q: Int),
+                           blocks: (Int, Int),
+                           c: UnsafeMutableBufferPointer<Float64>,
+                           factor: UnsafeMutableBufferPointer<Float64>,
+                           matrix: UnsafeMutableBufferPointer<Float64>,
+                           result: UnsafeMutableBufferPointer<Float64>) {
+            let last = Block(5, n: count)
+            vDSP.clear(&result[0..<last.vector+last.n*(last.n+1)/2])
+            for index in 0..<2 {
+                let x = Block(index == 0 ? blocks.0 : blocks.1, n: count)
+                let L = factor.baseAddress.unsafelyUnwrapped.advanced(by: x.matrix)
+                let C = UnsafeMutableBufferPointer(rebasing: matrix.prefix(x.n*x.n))
+                Model.adjoint(.init(rebasing: c[x.coefficient..<x.coefficient+x.n]), C)
+                trmm(x.n, x.n, 1, L, x.n, .N, .U, .N, .L, C.baseAddress.unsafelyUnwrapped, x.n)
+                trmm(x.n, x.n, 1, L, x.n, .T, .U, .N, .R, C.baseAddress.unsafelyUnwrapped, x.n)
+                Model.svec(n: x.n,
+                           a: C, lda: x.n,
+                           v: .init(rebasing: result[x.vector..<x.vector+x.n*(x.n+1)/2]))
+            }
+        }
+
+        @inlinable
+        static func Unwhiten(n count: (p: Int, q: Int),
+                             v: UnsafeMutableBufferPointer<Float64>,
+                             factor: UnsafeMutableBufferPointer<Float64>,
+                             result: UnsafeMutableBufferPointer<Float64>) {
+            for block in 0..<6 {
+                let x = Block(block, n: count)
+                let L = factor.baseAddress.unsafelyUnwrapped.advanced(by: x.matrix)
+                let C = UnsafeMutableBufferPointer(rebasing: result[x.matrix..<x.matrix+x.n*x.n])
+                Model.smat(n: x.n,
+                           v: .init(rebasing: v[x.vector..<x.vector+x.n*(x.n+1)/2]),
+                           a: C, lda: x.n)
+                trmm(x.n, x.n, 1, L, x.n, .N, .U, .N, .R, C.baseAddress.unsafelyUnwrapped, x.n)
+                trmm(x.n, x.n, 1, L, x.n, .T, .U, .N, .L, C.baseAddress.unsafelyUnwrapped, x.n)
+            }
+        }
+    }
+
+    /// Same coefficient counts, residual matrix and normalization as the ε-only fit.
+    /// `slope` is the total P/Q budget in dB/octave, split equally between P and Q.
+    /// For R=P,Q, impose R>=ε and ℓR ± 2(1-t)R_t>=0 on [-1,1], where
+    /// ℓ=slope*ln(10)/(20*ln(2)). This is conservative near Nyquist.
+    /// Four additional Gram matrices certify the slopes; QR removes their equalities.
+    /// `rcond` is the smallest observed 1-norm reciprocal condition estimate
+    /// of the equilibrated equality QR's triangular factor, computed every iteration.
+    /// It is NaN if no estimate was computed. This diagnostic does not gate convergence.
+    @inlinable // SPD
+    static func fit(m: Int, n count: (p: Int, q: Int),
+                    a: UnsafeMutableBufferPointer<Float64>, lda: Int,
+                    armijo: Float64 = 0.01,
+                    iteration: Int = 42, // newton iteration
+                    torelance: Float64 = 1e-8,
+                    centering: Float64 = 0.01,
+                    reduction: Float64 = 0.2,
+                    minimum ε: Float64,
+                    slope: Float64) -> (coefficients: Array<Float64>, converged: Bool, rcond: Float64) {
+        let (p, q) = count
+        precondition(m > 0 && p > 0 && q > 0)
+        let n = p + q
+        let dp = (p * p + p) / 2
+        let dq = (q * q + q) / 2
+        let d = 3 * (dp + dq)
+        let h = 1 + 2 * n
+        let k = d - h
+        let rank = min(m, k)
+        let M² = 3 * (p * p + q * q)
+        let B² = max(p * p, q * q)
+        let nc = 3 * n
+        let ν = 3 * n
+        let ℓ = slope * log(10) / (20 * log(2))
+        precondition(lda >= m && a.count >= (n - 1) * lda + m)
+        precondition(ε.isFinite && 0 < ε && ε < 1)
+        precondition(ℓ.isFinite && ℓ > 0)
+        precondition(iteration >= 0)
+        precondition(armijo.isFinite && 0 < armijo && armijo < 0.5)
+        precondition(torelance.isFinite && torelance > 0)
+        precondition(centering.isFinite && centering > 0)
+        precondition(reduction.isFinite && 0 < reduction && reduction < 1)
+        let lq = geqrf(d, h, .none, d, .none,
+                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        let ls = gesvd(m, k, .none, m, .none,
+                       .init(bitPattern: ~0), m, .init(bitPattern: ~0), rank,
+                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        let lj = ormqr(d, m + 1, h, .none, d, .T, .L, .none, .none, d,
+                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        let lu = ormqr(d, 1, h, .none, d, .N, .L, .none, .none, d,
+                       .none as Optional<UnsafeMutablePointer<Float64>>, 0)
+        assert(lq > 0 && ls > 0 && lj > 0 && lu > 0)
+        let l = max(lq, ls, lj, lu, 3 * h)
+        // All constants, iterates and scratch are allocated once. Only the returned
+        // coefficient Array is materialized; no Arrays are built in either loop.
+        let capacity = 4 * M² + B² + 2 * nc + n + 2 * d + nc * h + d * h
+            + 4 * h + d * (m + 1) + m * k + m * rank + rank * k + 3 * rank + 2 * m + l
+        // Raw workspace keeps Float64 and LAPACK integer scratch in one allocation.
+        let alignment = max(MemoryLayout<Float64>.alignment, MemoryLayout<__LAPACK_int>.alignment)
+        let byteCount = capacity * MemoryLayout<Float64>.stride
+            + h * MemoryLayout<__LAPACK_int>.stride + alignment - 1
+        return Workspace.alloc(byteCount: byteCount, alignment: alignment) {
+            let Gₘ = $0.consume(as: Float64.self, capacity: M²)
+            let Gᵧ = $0.consume(as: Float64.self, capacity: M²)
+            let Gₗ = $0.consume(as: Float64.self, capacity: M²)
+            let Gᵢ = $0.consume(as: Float64.self, capacity: M²)
+            let C = $0.consume(as: Float64.self, capacity: B²)
+            let z = $0.consume(as: Float64.self, capacity: nc)
+            let c = $0.consume(as: Float64.self, capacity: nc)
+            let θ = $0.consume(as: Float64.self, capacity: n)
+            let e = $0.consume(as: Float64.self, capacity: d)
+            let u = $0.consume(as: Float64.self, capacity: d)
+            let E = $0.consume(as: Float64.self, capacity: nc * h)
+            let Q = $0.consume(as: Float64.self, capacity: d * h)
+            let b = $0.consume(as: Float64.self, capacity: h)
+            let s = $0.consume(as: Float64.self, capacity: h)
+            let τ = $0.consume(as: Float64.self, capacity: h)
+            let eq = $0.consume(as: Float64.self, capacity: h)
+            let j = $0.consume(as: Float64.self, capacity: d * (m + 1))
+            let J = $0.consume(as: Float64.self, capacity: m * k)
+            let U = $0.consume(as: Float64.self, capacity: m * rank)
+            let V = $0.consume(as: Float64.self, capacity: rank * k)
+            let S = $0.consume(as: Float64.self, capacity: rank)
+            let ep = $0.consume(as: Float64.self, capacity: rank)
+            let rp = $0.consume(as: Float64.self, capacity: rank)
+            let r = $0.consume(as: Float64.self, capacity: m)
+            let t = $0.consume(as: Float64.self, capacity: m)
+            let w = $0.consume(as: Float64.self, capacity: l)
+            let iw = $0.consume(as: __LAPACK_int.self, capacity: h)
+            SlopeFit.Equalities(n: count,
+                                minimum: ε,
+                                slope: ℓ,
+                                a: E,
+                                b: b)
+            vDSP.clear(&Gₘ[0..<Gₘ.count])
+            vDSP.clear(&e[0..<e.count])
+            for block in 0..<6 {
+                let x = SlopeFit.Block(block, n: count)
+                vDSP_fill((block == 0 || block == 3 ? 1 - ε : 1) / Float64(x.n),
+                          Gₘ.baseAddress.unsafelyUnwrapped.advanced(by: x.matrix), x.n + 1, x.n)
+                for col in 0..<x.n {
+                    e[x.vector + col*(col+1)/2 + col] = 1
+                }
+            }
+            var μ = 1 as Float64
+            var finished = false
+            var rcond = .none as Optional<Float64>
+            path: while !finished, (μ * μ).isNormal {
+                var centered = false
+                var objective = .infinity as Float64
+                newton: for () in repeatElement((), count: iteration) {
+                    objective = SlopeFit.Residual(m: m, n: count,
+                                                  a: a, lda: lda,
+                                                  gram: Gₘ,
+                                                  minimum: ε,
+                                                  z: z,
+                                                  θ: θ,
+                                                  r: r)
+                    guard let logdet = SlopeFit.Logdet(n: count, a: Gₘ, w: Gₗ) else { break path }
+                    // Whiten Eᵀ and equilibrate its columns before QR. All h
+                    // equalities are independent (each slope row has its own slack).
+                    for col in 0..<h {
+                        let column = UnsafeMutableBufferPointer(rebasing: Q[col*d..<(col+1)*d])
+                        // The normalization uses P,Q; each slope equality uses
+                        // one base block and its corresponding slack block.
+                        let blocks: (Int, Int) = if col == 0 {
+                            (0, 3)
+                        } else if col <= 2*p {
+                            (0, 1 + (col-1)/p)
+                        } else {
+                            (3, 4 + (col-1-2*p)/q)
+                        }
+                        SlopeFit.Whiten(n: count,
+                                        blocks: blocks,
+                                        c: .init(rebasing: E[col*nc..<(col+1)*nc]),
+                                        factor: Gₗ,
+                                        matrix: C,
+                                        result: column)
+                        s[col] = nrm2(d, column.baseAddress.unsafelyUnwrapped, 1)
+                        guard s[col].isFinite, 0.0.isLess(than: s[col]) else { break path }
+                        scal(d, 1 / s[col], column.baseAddress.unsafelyUnwrapped, 1)
+                    }
+                    guard
+                        geqrf(d, h, Q.baseAddress, d, τ.baseAddress, w.baseAddress, w.count) == 0,
+                        stride(from: 0, to: h * d, by: 1 + d).allSatisfy({Q[$0].isNormal}) else { break path }
+                    var value = .nan as Float64
+                    switch trcon(.O, h, Q.baseAddress, d, .U, .N,
+                                 &value,
+                                 w.baseAddress,
+                                 iw.baseAddress.unsafelyUnwrapped) {
+                    case.zero:
+                        if value.isFinite, 0.0.isLessThanOrEqualTo(value) {
+                            rcond = rcond.map {
+                                min($0, value)
+                            } ?? value
+                        }
+                    case let info:
+                        assert(info == 0, "trcon: invalid argument \(info)")
+                    }
+                    // Residual Jacobian rows and svec(I) are transformed together.
+                    vDSP.clear(&c[0..<c.count])
+                    for row in 0..<m {
+                        copy(p, a.baseAddress.unsafelyUnwrapped.advanced(by: row), lda,
+                             c.baseAddress.unsafelyUnwrapped, 1)
+                        copy(q, a.baseAddress.unsafelyUnwrapped.advanced(by: row+p*lda), lda,
+                             c.baseAddress.unsafelyUnwrapped.advanced(by: 3*p), 1)
+                        SlopeFit.Whiten(n: count,
+                                        blocks: (0, 3),
+                                        c: c,
+                                        factor: Gₗ,
+                                        matrix: C,
+                                        result: .init(rebasing: j[row*d..<(row+1)*d]))
+                    }
+                    copy(d, e.baseAddress.unsafelyUnwrapped, 1,
+                         j.baseAddress.unsafelyUnwrapped.advanced(by: m*d), 1)
+                    guard ormqr(d, m+1, h, Q.baseAddress, d, .T, .L, τ.baseAddress,
+                                j.baseAddress, d, w.baseAddress, w.count) == 0 else { break path }
+                    // Correct equality roundoff: Tᵀ u[0..<h]=(b-Eᵀz)/s.
+                    copy(h, b.baseAddress.unsafelyUnwrapped, 1, eq.baseAddress.unsafelyUnwrapped, 1)
+                    gemv(nc, h, -1, E.baseAddress.unsafelyUnwrapped, nc, .T,
+                         z.baseAddress.unsafelyUnwrapped, 1, 1, eq.baseAddress.unsafelyUnwrapped, 1)
+                    let equalityError = vDSP.maximumMagnitude(eq)
+                    vDSP.divide(eq, s, result: &u[0..<h])
+                    trsv(h,
+                         Q.baseAddress.unsafelyUnwrapped, d, .T, .U, .N,
+                         u.baseAddress.unsafelyUnwrapped, 1)
+                    copy(m, r.baseAddress.unsafelyUnwrapped, 1, t.baseAddress.unsafelyUnwrapped, 1)
+                    gemv(h, m, 1, j.baseAddress.unsafelyUnwrapped, d, .T,
+                         u.baseAddress.unsafelyUnwrapped, 1, 1, t.baseAddress.unsafelyUnwrapped, 1)
+                    for col in 0..<k {
+                        copy(m,
+                             j.baseAddress.unsafelyUnwrapped.advanced(by: h+col), d,
+                             J.baseAddress.unsafelyUnwrapped.advanced(by: col*m), 1)
+                    }
+                    guard gesvd(m, k,
+                                J.baseAddress, m,
+                                S.baseAddress,
+                                U.baseAddress, m,
+                                V.baseAddress, rank,
+                                w.baseAddress, w.count) == 0 else { break path }
+                    // Same SVD Newton solve as the ε-only version, in the nullspace
+                    // of all equalities. Keep every singular direction, including zero.
+                    let eᵣ = UnsafeMutableBufferPointer(rebasing: j[m*d+h..<(m+1)*d])
+                    gemv(rank, k,
+                         1,
+                         V.baseAddress.unsafelyUnwrapped, rank, .N,
+                         eᵣ.baseAddress.unsafelyUnwrapped, 1,
+                         0,
+                         ep.baseAddress.unsafelyUnwrapped, 1)
+                    gemv(m, rank,
+                         1,
+                         U.baseAddress.unsafelyUnwrapped, m, .T,
+                         t.baseAddress.unsafelyUnwrapped, 1,
+                         0,
+                         rp.baseAddress.unsafelyUnwrapped, 1)
+                    vDSP.add(multiplication: (S, ep), rp, result: &ep[0..<rank])
+                    vDSP.multiply(S, ep, result: &ep[0..<rank])
+                    vDSP.negative(ep, result: &ep[0..<rank])
+                    vDSP.multiply(S, S, result: &rp[0..<rank])
+                    vDSP.add(μ, rp, result: &rp[0..<rank])
+                    vDSP.divide(ep, rp, result: &ep[0..<rank])
+                    copy(k,
+                         eᵣ.baseAddress.unsafelyUnwrapped, 1,
+                         u.baseAddress.unsafelyUnwrapped.advanced(by: h), 1)
+                    gemv(rank, k,
+                         1,
+                         V.baseAddress.unsafelyUnwrapped, rank, .T,
+                         ep.baseAddress.unsafelyUnwrapped, 1,
+                         1,
+                         u.baseAddress.unsafelyUnwrapped.advanced(by: h), 1)
+                    guard ormqr(d, 1, h, Q.baseAddress, d, .N, .L, τ.baseAddress,
+                                u.baseAddress, d, w.baseAddress, w.count) == 0 else { break path }
+                    SlopeFit.Unwhiten(n: count, v: u, factor: Gₗ, result: Gᵧ)
+                    // ε=0 extracts a direction, not an affine coefficient vector.
+                    SlopeFit.Residual(m: m, n: count,
+                                      a: a, lda: lda,
+                                      gram: Gᵧ,
+                                      minimum: 0,
+                                      z: z,
+                                      θ: θ,
+                                      r: t)
+                    let descent = fma(-μ, vDSP.dot(e, u), vDSP.dot(r, t))
+                    guard descent.isFinite else { break path }
+                    let decrementSquared = fma(μ, vDSP.sumOfSquares(u), vDSP.sumOfSquares(t))
+                    guard decrementSquared.isFinite else { break path }
+                    if 0.5 * decrementSquared <= min(μ * centering, torelance * max(1, objective, μ * Float64(ν))), equalityError <= torelance {
+                        centered = true
+                        break newton
+                    }
+                    guard descent < 0 else { break path }
+                    let barrierObjective = fma(-μ, logdet, objective)
+                    var α = 1 as Float64
+                    var accepted = false
+                    linesearch: while !accepted, (α * α).isNormal {
+                        vDSP.add(multiplication: (Gᵧ, α), Gₘ, result: &Gᵢ[0..<M²])
+                        guard let testLogdet = SlopeFit.Logdet(n: count, a: Gᵢ, w: Gₗ) else {
+                            α *= 0.5
+                            continue linesearch
+                        }
+                        let testObjective = SlopeFit.Residual(m: m, n: count,
+                                                              a: a, lda: lda,
+                                                              gram: Gᵢ,
+                                                              minimum: ε,
+                                                              z: z,
+                                                              θ: θ,
+                                                              r: t)
+                        let value = fma(-μ, testLogdet, testObjective)
+                        if value.isFinite, value.isLessThanOrEqualTo(fma(α * armijo, descent, barrierObjective)) {
+                            copy(M², Gᵢ.baseAddress.unsafelyUnwrapped, 1, Gₘ.baseAddress.unsafelyUnwrapped, 1)
+                            accepted = true
+                            break linesearch
+                        }
+                        α *= 0.5
+                    }
+                    guard accepted else { break path }
+                }
+                guard centered else { break path }
+                if μ * Float64(ν) <= torelance * max(1, objective) {
+                    finished = true
+                    break path
+                }
+                μ *= reduction
+            }
+            SlopeFit.Residual(m: m, n: count,
+                              a: a, lda: lda,
+                              gram: Gₘ,
+                              minimum: ε,
+                              z: z,
+                              θ: θ,
+                              r: r)
+            return (coefficients: .init(θ), converged: finished, rcond: rcond ?? .nan)
+        }
+    }
 }
 extension Model {
 //    @inlinable // Power LS (SVD)
