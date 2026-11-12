@@ -1,4 +1,7 @@
 import AVFAudio
+import func Accelerate.vDSP_mmov
+import func Accelerate.vDSP_mmovD
+import typealias Accelerate.vDSP_Length
 import AudioToolbox
 import Auxiliary
 import CoreAudio
@@ -8,6 +11,7 @@ import Darwin
 import Dispatch
 import Foundation
 import os
+import Synchronization
 
 // The HAL ABI is imported directly from Apple's explicit CoreAudio submodule.
 // No bridging header, Objective-C implementation, or C translation unit is needed.
@@ -22,9 +26,16 @@ enum ObjectID {
     @usableFromInline
     static let output: AudioObjectID = 8
 }
+public enum Access {
+    case ReadOnly
+    case Writable
+}
+
 /// Device identity, supported PCM formats, and input rendering supplied by the application.
 /// Identity and supported formats must remain stable for the lifetime of the HAL device.
-/// makeRenderBlock is called outside I/O for each selected format.
+/// auInternalRenderBlock is called outside I/O for each selected format.
+/// Formats describe the render block's PCM layout; HAL streams use the same
+/// sample representation and rate, interleaved. HSP interleaves planar output.
 /// The returned block follows the AUInternalRenderBlock contract.
 public protocol VirtualAudioInputDeviceProtocol: Sendable {
     var name: String { get }
@@ -37,6 +48,23 @@ public protocol VirtualAudioInputDeviceProtocol: Sendable {
     var formats: Array<AVAudioFormat> { get }
     var timestampPeriod: UInt32 { get }
 
+    /// Reports access to additional properties; nil means unsupported.
+    func HasProperty(
+        object: AudioObjectID, pid: pid_t, address: UnsafePointer<AudioObjectPropertyAddress>
+    ) -> Optional<Access>
+
+    /// Returns bytes written, or required capacity without writing when too small.
+    func GetPropertyData(
+        object: AudioObjectID, pid: pid_t, address: UnsafePointer<AudioObjectPropertyAddress>,
+        qualifier: UnsafeRawBufferPointer, data: UnsafeMutableRawBufferPointer
+    ) throws -> Int
+
+    /// Accept the complete property value or throw without partially applying it.
+    func SetPropertyData(
+        object: AudioObjectID, pid: pid_t, address: UnsafePointer<AudioObjectPropertyAddress>,
+        qualifier: UnsafeRawBufferPointer, data: UnsafeRawBufferPointer
+    ) throws -> Int
+
     func auInternalRenderBlock(
         format: AVAudioFormat, maximumFramesToRender: AUAudioFrameCount
     ) -> AUInternalRenderBlock
@@ -46,13 +74,150 @@ extension VirtualAudioInputDeviceProtocol {
     public var inputStreamName: String { "Input" }
     public var outputStreamName: String { "Discard Output" }
     public var timestampPeriod: UInt32 { 16_384 }
+
+    public func HasProperty(
+        object: AudioObjectID, pid: pid_t, address: UnsafePointer<AudioObjectPropertyAddress>
+    ) -> Optional<Access> {
+        .none
+    }
 }
 
 @usableFromInline
 struct VirtualAudioDeviceRenderState {
-    var block: AUInternalRenderBlock
-    var bytesPerFrame: Int
-    var channels: UInt32
+    let block: (UnsafePointer<AudioTimeStamp>, UInt32, UnsafeMutableRawPointer) -> OSStatus
+
+    init(format: AVAudioFormat, maximumFramesToRender: AUAudioFrameCount, render: @escaping AUInternalRenderBlock) {
+        let channels: UInt32 = format.channelCount
+        let bytesPerFrame: Int = Int(halStreamDescription(format).mBytesPerFrame)
+        precondition(Int(maximumFramesToRender) <= Int(UInt32.max) / bytesPerFrame)
+        // Choose the complete buffer adapter once, while I/O is stopped.
+        switch (format.commonFormat, format.isInterleaved) {
+        case (.pcmFormatFloat64, false):
+            block = planarInputRenderBlock(Double.self, channels: channels,
+                maximumFramesToRender: maximumFramesToRender, render: render,
+                copy: { vDSP_mmovD($0, $1, 1, vDSP_Length($2), 1, vDSP_Length($3)) })
+        case (.pcmFormatFloat32, false):
+            block = planarInputRenderBlock(Float.self, channels: channels,
+                maximumFramesToRender: maximumFramesToRender, render: render,
+                copy: { vDSP_mmov($0, $1, 1, vDSP_Length($2), 1, vDSP_Length($3)) })
+        case (.pcmFormatInt16, false):
+            block = planarInputRenderBlock(Int16.self, channels: channels,
+                maximumFramesToRender: maximumFramesToRender, render: render)
+        case (.pcmFormatInt32, false):
+            block = planarInputRenderBlock(Int32.self, channels: channels,
+                maximumFramesToRender: maximumFramesToRender, render: render)
+        case (.pcmFormatFloat64, true), (.pcmFormatFloat32, true),
+             (.pcmFormatInt16, true), (.pcmFormatInt32, true):
+            block = { time, frames, buffer in
+                let byteCount: Int = Int(frames) * bytesPerFrame
+                guard time.pointee.mFlags.contains(.sampleTimeValid), time.pointee.mSampleTime.isFinite else {
+                    memset(buffer, 0, byteCount)
+                    return kAudioHardwareIllegalOperationError
+                }
+                var output: AudioBufferList = AudioBufferList(mNumberBuffers: 1,
+                    mBuffers: AudioBuffer(mNumberChannels: channels, mDataByteSize: UInt32(byteCount), mData: buffer))
+                var flags: AudioUnitRenderActionFlags = []
+                let status: OSStatus = render(&flags, time, frames, 0, &output, nil, nil)
+                guard status == noErr else { return status }
+                if flags.contains(.unitRenderAction_OutputIsSilence) {
+                    memset(buffer, 0, byteCount)
+                    return noErr
+                }
+                guard output.mNumberBuffers == 1, output.mBuffers.mNumberChannels == channels,
+                      output.mBuffers.mDataByteSize >= UInt32(byteCount),
+                      let rendered: UnsafeMutableRawPointer = output.mBuffers.mData
+                else { return kAudioHardwareIllegalOperationError }
+                if rendered != buffer { memmove(buffer, rendered, byteCount) }
+                return noErr
+            }
+        default:
+            preconditionFailure("Unsupported PCM format")
+        }
+    }
+}
+
+/// Adapt the application's planar PCM to the single interleaved HAL stream buffer.
+/// All storage is allocated at construction, and each call restores the ABL fields
+/// because AUInternalRenderBlock may replace its buffers or report silence.
+private func planarInputRenderBlock<Sample>(
+    _ sample: Sample.Type, channels: UInt32, maximumFramesToRender: AUAudioFrameCount,
+    render: @escaping AUInternalRenderBlock,
+    copy: @escaping (UnsafePointer<Sample>, UnsafeMutablePointer<Sample>, Int, Int) -> Void = {
+        for frame: Int in 0..<$2 { $1[frame * $3] = $0[frame] }
+    }
+) -> (UnsafePointer<AudioTimeStamp>, UInt32, UnsafeMutableRawPointer) -> OSStatus {
+    let channelCount: Int = Int(channels)
+    let capacity: Int = Int(maximumFramesToRender)
+    let bytesPerSample: Int = MemoryLayout<Sample>.stride
+    let scratch: Autorelease.Object<UInt8> = Autorelease.Object<UInt8>(
+        object: UnsafeMutableRawPointer.allocate(byteCount: capacity * channelCount * bytesPerSample,
+            alignment: MemoryLayout<Sample>.alignment).assumingMemoryBound(to: UInt8.self)) { $0.deallocate() }
+    let buffers: Autorelease.Object<AudioBufferList> = Autorelease.Object<AudioBufferList>(
+        object: AudioBufferList.allocate(maximumBuffers: channelCount).unsafeMutablePointer) { free($0) }
+    let busy: Atomic<Bool> = Atomic<Bool>(false)
+    return { time, frames, buffer in
+        let byteCount: Int = Int(frames) * bytesPerSample
+        let totalBytes: Int = byteCount * channelCount
+        guard time.pointee.mFlags.contains(.sampleTimeValid), time.pointee.mSampleTime.isFinite else {
+            memset(buffer, 0, totalBytes)
+            return kAudioHardwareIllegalOperationError
+        }
+        // The prepared storage has one writer. Reject overlapping invocations
+        // without blocking or spinning instead of racing its ABL and sample data.
+        guard busy.compareExchange(expected: false, desired: true, ordering: .acquiring).exchanged else {
+            return kAudioUnitErr_CannotDoInCurrentContext
+        }
+        defer { busy.store(false, ordering: .releasing) }
+        buffers.reference.pointee.mNumberBuffers = channels
+        let output: UnsafeMutableAudioBufferListPointer = UnsafeMutableAudioBufferListPointer(buffers.reference)
+        for channel: Int in 0..<channelCount {
+            output[channel] = AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(byteCount),
+                mData: UnsafeMutableRawPointer(scratch.reference.advanced(by: channel * capacity * bytesPerSample)))
+        }
+        var flags: AudioUnitRenderActionFlags = []
+        let status: OSStatus = render(&flags, time, frames, 0, buffers.reference, nil, nil)
+        guard status == noErr else { return status }
+        if flags.contains(.unitRenderAction_OutputIsSilence) {
+            memset(buffer, 0, totalBytes)
+            return noErr
+        }
+        guard buffers.reference.pointee.mNumberBuffers == channels else { return kAudioHardwareIllegalOperationError }
+        // Validate every plane before writing any of the HAL buffer.
+        for channel: Int in 0..<channelCount {
+            guard output[channel].mNumberChannels == 1,
+                  output[channel].mDataByteSize >= UInt32(byteCount), output[channel].mData != nil
+            else { return kAudioHardwareIllegalOperationError }
+        }
+        let target: UnsafeMutablePointer<Sample> = buffer.assumingMemoryBound(to: Sample.self)
+        for channel: Int in 0..<channelCount {
+            let source: UnsafePointer<Sample> = UnsafeRawPointer(output[channel].mData!).assumingMemoryBound(to: Sample.self)
+            // Copy one matrix column: source row stride 1, target row stride channels.
+            copy(source, target.advanced(by: channel), Int(frames), channelCount)
+        }
+        return noErr
+    }
+}
+
+/// HSP exposes one interleaved PCM buffer per HAL stream, independent of AU layout.
+@inlinable
+@_transparent
+func halStreamDescription(_ format: AVAudioFormat) -> AudioStreamBasicDescription {
+    var result: AudioStreamBasicDescription = format.streamDescription.pointee
+    if !format.isInterleaved {
+        result.mFormatFlags &= ~kAudioFormatFlagIsNonInterleaved
+        result.mBytesPerFrame *= result.mChannelsPerFrame
+        result.mBytesPerPacket *= result.mChannelsPerFrame
+    }
+    return result
+}
+
+@inlinable
+@_transparent
+func sameStreamDescription(_ a: AudioStreamBasicDescription, _ b: AudioStreamBasicDescription) -> Bool {
+    a.mSampleRate == b.mSampleRate && a.mFormatID == b.mFormatID && a.mFormatFlags == b.mFormatFlags
+        && a.mBytesPerPacket == b.mBytesPerPacket && a.mFramesPerPacket == b.mFramesPerPacket
+        && a.mBytesPerFrame == b.mBytesPerFrame && a.mChannelsPerFrame == b.mChannelsPerFrame
+        && a.mBitsPerChannel == b.mBitsPerChannel
 }
 
 /// Adapts an application-defined input device to HAL properties, transactions, and clock.
@@ -108,8 +273,8 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
     let clockLock: OSAllocatedUnfairLock<ClockState>
     private let ticksPerSecond: Double
 
-    /// The first format is initially active. Formats must be interleaved native
-    /// PCM, with the same channel count and positive integral rates.
+    /// The first format is initially active. Formats may use either PCM layout,
+    /// with the same channel count and finite positive sample rates.
     public init(device: Device, maximumFramesToRender: AUAudioFrameCount) {
         precondition(maximumFramesToRender > 0)
         self.device = device
@@ -119,11 +284,12 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         let initial: AVAudioFormat = formats[0]
         precondition(
             formats.allSatisfy {
-                $0.commonFormat != AVAudioCommonFormat.otherFormat && $0.isInterleaved
+                $0.commonFormat != AVAudioCommonFormat.otherFormat
                     && $0.streamDescription.pointee.mBytesPerFrame > 0
+                    && Int($0.streamDescription.pointee.mBytesPerFrame)
+                        <= Int(UInt32.max) / Int($0.isInterleaved ? 1 : max(1, $0.channelCount))
                     && $0.channelCount == initial.channelCount && $0.channelCount > 0
                     && $0.sampleRate.isFinite && $0.sampleRate > 0
-                    && $0.sampleRate < Double(UInt64.max) && $0.sampleRate.rounded() == $0.sampleRate
             })
         precondition(device.timestampPeriod > 0)
         stateLock = OSAllocatedUnfairLock<ControlState>(uncheckedState: ControlState(currentFormat: initial))
@@ -135,8 +301,8 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             $0.deallocate()
         }
         renderState.reference.initialize(to: VirtualAudioDeviceRenderState(
-            block: device.auInternalRenderBlock(format: initial, maximumFramesToRender: maximumFramesToRender),
-            bytesPerFrame: Int(initial.streamDescription.pointee.mBytesPerFrame), channels: initial.channelCount))
+            format: initial, maximumFramesToRender: maximumFramesToRender,
+            render: device.auInternalRenderBlock(format: initial, maximumFramesToRender: maximumFramesToRender)))
         var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
         ticksPerSecond = 1e9 * Double(info.denom) / Double(info.numer)
@@ -206,8 +372,8 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             let format: AVAudioFormat = state.formats[formatIndex]
             control.currentFormat = format
             state.renderState.reference.pointee = VirtualAudioDeviceRenderState(
-                block: state.device.auInternalRenderBlock(format: format, maximumFramesToRender: state.maximumFramesToRender),
-                bytesPerFrame: Int(format.streamDescription.pointee.mBytesPerFrame), channels: format.channelCount)
+                format: format, maximumFramesToRender: state.maximumFramesToRender,
+                render: state.device.auInternalRenderBlock(format: format, maximumFramesToRender: state.maximumFramesToRender))
             state.resetClock(sampleRate: format.sampleRate, running: false)
             return true
         }
@@ -232,16 +398,25 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         object: AudioObjectID, pid: pid_t, address a: UnsafePointer<AudioObjectPropertyAddress>
     ) -> Bool {
         property(object, a.pointee, 0, nil) != nil
+            || device.HasProperty(object: object, pid: pid, address: a) != nil
     }
 
     public func IsPropertySettable(
         object: AudioObjectID, pid: pid_t, address a: UnsafePointer<AudioObjectPropertyAddress>,
         result: UnsafeMutablePointer<DarwinBoolean>
     ) -> OSStatus {
-        guard property(object, a.pointee, 0, nil) != nil else {
+        if property(object, a.pointee, 0, nil) != nil {
+            result.pointee = DarwinBoolean(isSettable(object, a.pointee))
+            return noErr
+        }
+        switch device.HasProperty(object: object, pid: pid, address: a) {
+        case .ReadOnly?:
+            result.pointee = false
+        case .Writable?:
+            result.pointee = true
+        case nil:
             return kAudioHardwareUnknownPropertyError
         }
-        result.pointee = DarwinBoolean(isSettable(object, a.pointee))
         return noErr
     }
 
@@ -249,11 +424,22 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         object: AudioObjectID, pid: pid_t, address a: UnsafePointer<AudioObjectPropertyAddress>,
         qualifierSize: UInt32, qualifier: UnsafeRawPointer?, size: UnsafeMutablePointer<UInt32>
     ) -> OSStatus {
-        guard let value: PropertyValue = property(object, a.pointee, qualifierSize, qualifier) else {
+        if let value: PropertyValue = property(object, a.pointee, qualifierSize, qualifier) {
+            size.pointee = UInt32(value.byteCount)
+            return noErr
+        }
+        size.pointee = 0
+        guard device.HasProperty(object: object, pid: pid, address: a) != nil else {
             return kAudioHardwareUnknownPropertyError
         }
-        size.pointee = UInt32(value.byteCount)
-        return noErr
+        guard qualifierSize == 0 || qualifier != nil else { return kAudioHardwareBadPropertySizeError }
+        do {
+            let count: Int = try device.GetPropertyDataSize(object: object, pid: pid, address: a,
+                qualifier: UnsafeRawBufferPointer(start: qualifier, count: Int(qualifierSize)))
+            guard let count: UInt32 = UInt32(exactly: count) else { return kAudioHardwareBadPropertySizeError }
+            size.pointee = count
+            return noErr
+        } catch { return propertyErrorStatus(error) }
     }
 
     public func GetPropertyData(
@@ -261,17 +447,45 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         qualifierSize: UInt32, qualifier: UnsafeRawPointer?, capacity: UInt32,
         size: UnsafeMutablePointer<UInt32>, data: UnsafeMutableRawPointer
     ) -> OSStatus {
-        guard let value: PropertyValue = property(object, a.pointee, qualifierSize, qualifier) else {
+        if let value: PropertyValue = property(object, a.pointee, qualifierSize, qualifier) {
+            return value.write(data, capacity, size)
+        }
+        size.pointee = 0
+        guard device.HasProperty(object: object, pid: pid, address: a) != nil else {
             return kAudioHardwareUnknownPropertyError
         }
-        return value.write(data, capacity, size)
+        guard qualifierSize == 0 || qualifier != nil else { return kAudioHardwareBadPropertySizeError }
+        do {
+            let count: Int = try device.GetPropertyData(object: object, pid: pid, address: a,
+                qualifier: UnsafeRawBufferPointer(start: qualifier, count: Int(qualifierSize)),
+                data: UnsafeMutableRawBufferPointer(start: data, count: Int(capacity)))
+            guard let count: UInt32 = UInt32(exactly: count), count <= capacity else {
+                return kAudioHardwareBadPropertySizeError
+            }
+            size.pointee = count
+            return noErr
+        } catch { return propertyErrorStatus(error) }
     }
 
     public func SetPropertyData(
         object: AudioObjectID, pid: pid_t, address a: UnsafePointer<AudioObjectPropertyAddress>,
         qualifierSize: UInt32, qualifier: UnsafeRawPointer?, size: UInt32, data: UnsafeRawPointer
     ) -> OSStatus {
-        return setProperty(object, a.pointee, size, data)
+        if property(object, a.pointee, 0, nil) != nil {
+            return setProperty(object, a.pointee, size, data)
+        }
+        switch device.HasProperty(object: object, pid: pid, address: a) {
+        case .Writable?: break
+        case .ReadOnly?: return kAudioHardwareUnsupportedOperationError
+        case nil: return kAudioHardwareUnknownPropertyError
+        }
+        guard qualifierSize == 0 || qualifier != nil else { return kAudioHardwareBadPropertySizeError }
+        do {
+            let count: Int = try device.SetPropertyData(object: object, pid: pid, address: a,
+                qualifier: UnsafeRawBufferPointer(start: qualifier, count: Int(qualifierSize)),
+                data: UnsafeRawBufferPointer(start: data, count: Int(size)))
+            return count == Int(size) ? noErr : kAudioHardwareBadPropertySizeError
+        } catch { return propertyErrorStatus(error) }
     }
 
     public func StartIO(object: AudioObjectID, client: UInt32) -> OSStatus {
@@ -359,38 +573,8 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
         guard let buffer: UnsafeMutableRawPointer = buffer else { return kAudioHardwareIllegalOperationError }
         let state: VirtualAudioDevice<Device> = self
         let render: VirtualAudioDeviceRenderState = state.renderState.reference.pointee
-        guard Int(frames) <= Int(UInt32.max) / render.bytesPerFrame else {
-            return kAudioHardwareIllegalOperationError
-        }
-        let byteCount: Int = Int(frames) * render.bytesPerFrame
-        let time: AudioTimeStamp = cycle.pointee.mInputTime
-        guard time.mFlags.contains(AudioTimeStampFlags.sampleTimeValid), time.mSampleTime.isFinite else {
-            memset(buffer, 0, byteCount)
-            return kAudioHardwareIllegalOperationError
-        }
-        // The AU generator sees bus 0 and the HAL input timestamp. HAL has no
-        // AU event list or upstream input bus, so both optional inputs are nil.
-        let channels: UInt32 = render.channels
-        var output: AudioBufferList = AudioBufferList(
-            mNumberBuffers: 1,
-            mBuffers: AudioBuffer(mNumberChannels: channels,
-                                  mDataByteSize: UInt32(byteCount), mData: buffer))
-        var flags: AudioUnitRenderActionFlags = []
-        var timestamp: AudioTimeStamp = time
-        let status: AUAudioUnitStatus = render.block(
-            &flags, &timestamp, frames, 0, &output, nil, nil)
-        guard status == noErr else { return status }
-        if flags.contains(AudioUnitRenderActionFlags.unitRenderAction_OutputIsSilence) {
-            memset(buffer, 0, byteCount)
-            return noErr
-        }
-        guard output.mNumberBuffers == 1,
-            output.mBuffers.mNumberChannels == channels,
-            output.mBuffers.mDataByteSize >= UInt32(byteCount),
-            let rendered: UnsafeMutableRawPointer = output.mBuffers.mData
-        else { return kAudioHardwareIllegalOperationError }
-        if rendered != buffer { memmove(buffer, rendered, byteCount) }
-        return noErr
+        var timestamp: AudioTimeStamp = cycle.pointee.mInputTime
+        return render.block(&timestamp, frames, buffer)
     }
 
     public func EndIOOperation(
@@ -620,13 +804,15 @@ extension VirtualAudioDevice {
         case kAudioStreamPropertyLatency:
             PropertyValue.uint32(0)
         case kAudioStreamPropertyVirtualFormat, kAudioStreamPropertyPhysicalFormat:
-            PropertyValue.format(stateLock.withLock(\.currentFormat.streamDescription.pointee))
+            PropertyValue.format(stateLock.withLock { halStreamDescription($0.currentFormat) })
         case kAudioStreamPropertyAvailableVirtualFormats, kAudioStreamPropertyAvailablePhysicalFormats:
             PropertyValue.formats(
-                formats.map {
-                    AudioStreamRangedDescription(
-                        mFormat: $0.streamDescription.pointee,
-                        mSampleRateRange: AudioValueRange(mMinimum: $0.sampleRate, mMaximum: $0.sampleRate))
+                formats.reduce(into: Array<AudioStreamRangedDescription>()) { result, format in
+                    let description: AudioStreamBasicDescription = halStreamDescription(format)
+                    if !result.contains(where: { sameStreamDescription($0.mFormat, description) }) {
+                        result.append(AudioStreamRangedDescription(mFormat: description,
+                            mSampleRateRange: AudioValueRange(mMinimum: format.sampleRate, mMaximum: format.sampleRate)))
+                    }
                 })
         default:
             nil
@@ -661,8 +847,11 @@ extension VirtualAudioDevice {
         if a.mSelector == kAudioDevicePropertyNominalSampleRate {
             guard size == MemoryLayout<Double>.size else { return kAudioHardwareBadPropertySizeError }
             let rate: Double = data.load(as: Double.self)
-            // Keep the current sample representation when changing only the rate.
+            // Keep both the sample representation and AU layout when changing rate.
             formatIndex = available.firstIndex {
+                $0.sampleRate == rate && $0.commonFormat == current.commonFormat
+                    && $0.isInterleaved == current.isInterleaved
+            } ?? available.firstIndex {
                 $0.sampleRate == rate && $0.commonFormat == current.commonFormat
             } ?? available.firstIndex { $0.sampleRate == rate }
         } else {
@@ -671,16 +860,8 @@ extension VirtualAudioDevice {
             }
             let candidate: AudioStreamBasicDescription = data.load(as: AudioStreamBasicDescription.self)
             formatIndex = available.firstIndex {
-                let expected: AudioStreamBasicDescription = $0.streamDescription.pointee
-                return candidate.mSampleRate == expected.mSampleRate
-                    && candidate.mFormatID == expected.mFormatID
-                    && candidate.mFormatFlags == expected.mFormatFlags
-                    && candidate.mBytesPerPacket == expected.mBytesPerPacket
-                    && candidate.mFramesPerPacket == expected.mFramesPerPacket
-                    && candidate.mBytesPerFrame == expected.mBytesPerFrame
-                    && candidate.mChannelsPerFrame == expected.mChannelsPerFrame
-                    && candidate.mBitsPerChannel == expected.mBitsPerChannel
-            }
+                $0.isInterleaved == current.isInterleaved && sameStreamDescription(candidate, halStreamDescription($0))
+            } ?? available.firstIndex { sameStreamDescription(candidate, halStreamDescription($0)) }
         }
         guard let formatIndex: Int = formatIndex else { return kAudioDeviceUnsupportedFormatError }
         guard !available[formatIndex].isEqual(current) else { return noErr }
