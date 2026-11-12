@@ -119,10 +119,10 @@ public final class AudioServerPlugInDriverInterfaceOwner: Sendable {
             QueryInterface: {
                 guard let res: UnsafeMutablePointer<LPVOID?> = $2 else { return HRESULT(bitPattern: 0x8000_4003) }
                 res.pointee = nil
-                guard let raw: UnsafeMutableRawPointer = $0, let uuid: CFUUID = CFUUIDCreateFromUUIDBytes(nil, $1) else {
+                guard let raw: UnsafeMutableRawPointer = $0, let uid: CFUUID = CFUUIDCreateFromUUIDBytes(nil, $1) else {
                     return HRESULT(bitPattern: 0x8000_4003)
                 }
-                guard CFEqual(uuid, driverType) || CFEqual(uuid, unknownType) else {
+                guard CFEqual(uid, driverType) || CFEqual(uid, unknownType) else {
                     return HRESULT(bitPattern: 0x8000_4002)
                 }
                 let owner: Unmanaged<AudioServerPlugInDriverInterfaceOwner> = Unmanaged<AudioServerPlugInDriverInterfaceOwner>.fromOpaque(
