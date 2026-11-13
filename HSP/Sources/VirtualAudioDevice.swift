@@ -439,7 +439,7 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             guard let count: UInt32 = UInt32(exactly: count) else { return kAudioHardwareBadPropertySizeError }
             size.pointee = count
             return noErr
-        } catch { return propertyErrorStatus(error) }
+        } catch { return OSStatus(error: error) }
     }
 
     public func GetPropertyData(
@@ -464,7 +464,7 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             }
             size.pointee = count
             return noErr
-        } catch { return propertyErrorStatus(error) }
+        } catch { return OSStatus(error: error) }
     }
 
     public func SetPropertyData(
@@ -484,8 +484,10 @@ public struct VirtualAudioDevice<Device: VirtualAudioInputDeviceProtocol>: Audio
             let count: Int = try device.SetPropertyData(object: object, pid: pid, address: a,
                 qualifier: UnsafeRawBufferPointer(start: qualifier, count: Int(qualifierSize)),
                 data: UnsafeRawBufferPointer(start: data, count: Int(size)))
-            return count == Int(size) ? noErr : kAudioHardwareBadPropertySizeError
-        } catch { return propertyErrorStatus(error) }
+            guard count == Int(size) else { return kAudioHardwareBadPropertySizeError }
+            notify(object, [a.pointee])
+            return noErr
+        } catch { return OSStatus(error: error) }
     }
 
     public func StartIO(object: AudioObjectID, client: UInt32) -> OSStatus {
